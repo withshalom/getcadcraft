@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /**
- * test-math.mjs — engine.solid's S2 math-layer tests, registered by test.mjs: vec3, mat4, frame, aabb, quad, roots, linalg.
+ * test-math.mjs — engine.solid's math-layer tests, registered by test.mjs: vec3, mat4, frame, aabb, quad, roots, linalg (S2),
+ * predicates (S3).
  *
  * Properties over 1e5 seeded random cases where a property exists (identities, round trips, backward errors), exact BigInt
  * checks where a claim is about rounding (conservative boxes, the Hilbert condition numbers), and known answers.
@@ -9,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { X, xadd, xmul, xcmp } from './test-core.mjs';
+import * as R from './bigref.mjs';
 
 // cc-nurbs' xform (lib/nurbs/vec.js), as documented: row-major, 16 numbers, the last row ignored. When cc-nurbs sits beside
 // the engine, its own function is used instead of this copy of the formula.
@@ -46,6 +48,7 @@ export async function register({ section, ok, refuses, same, appUrl }) {
   const Q = await import(appUrl('solid/math/quad.js'));
   const Ro = await import(appUrl('solid/math/roots.js'));
   const LA = await import(appUrl('solid/math/linalg.js'));
+  const PR = await import(appUrl('solid/math/predicates.js'));
   const nurbsVec = path.join(fileURLToPath(appUrl('nurbs/vec.js')));
   const xform = fs.existsSync(nurbsVec) ? (await import(appUrl('nurbs/vec.js'))).xform : xformDoc;
   const bad = 'solid.err.bad_input', EPS = F.EPS;
@@ -345,5 +348,88 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     ok(Math.abs(l1.x[0] - 1) <= 4 * EPS && Math.abs(l1.x[1] - 2) <= 4 * EPS && l1.residual <= 8 * EPS && Object.isFrozen(l1), 'lstsq: a consistent system is solved, residual 0');
     ok(refuses(() => LA.lstsq([[1, 1], [2, 2], [3, 3]], [1, 2, 3]), 'solid.err.singular', { why: 'rank', column: 1 }) && refuses(() => LA.qr([[1, 2, 3]]), bad, { why: 'shape' }), 'lstsq refuses a rank-deficient matrix; qr refuses more columns than rows');
     ok(LA.norm1([[1, -2], [3, 4]]) === 6 && LA.normInf([[1, -2], [3, 4]]) === 7, 'norm1 and normInf');
+  });
+
+  // ================================================================================================ predicates
+  section('predicates', 'exact predicates: the sign of every determinant against BigInt, on random and near-degenerate inputs', () => {
+    const g = P.makePrng(31);
+    // exact integers: within the domain every coordinate is a multiple of 2^-192
+    const I = (v) => { const { m, e } = R.decompose(v); return m << BigInt(e + 192); };
+    const sg = (n) => (n > 0n ? 1 : n < 0n ? -1 : 0);
+    const o2 = (a, b, c) => { const [ax, ay, bx, by, cx, cy] = [...a, ...b, ...c].map(I); return sg((ax - cx) * (by - cy) - (ay - cy) * (bx - cx)); };
+    const det3 = (r) => r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1]) - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0]) + r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0]);
+    const o3 = (a, b, c, d) => { const D = d.map(I); return sg(det3([a, b, c].map((p) => p.map((v, i) => I(v) - D[i])))); };
+    const ic = (a, b, c, d) => {
+      const D = d.map(I), rows = [a, b, c].map((p) => { const x = I(p[0]) - D[0], y = I(p[1]) - D[1]; return [x, y, x * x + y * y]; });
+      return sg(det3(rows));
+    };
+    const is = (a, b, c, d, e) => {
+      const E = e.map(I), rows = [a, b, c, d].map((p) => { const v = p.map((x, i) => I(x) - E[i]); return [...v, v[0] * v[0] + v[1] * v[1] + v[2] * v[2]]; });
+      let det = 0n;
+      for (let r = 0; r < 4; r++) { const minorRows = rows.filter((_, k) => k !== r).map((row) => row.slice(0, 3)); det += ((r % 2 ? 1n : -1n) * rows[r][3] * det3(minorRows)); }
+      return sg(det);
+    };
+    const nudge = (v) => { let x = v; const k = g.int(7) - 3; for (let i = 0; i < Math.abs(k); i++) x = k > 0 ? F.nextUp(x) : F.nextDown(x); return x; };
+    const pt = (n, r = 1000) => Array.from({ length: n }, () => g.range(-r, r));
+    let bad = { o2: 0, o3: 0, ic: 0, is: 0 }, zeros = { o2: 0, o3: 0, ic: 0, is: 0 };
+    const count = (k, got, want) => { if (got !== want) bad[k]++; if (want === 0) zeros[k]++; };
+    const u = F.U;
+    for (let i = 0; i < 256; i++) for (let j = 0; j < 256; j++) { const p = [0.5 + i * u, 0.5 + j * u]; count('o2', PR.orient2d(p, [12, 12], [24, 24]), o2(p, [12, 12], [24, 24])); }
+    for (let t = 0; t < 1e6 - 65536; t++) {
+      const a = pt(2), b = pt(2);
+      let c;
+      if (t % 2) c = pt(2);
+      else { const f = g.float(); c = [nudge(a[0] + f * (b[0] - a[0])), nudge(a[1] + f * (b[1] - a[1]))]; }
+      count('o2', PR.orient2d(a, b, c), o2(a, b, c));
+    }
+    for (let t = 0; t < 2e5; t++) {
+      const a = pt(3), b = pt(3), c = pt(3);
+      let d;
+      if (t % 2) d = pt(3);
+      else { const p = g.float(), q = g.float(); d = [0, 1, 2].map((k) => nudge(a[k] + p * (b[k] - a[k]) + q * (c[k] - a[k]))); }
+      count('o3', PR.orient3d(a, b, c, d), o3(a, b, c, d));
+    }
+    for (let t = 0; t < 2e5; t++) {
+      const cx = g.range(-100, 100), cy = g.range(-100, 100), rr = g.range(0.01, 100);
+      const on = () => { const th = g.range(0, 6.3); return [nudge(cx + rr * T.cos(th)), nudge(cy + rr * T.sin(th))]; };
+      const [a, b, c, d] = t % 2 ? [pt(2), pt(2), pt(2), pt(2)] : [on(), on(), on(), on()];
+      count('ic', PR.incircle(a, b, c, d), ic(a, b, c, d));
+    }
+    for (let t = 0; t < 1e5; t++) {
+      const ctr = pt(3, 100), rr = g.range(0.01, 100);
+      const on = () => { const v = g.unit3(); return v.map((x, k) => nudge(ctr[k] + rr * x)); };
+      const ps = t % 2 ? [pt(3), pt(3), pt(3), pt(3), pt(3)] : [on(), on(), on(), on(), on()];
+      count('is', PR.insphere(...ps), is(...ps));
+    }
+    // exactly degenerate cases built from integers: the filter cannot decide them, so they test the exact stage
+    const circ = [[5, 0], [4, 3], [3, 4], [0, 5], [-3, 4], [-4, 3], [-5, 0], [-4, -3], [-3, -4], [0, -5], [3, -4], [4, -3]];
+    const sphere = [];
+    for (const [x, y, z] of [[3, 0, 0], [2, 1, 2], [2, 2, 1], [1, 2, 2]]) for (const sx of [1, -1]) for (const sy of [1, -1]) for (const sz of [1, -1]) for (const [p, q, r] of [[x, y, z], [y, z, x], [z, x, y]]) sphere.push([sx * p, sy * q, sz * r]);
+    for (let t = 0; t < 2e4; t++) {
+      const a = [g.int(201) - 100, g.int(201) - 100, g.int(201) - 100], b = a.map((v) => v + g.int(41) - 20), c = a.map((v) => v + g.int(41) - 20);
+      const pp = g.int(11) - 5, qq = g.int(11) - 5, d = [0, 1, 2].map((k) => a[k] + pp * (b[k] - a[k]) + qq * (c[k] - a[k]));
+      count('o3', PR.orient3d(a, b, c, d), o3(a, b, c, d));
+      const o = [g.int(2001) - 1000, g.int(2001) - 1000], k = 1 + g.int(50), pick = () => { const q = circ[g.int(12)]; return [o[0] + k * q[0], o[1] + k * q[1]]; };
+      const four = [pick(), pick(), pick(), pick()];
+      count('ic', PR.incircle(...four), ic(...four));
+      const o3c = [g.int(201) - 100, g.int(201) - 100, g.int(201) - 100], sp = () => { const q = sphere[g.int(sphere.length)]; return q.map((v, i) => o3c[i] + v); };
+      const five = [sp(), sp(), sp(), sp(), sp()];
+      count('is', PR.insphere(...five), is(...five));
+    }
+    ok(zeros.o3 > 1e4 && zeros.ic > 1e4 && zeros.is > 1e4, `exactly degenerate integer cases reach the exact stage: ${zeros.o3} coplanar, ${zeros.ic} cocircular, ${zeros.is} cospherical`);
+    ok(bad.o2 === 0, `orient2d agrees with BigInt on 1e6 cases: half random, half nudged onto the line, and Shewchuk's 256 × 256 grid next to (0.5, 0.5) (${bad.o2} disagreements; ${zeros.o2} exactly collinear; seed 31)`);
+    ok(bad.o3 === 0, `orient3d agrees with BigInt on 2.2e5 cases, half nearly coplanar, 2e4 built coplanar from integers (${bad.o3} disagreements; ${zeros.o3} exactly coplanar)`);
+    ok(bad.ic === 0, `incircle agrees with BigInt on 2.2e5 cases, half nearly cocircular, 2e4 on integer circles (${bad.ic} disagreements)`);
+    ok(bad.is === 0, `insphere agrees with BigInt on 1.2e5 cases, half nearly cospherical, 2e4 on an integer sphere (${bad.is} disagreements)`);
+    let naive = 0;
+    for (let i = 0; i < 64; i++) for (let j = 0; j < 64; j++) { const p = [0.5 + i * u, 0.5 + j * u]; if (Math.sign((p[0] - 24) * (12 - 24) - (p[1] - 24) * (12 - 24)) !== PR.orient2d(p, [12, 12], [24, 24])) naive++; }
+    ok(naive > 0, `the grid is a real test: plain floating point gets ${naive} of 4096 signs wrong there`);
+    ok(PR.orient2d([0, 0], [1, 0], [0, 1]) === 1 && PR.orient2d([0, 0], [0, 1], [1, 0]) === -1 && PR.orient2d([0, 0], [1, 1], [2, 2]) === 0, 'orient2d: counterclockwise +1, clockwise −1, collinear 0');
+    ok(PR.orient3d([0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, -1]) === 1 && PR.orient3d([0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]) === -1 && PR.orient3d([0, 0, 0], [1, 0, 0], [0, 1, 0], [3, 7, 0]) === 0, 'orient3d: +1 below the counterclockwise plane, −1 above, 0 on it');
+    ok(PR.incircle([5, 0], [0, 5], [-5, 0], [0, 0]) === 1 && PR.incircle([5, 0], [0, 5], [-5, 0], [9, 9]) === -1 && PR.incircle([5, 0], [0, 5], [-5, 0], [3, 4]) === 0 && PR.incircle([5, 0], [-5, 0], [0, 5], [0, 0]) === -1, 'incircle: inside +1, outside −1, exactly on it 0 (3-4-5), and the sign flips for a clockwise triangle');
+    const sph = [[3, 0, 0], [0, 3, 0], [0, 0, 3], [2, 1, 2]];
+    const ordered = PR.orient3d(...sph) > 0 ? sph : [sph[1], sph[0], sph[2], sph[3]];
+    ok(PR.insphere(...ordered, [0, 0, 0]) === 1 && PR.insphere(...ordered, [9, 9, 9]) === -1 && PR.insphere(...ordered, [1, 2, 2]) === 0 && PR.insphere(ordered[1], ordered[0], ordered[2], ordered[3], [0, 0, 0]) === -1, 'insphere: inside +1, outside −1, exactly on it 0 (radius 3, integer points), and the sign flips with orientation');
+    ok([[NaN, 0], [Infinity, 1], [Number.MIN_VALUE, 1], [1e50, 0], [F.pow2(-141), 0]].every((p) => refuses(() => PR.orient2d(p, [0, 0], [1, 1]), 'solid.err.bad_input', { name: 'point', why: 'out_of_range' })) && refuses(() => PR.orient3d([0, 0], [0, 0, 0], [1, 0, 0], [0, 1, 0]), 'solid.err.bad_input', { why: 'not_a_point' }) && PR.orient2d([F.pow2(-140), 0], [F.pow2(140), 0], [0, F.pow2(140)]) === 1, 'outside the domain (NaN, ±Infinity, subnormal, beyond 2^±140) the predicates refuse; its edges are accepted');
   });
 }

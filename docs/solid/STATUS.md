@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.2 · **Last session:** S2 (2026-11-12)
+**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.3 · **Last session:** S3 (2026-11-12)
 
 > **Moved, 2026-11-12 (D-home, D-name):** S0 and S1 were built in the PartCraft fork (`withshalom/getpartcraft`, branch `partcore`, commit 34a1df2a) under the name PartCore. They now live here as engine.solid. Paths below are the new ones; S1's results were measured there, and are measured again here under "After the move".
 
@@ -102,11 +102,34 @@ Measured (seeded, reproducible):
 - **The whole suite:** 250 checks in about 6 s, no install, no network.
 - **Mutation check:** 20 deliberate faults; **19 caught**. They covered π/2 one bit off, each trig kernel, `addDown`, the PRNG rotation, interval sin crests and mul, box transforms, the textbook discriminant, Brent's bracket, LU and banded pivoting, the transposed solve, Gauss weights, a rotation sign, vector rescaling and both halves of the `trig` rule. The survivor, Veltkamp's splitter 2^27 − 1 instead of 2^27 + 1, is equivalent in practice: it still splits every one of 1e6 doubles into halves of 26 bits.
 
+### S3 — exact predicates (2026-11-12)
+Built:
+
+| File | What it is |
+|---|---|
+| `lib/solid/math/predicates.js` | `orient2d`, `orient3d`, `incircle`, `insphere`, each returning the **exact** sign (+1, −1, 0). A floating-point filter comes first, using Shewchuk's error bounds doubled for margin; when the filter cannot decide, the determinant is computed exactly as an expansion (TwoSum, TwoProduct, Grow-Expansion). Domain: each coordinate is 0 or between 2^-140 and 2^140 in magnitude; anything else is refused (`bad_input`, `out_of_range`) |
+| `lib/solid/index.js` | VERSION 0.0.3; `predicates` namespace |
+| `tools/solid/test-math.mjs` | the `predicates` section: an exact BigInt determinant for every case |
+
+Acceptance (HANDOFF §14, S3):
+
+| Criterion | Result | Test |
+|---|---|---|
+| 0 disagreements against a BigInt reference on 1e6 random and adversarial near-degenerate inputs | **0 of 1,560,000**:<br>• orient2d, 1e6: half random, half nudged onto the line, plus Shewchuk's 256 × 256 grid next to (0.5, 0.5);<br>• orient3d, 2.2e5;<br>• incircle, 2.2e5;<br>• insphere, 1.2e5.<br>Each of the last three is half random, half nearly degenerate, plus 2e4 exactly degenerate integer cases. | `predicates` |
+
+Measured:
+- **The grid is a real test.** Plain floating point gets 1442 of 4096 signs wrong there; the exact predicate gets none wrong.
+- **Speed, random points (Node 22):** orient2d 50 ns, orient3d 54, incircle 47, insphere 107. The exact stage costs about 1.7 µs, and only nearly degenerate inputs reach it.
+- **Mutation check:** 9 of 9 caught. The faults: each predicate without its exact stage; a zero error bound; Grow-Expansion dropping error terms; rounded differences or products in the exact stage; insphere's sign flipped or guessed.
+- **The whole suite:** 261 checks in about 17 s.
+
 ## Learned
 - **The checker found a real fault on its first run.** `core/limits.js` named a local variable `self`, which is a worker global. It was renamed to `budget`. The rules hold engine.solid's own code to account, not just the fixtures.
 - **PartCraft's worker loader reads raw text, comments included** (`exact-client.js` `blobModules()`). A usage line such as `import … from './x.js'` in a comment would be fetched as a module, or reported as an import cycle. Hence the `bundler` rule, and why `index.js` documents its usage without a quoted path.
 - **That loader only follows certain specifiers:** single-quoted, relative, lower-case `[a-z0-9-]` names ending in `.js`. Hence the `specifier` rule, which matters for S24b, where engine.solid runs in that worker.
 - **SolidError follows NurbsError: `(code, vars)`, and the message is the code.** The app words it from its language tables, whose messages use `{placeholders}` filled from `vars` (`app/lang/en.json`).
+- **S3: measure the fast path, not only the answers.** The first insphere built arrays and closures on every call (510 ns); written out as scalars it computes the same operations in 107 ns.
+- **S3: test exact degeneracy on purpose.** Random and nudged points almost never land exactly on a plane, circle or sphere. Integer points built to do so are what exercise the exact stage in 3D.
 - **S2: the mutation run found a real gap.** With broken weights, `adaptive` had no cap on its number of pieces and ran for more than ten minutes. It now has `maxPieces` (default 4096) next to `maxDepth`, and always ends with `no_convergence`.
 - **S2: an exported function is a tested function.** The transposed solve was internal and a wrong permutation in it went unnoticed; exported as `luSolveT`, it has a residual test of its own.
 - **S2: Hager's estimate is exact on most matrices, not all** (1704 of 2000 random ones). The tests check what it guarantees (never below the true 1/κ₁) and what it does in practice (never 3× above).
@@ -128,7 +151,8 @@ Measured (seeded, reproducible):
 - **The KAD repositories' headers still say AGPL.** The sweep belongs in those repositories (`reference/kad/README.md`).
 
 ## Next
-- **S3, exact predicates** (`lib/solid/math/predicates.js`): `orient2d`, `orient3d`, `incircle`, `insphere` by Shewchuk's adaptive expansions, built on `core/float.js`'s error-free transformations.
-  - Acceptance: 0 disagreements with an exact BigInt reference on 1e6 random and adversarial near-degenerate inputs.
+- **S4 — basis functions** (HANDOFF §14; v1.1: cc-nurbs' `basis.js` exists, so engine.solid adds wrappers and property tests).
+  - Acceptance: partition of unity, non-negativity, derivatives checked against finite differences, the Bézier case equal to Bernstein.
+  - **Blocked on D-ccn2:** cc-nurbs must sit beside `lib/solid/` first.
 - **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc. D3, D-tr, D-name and D-home were settled on 2026-11-12.
 - **The pull request** to the library repo's `main` waits until engine.solid is finished (D-home).

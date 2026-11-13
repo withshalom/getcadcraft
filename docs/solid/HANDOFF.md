@@ -3,7 +3,7 @@
 
 > **Name:** `engine.solid`, named as the suite's engines are (owner, 2026-11-12): the library is cc-solid, its folder `solid/`, its error codes `solid.err.*`, its error class `SolidError`. Earlier names: the placeholder KNOT (branches `knot/dev` and `knot/kad-reference` in the PartCraft fork) and PartCore (branch `partcore` there, where S1 was built).
 >
-> **Status of this document:** the plan. **Building has started:** S0 (audit), S1 (scaffold) and S2 (math kit) are done. What is built is recorded in `docs/solid/STATUS.md`, not here. Everything not yet built is a proposal for the owner to confirm, change or reject. Where I am inferring rather than reading something in your repositories, it says so.
+> **Status of this document:** the plan. **Building has started:** S0 (audit), S1 (scaffold), S2 (math kit) and S3 (exact predicates) are done. What is built is recorded in `docs/solid/STATUS.md`, not here. Everything not yet built is a proposal for the owner to confirm, change or reject. Where I am inferring rather than reading something in your repositories, it says so.
 >
 > **Version 1.2 (2026-11-12):**
 > - **Home (D-home):** the library repo `withshalom/getlibrarycraft`, branch `engine/solid`. The engine is in `lib/solid/`, its tools in `tools/solid/` (run by `bin/test-solid.mjs`), these documents in `docs/solid/`. A pull request follows once engine.solid is finished; the owner then authorizes it for the apps that need it, and each of them carries a byte-identical copy (`solid/` in its build folder), as with every engine.
@@ -555,7 +555,7 @@ Legend: ☐ not started, ☑ done. Each session ends with passing tests, updated
 | S0 | **done** (2026-11-12) | review §2 is the audit table |
 | S1 | **done** (2026-11-12) | `lib/solid/` (index, core/errors, core/tol, core/limits), the 14-rule boundary checker with its fixtures, `tools/solid/test.mjs`, `bin/test-solid.mjs`; see `STATUS.md` |
 | S2 | **done** (2026-11-12) | `core/float`, `trig`, `prng`, `intervals`; `math/vec3`, `mat4`, `frame`, `aabb`, `quad`, `roots`, `linalg`; the `trig` rule; see `STATUS.md` |
-| S3 | new | adaptive exact predicates (nothing robust exists yet) |
+| S3 | **done** (2026-11-12) | `math/predicates.js`: orient2d, orient3d, incircle, insphere; 0 disagreements with BigInt on 1.56e6 cases; see `STATUS.md` |
 | S4–S6 | **exists** (`basis.js`, `curve.js`, `surface.js`) | engine.solid-side property tests against cc-nurbs; wrappers only |
 | S7 | new | analytic classes plus exact conversions. cc-step `geom.js` and cc-acis `geom.js` evaluate the analytic forms and are the reference |
 | S8 | **exists** (`fit.js`) | adapters only: KAD SPLINE (fit or control form) and KUBIC / PartCraft sketch curves |
@@ -587,7 +587,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 | ☑ | **S0** | *Audit and decisions (no kernel code)*: read PartCraft `app/step/` and `app/nurbs/` and the `ExactKernel` interface; decide reuse vs rewrite per module; confirm D3, repo name, D-kad, D-tr (§17) | written audit table in `STATUS.md`; each reusable module has a provenance/licence note |
 | ☑ | **S1** | Repo scaffold: `package.json` (zero deps), LICENSE-MIT/APACHE/NOTICE, `PROVENANCE.md`, `STATUS.md`, `core/errors.js` (KAD2 shape), `core/tol.js`, `core/limits.js`, `tools/check-boundaries.mjs`, `node --test` runner, CI workflow | `npm test` green; boundary checker fails a deliberately violating fixture; no-hard-coded-epsilon lint works |
 | ☑ | **S2** | Math kit: `vec3`, `mat4`, `frame`, `aabb`, Gauss–Legendre tables, root finders, LU/banded/QR solvers, intervals, seeded PRNG, `trig` shim | property tests pass (1e5 random cases); solver residual and condition-number tests |
-| ☐ | **S3** | Adaptive exact predicates (`orient2d/3d`, `incircle`) | 0 disagreements vs BigInt reference on 1e6 random + adversarial near-degenerate inputs |
+| ☑ | **S3** | Adaptive exact predicates (`orient2d/3d`, `incircle`) | 0 disagreements vs BigInt reference on 1e6 random + adversarial near-degenerate inputs |
 
 ### M1 — Splines (S4–S10)
 | ☐ | Session | Build | Accept |

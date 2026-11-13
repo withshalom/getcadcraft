@@ -28,7 +28,7 @@ Source: getcadcraft.com › Build an add-on › Upload and review.
 | Loads nothing from outside its own folder | static imports only, all relative, and only into `solid/`, `nurbs/` or `step/` | checker rules `dynamic`, `external`, `specifier`, `missing` | enforced |
 | Talks to no server | no `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, workers or `importScripts` | checker rule `global` | enforced |
 | A licence the suite can sign | Apache-2.0 | rule `spdx` | enforced |
-| Package size: at most 200 files, 5 MB unpacked | 15 files, about 106 KB (S2) | measured at each session close | checked |
+| Package size: at most 200 files, 5 MB unpacked | 16 files, about 115 KB (S3) | measured at each session close | checked |
 | A published version never changes | each session commits a new version; nothing is rewritten | git history on `engine/solid` | checked |
 
 ## 3. The suite's library practice
@@ -60,6 +60,7 @@ Source: getcadcraft.com › Build an add-on › Upload and review.
 | No hidden randomness or clock | no `Math.random`, no `Date`; budgets read an injected clock | checker rule `determinism` | enforced |
 | No `eval` or `Function` | — | checker rule `eval` | enforced |
 | Tolerances in one place | `core/tol.js` only | checker rule `epsilon` | enforced |
+| Geometric decisions never take a wrong sign | exact predicates; outside their domain they refuse | `predicates` tests (BigInt, 1.56e6 cases); mutation run | enforced |
 | Every long loop is bounded | budgets; iteration caps; the integrator's `maxDepth` and `maxPieces` | `limits`, `quad` and `roots` tests (refusals and limits) | enforced |
 | No quiet wrong answers | typed refusals; no NaN results from solvers | each refusal has a test that throws it | enforced |
 | Nothing leaks out of an error | `toEnvelope` strips messages and stacks from unknown errors | `errors` test | enforced |
@@ -85,7 +86,7 @@ Source: `HANDOFF.md` §15; the owner's direction (D5, D6).
 | Work on branch `engine/solid`; `main` untouched | checked: `main` is at a02421e |
 | No pull request until the owner says engine.solid is finished (D-home) | owner |
 | One complete, tested build per session; `STATUS.md`, `PROVENANCE.md` and `HANDOFF.md` updated at the close | checked each session |
-| A mutation run at each close (deliberate faults must fail the suite) | checked: S2 caught 19 of 20, and the survivor is equivalent in practice |
+| A mutation run at each close (deliberate faults must fail the suite) | checked: S2 caught 19 of 20, and the survivor is equivalent in practice; S3 caught 9 of 9 |
 | Commits name their session and carry the attribution lines | checked |
 
 ## 8. Known gaps

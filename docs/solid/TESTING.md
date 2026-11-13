@@ -4,7 +4,7 @@
 somewhere the engine's own code cannot reach.
 
 ```sh
-node bin/test-solid.mjs                 # everything: plain Node, no install, no network (about 6 s)
+node bin/test-solid.mjs                 # everything: plain Node, no install, no network (about 17 s)
 node bin/test-solid.mjs --only trig     # one section
 node bin/test-solid.mjs --verbose       # every check by name
 node tools/solid/check-boundaries.mjs   # the architecture rules alone
@@ -34,7 +34,7 @@ node tools/solid/check-boundaries.mjs   # the architecture rules alone
    - Fixtures: in `fixtures/bad/`, every rule must fire on exactly its marked lines; `fixtures/clean/` holds look-alikes
      and must pass.
 2. **A section per module,** in dependency order. S1: `errors`, `tol`, `limits`. S2: `prng` (first, since the rest draw on it),
-   `float`, `trig`, `intervals`, `vec3`, `mat4`, `frame`, `aabb`, `quad`, `roots`, `linalg`. Then `entry` (the export list,
+   `float`, `trig`, `intervals`, `vec3`, `mat4`, `frame`, `aabb`, `quad`, `roots`, `linalg`; S3: `predicates`, with an exact BigInt determinant for each of 1.56e6 cases. Then `entry` (the export list,
    no globals added, every file reachable), `boundaries` and `worker` (the engine unchanged in a worker thread).
 3. **The same bits.** 18,000 trig results hash to a recorded value. Any change to one bit, from the code or from an engine,
    fails. Run the suite in each browser to confirm it there.

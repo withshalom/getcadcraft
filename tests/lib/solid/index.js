@@ -18,10 +18,11 @@
  *   vec3 · mat4 · frame · aabb               S2 math: vectors, row-major affine matrices, placements, conservative boxes
  *   quad · roots · linalg                    S2 math: Gauss–Legendre integration; quadratic, cubic, Brent and bracketed
  *                                            Newton; LU, condition estimate, banded LU, QR and least squares
+ *   predicates                               S3: orient2d, orient3d, incircle, insphere with exact signs
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.2';
+export const VERSION = '0.0.3';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -37,6 +38,7 @@ export * as aabb from './math/aabb.js';
 export * as quad from './math/quad.js';
 export * as roots from './math/roots.js';
 export * as linalg from './math/linalg.js';
+export * as predicates from './math/predicates.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';

@@ -19,7 +19,7 @@ add-ons can build on.
 | Host copies | `solid/` in each host app's build folder, byte-identical (a `sync.mjs --check` comes with the first host) |
 | Errors | `SolidError(code, vars)`, codes `solid.err.*` |
 | Licence | Apache-2.0 |
-| Version | `VERSION` in `index.js` (0.0.2 after S2) |
+| Version | `VERSION` in `index.js` (0.0.3 after S3) |
 
 **Why an engine, not an app feature.** Every 3D app in the suite (PartCraft, ModelCraft, CadCraft's 3D tab, BimCraft,
 SuperCad) needs exact solids. None has them today: they use mesh kernels and manifold booleans. Built once as an engine,
@@ -52,7 +52,7 @@ cannot share a bug with what it judges. Only `geom` and above may import outside
 | Layer | Holds | Built |
 |---|---|---|
 | `core/` | `errors` (typed refusals) · `tol` (the one tolerance policy) · `limits` (work budgets) · `float` (bits, error-free transformations, directed rounding) · `trig` (deterministic elementary functions) · `prng` (seeded generator) · `intervals` (outward-rounded intervals) | S1, S2 |
-| `math/` | `vec3` · `mat4` · `frame` · `aabb` · `quad` · `roots` · `linalg` · `predicates` (S3) | S2, S3 |
+| `math/` | `vec3` · `mat4` · `frame` · `aabb` · `quad` · `roots` · `linalg` · `predicates` | S2, S3 |
 | `geom/` | curves and surfaces: wraps cc-nurbs, adds analytic classes, exact conversions, interval bounds, intersection rings | S4–S10, S25–S27 |
 | `topo/` | vertices, edges, coedges with pcurves, loops, faces, shells, solids; stable ids; Euler operators | S11–S13 |
 | `ops/` | profile → face, extrude, revolve, sweep, loft, transforms, later offsets, fillets, booleans (M9) | S19–S23, M8, M9 |
@@ -139,7 +139,7 @@ price of identical results in every browser. Tuning comes in S43.
 |---|---|---|
 | Know the exact error of a sum or product | TwoSum, Fast2Sum, TwoProduct (`float.js`) | exact, cheap, no wider type needed |
 | Bounds that always hold | directed rounding from the sign of the exact error; outward-rounded intervals; conservative boxes | "definitely inside / outside / cannot tell" decisions (S3, S25–S27) must never be wrong, only undecided |
-| Decide orientation exactly | Shewchuk's adaptive predicates (S3) on the same error-free transformations | exact sign at the cost of only a little extra work |
+| Decide orientation exactly | Shewchuk's adaptive predicates (S3): a floating-point filter with doubled error bounds, then exact expansions | the sign is never wrong: 0 disagreements with BigInt on 1.56e6 cases. Random points cost about 50 ns (insphere 107); only nearly degenerate ones pay about 1.7 µs |
 | Polynomial roots that keep their digits | the quadratic with an exact-sign discriminant; Kahan's cubic; compensated-Horner polishing | textbook formulas lose every digit on near-double roots (Kahan's example: 1 and 1.0000000289…) |
 | Root of a function | Brent's method; Newton kept inside its bracket | guaranteed convergence; quadratic speed near simple roots |
 | Linear systems | LU with partial pivoting; banded LU for B-spline interpolation; Householder least squares; Hager–Higham condition estimate | backward stable; banded storage keeps fitting O(n); the estimate costs a few solves, and never makes a matrix look worse than it is |
@@ -155,7 +155,7 @@ price of identical results in every browser. Tuning comes in S43.
   monorepo without changing a path.
 - **Imports outside the engine:** cc-nurbs and cc-step only (D8), and only once `geom/` exists. They are not in the
   library repo yet; S4 needs them beside the engine (D-ccn2).
-- **Size today:** 15 files, about 106 KB, well within the add-on package limit of 200 files and 5 MB.
+- **Size today:** 16 files, about 115 KB, well within the add-on package limit of 200 files and 5 MB.
 
 ## 8. Decisions and their reasons
 
