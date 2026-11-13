@@ -73,7 +73,7 @@ That reading has a consequence you should confirm, because it affects KUBIC:
 7. Plugs into KAD2 through the interfaces KAD2 already has (backend registry, commands, capabilities, transactions), not around them.
 
 ### Non-goals (for v1.0)
-- Booleans on general NURBS bodies (M9, optional, gated).
+- Booleans on general NURBS bodies. **v1.2:** in scope (D3), after the v1.0 core, in M9.
 - Parametric constraint solving, sketch solver, feature-tree history (those live in KUBIC/PartCraft; the kernel provides the stable names they need).
 - Assemblies/mates, PMI, rendering materials, kinematics.
 - Subdivision surfaces, T-splines, point clouds, mesh repair.
@@ -220,7 +220,7 @@ Plain ES modules. Type information as **JSDoc** with optional `// @ts-check` and
 - **Failure = thrown `EngineError`** with stable codes. Kernel-specific codes:
   `REFUSED_OPEN_PROFILE`, `REFUSED_SELF_INTERSECTING_PROFILE`, `REFUSED_DEGENERATE_SWEEP`, `REFUSED_INCOMPATIBLE_SECTIONS`, `REFUSED_TOLERANCE`, `REFUSED_NOT_SUPPORTED` (e.g. an intersection configuration not handled yet), `AUDIT_FAILED`, `LIMIT`, `BAD_INPUT`; **v1.2 (S2):** `REFUSED_NO_BRACKET`, `REFUSED_NO_CONVERGENCE`, `REFUSED_SINGULAR`.
 - **v1.1, PartCraft's convention:**
-  - **Inside PartCraft:** engine.solid throws a `SolidError` shaped like cc-nurbs' `NurbsError`. Its `code` is an i18n key (`solid.err.open_profile`, `solid.err.self_intersecting_profile`, …, `solid.err.limit`) that the app turns into words, plus `details`. engine.solid itself carries no English text.
+  - **Inside PartCraft:** engine.solid throws a `SolidError` shaped like cc-nurbs' `NurbsError`. Its `code` is an i18n key (`solid.err.open_profile`, `solid.err.self_intersecting_profile`, …, `solid.err.limit`) that the app turns into words, plus `vars` (D-err). engine.solid itself carries no English text.
   - **At the KAD2 adapter:** the same refusals are mapped to KAD2's `EngineError(code, message, details)`, with the upper-case codes above.
   - **cc-nurbs errors pass through unchanged.** A `NurbsError` thrown underneath keeps its `nurbs.err.*` code.
 - **Every constructive op returns** `{ body, report }` where `report` lists tolerances achieved, approximations made (with error bounds), and provenance IDs created.
@@ -520,7 +520,7 @@ The kernel is KUBIC's solid engine. Mapping of KUBIC's promised features:
 - sketch → solid (extrude/revolve/sweep/loft): **M4**
 - STL and STEP export: **M3 (STL), M6 (STEP)**
 - push/pull **outward** on a planar face: expressible as a local face-extrude with a refusal when the new prism would hit existing geometry (no classification needed, bbox/mesh clash test); scheduled in **M8** as a boolean-free local op
-- push/pull **into** material, hole/pocket cut, union/subtract/intersect: **M9 (optional)**; until then KUBIC offers them only through sketch-based alternatives (draw the hole in the profile) or does not offer them
+- push/pull **into** material, hole/pocket cut, union/subtract/intersect: **M9** (v1.2: planned, D3); until then KUBIC offers them only through sketch-based alternatives (draw the hole in the profile) or does not offer them
 
 ### 13.5 KRAFT and SKAD
 SKAD's "3D needs KRAFT" messages become real: KRAFT is a thin script layer over the `body.*` commands. The kernel's stable face/edge names (§8.6) are what let a script say "the top face of the extrusion" and stay valid after parameters change.
@@ -678,7 +678,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 | ☐ | **S43** | Performance pass (allocation profiling, scratch buffers, BVH use, Worker pool) | benchmark targets in §16.2 met or revised with evidence |
 | ☐ | **S44** | Fuzz sweep, docs generated from code, API freeze, licence/NOTICE audit | v1.0 tag; generated reference up to date; no unsupported-claim in README |
 
-**Effort realism.** M0–M4 (S1–S24) are well-trodden territory with clear acceptance tests. S25–S27 (intersection) and S38 (fillets) carry the real uncertainty. M9 is where every kernel project in history spends the most time; treating it as optional and last is the biggest risk reduction in this plan. A "session" is one build, not a fixed number of hours.
+**Effort realism.** M0–M4 (S1–S24) are well-trodden territory with clear acceptance tests. S25–S27 (intersection) and S38 (fillets) carry the real uncertainty. M9 is where every kernel project in history spends the most time; keeping it last (v1.2: planned, no longer optional) is the biggest risk reduction in this plan. A "session" is one build, not a fixed number of hours.
 
 ---
 
@@ -686,7 +686,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 
 **Your code (D5).** KAD, KAD2, KADsuite and siblings are yours and are reissued MIT/Apache. The copies I read still carry `SPDX-License-Identifier: AGPL-3.0-or-later` headers and AGPL/trademark text in places. As instructed, I treated that as stale and did not weigh it. One housekeeping session (can run any time, not blocking) should still sweep those headers to the actual licence so downstream users, contributors and licence scanners see the same thing you do. Suggested header for new kernel files:
 
-~~v1.0 suggested `MIT OR Apache-2.0`.~~ **v1.1:** engine.solid lives in PartCraft, which is Apache-2.0 (`LICENSE`, `NOTICE`: Copyright The Data Design Group, Inc.), so new kernel files use PartCraft's own first line:
+~~v1.0 suggested `MIT OR Apache-2.0`.~~ **v1.1:** new kernel files use PartCraft's first line, Apache-2.0 (PartCraft's `LICENSE` and `NOTICE`: Copyright The Data Design Group, Inc.). **v1.2:** that is also the licence of every engine (getcadcraft.com › Engines) and of the library repo's scripts; the library's items keep their own licences, item by item:
 
 ```js
 /* SPDX-License-Identifier: Apache-2.0 */
@@ -767,10 +767,10 @@ Oracle assets (OpenCascade wasm etc.) are **never committed** and never loaded b
 | R3 | Tolerance inconsistency across modules | High | single `Tolerance` object; epsilon lint; tolerant edges; auditor reports worst tolerance |
 | R4 | STEP in the wild is varied and messy | High | reader counts and reports skipped entities; healing session; real-file corpus run; refusal over guess |
 | R5 | Pure-JS performance | Medium | typed arrays, scratch buffers, BVH culling, Worker, cooperative budgets; targets in §16.2 revised by measurement |
-| R6 | Scope creep into booleans | Medium | M9 is gated and last; all boolean-adjacent work is expressed as separate, useful ops |
-| R7 | KUBIC marketing promises booleans | Medium | decide D3 explicitly; update KADsuite copy or schedule M9 |
+| R6 | Scope creep into booleans | Medium | M9 comes last (v1.2: planned, D3); all boolean-adjacent work is expressed as separate, useful ops |
+| R7 | KUBIC marketing promises booleans | Medium | **v1.2:** D3 decided and M9 scheduled; until M9, KUBIC's copy should say booleans are coming |
 | R8 | `.kad` compatibility when bodies are added | Medium | D-kad decision before S34 |
-| R9 | Cross-engine `Math.*` differences | Low–Med | `core/trig.js` shim; tolerance-based goldens |
+| R9 | Cross-engine `Math.*` differences | ~~Low–Med~~ **v1.2: closed** | `core/trig.js` computes its own functions, bit-exact everywhere; goldens hash exact bits (S2) |
 | R10 | Bus factor (one maintainer) | Medium | `STATUS.md`, this handoff, tests as documentation, generated docs |
 | R11 | Licence contamination from reading other kernels | Medium | clean-room rule (§15), `PROVENANCE.md` |
 | R12 | Browser memory limits on big bodies | Medium | limits and caps everywhere; immutable sharing; Worker memory budget; streaming parse |
