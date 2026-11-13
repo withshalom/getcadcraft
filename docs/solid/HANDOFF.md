@@ -3,7 +3,7 @@
 
 > **Name:** `engine.solid`, named as the suite's engines are (owner, 2026-11-12): the library is cc-solid, its folder `solid/`, its error codes `solid.err.*`, its error class `SolidError`. Earlier names: the placeholder KNOT (branches `knot/dev` and `knot/kad-reference` in the PartCraft fork) and PartCore (branch `partcore` there, where S1 was built).
 >
-> **Status of this document:** the plan. **Building has started:** S0 (audit), S1 (scaffold), S2 (math kit) and S3 (exact predicates) are done. What is built is recorded in `docs/solid/STATUS.md`, not here. Everything not yet built is a proposal for the owner to confirm, change or reject. Where I am inferring rather than reading something in your repositories, it says so.
+> **Status of this document:** the plan. **Building has started:** S0 (audit), S1 (scaffold), S2 (math kit), S3 (exact predicates) and S4 (basis functions) are done. What is built is recorded in `docs/solid/STATUS.md`, not here. Everything not yet built is a proposal for the owner to confirm, change or reject. Where I am inferring rather than reading something in your repositories, it says so.
 >
 > **Version 1.2 (2026-11-12):**
 > - **Home (D-home):** the library repo `withshalom/getlibrarycraft`, branch `engine/solid`. The engine is in `lib/solid/`, its tools in `tools/solid/` (run by `bin/test-solid.mjs`), these documents in `docs/solid/`. A pull request follows once engine.solid is finished; the owner then authorizes it for the apps that need it, and each of them carries a byte-identical copy (`solid/` in its build folder), as with every engine.
@@ -556,7 +556,8 @@ Legend: ☐ not started, ☑ done. Each session ends with passing tests, updated
 | S1 | **done** (2026-11-12) | `lib/solid/` (index, core/errors, core/tol, core/limits), the 14-rule boundary checker with its fixtures, `tools/solid/test.mjs`, `bin/test-solid.mjs`; see `STATUS.md` |
 | S2 | **done** (2026-11-12) | `core/float`, `trig`, `prng`, `intervals`; `math/vec3`, `mat4`, `frame`, `aabb`, `quad`, `roots`, `linalg`; the `trig` rule; see `STATUS.md` |
 | S3 | **done** (2026-11-12) | `math/predicates.js`: orient2d, orient3d, incircle, insphere; 0 disagreements with BigInt on 1.56e6 cases; see `STATUS.md` |
-| S4–S6 | **exists** (`basis.js`, `curve.js`, `surface.js`) | engine.solid-side property tests against cc-nurbs; wrappers only |
+| S4 | **done** (2026-11-12) | `geom/basis.js` on cc-nurbs' `basis.js`; exact Cox–de Boor tests; the unclamped-end fix; see `STATUS.md` |
+| S5–S6 | **exists** (`curve.js`, `surface.js`) | engine.solid-side property tests against cc-nurbs; wrappers only. **v1.3:** `curve.js` and `surface.js` are not same-bits, so D-det comes first |
 | S7 | new | analytic classes plus exact conversions. cc-step `geom.js` and cc-acis `geom.js` evaluate the analytic forms and are the reference |
 | S8 | **exists** (`fit.js`) | adapters only: KAD SPLINE (fit or control form) and KUBIC / PartCraft sketch curves |
 | S9 | **exists** (`construct.js`) | engine.solid-side tests |
@@ -592,7 +593,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 ### M1 — Splines (S4–S10)
 | ☐ | Session | Build | Accept |
 |---|---|---|---|
-| ☐ | **S4** | Knot vectors, span search, basis functions and derivatives | partition of unity, non-negativity, derivatives vs high-order finite differences, Bézier case equals Bernstein |
+| ☑ | **S4** | Knot vectors, span search, basis functions and derivatives | partition of unity, non-negativity, derivatives vs high-order finite differences, Bézier case equals Bernstein |
 | ☐ | **S5** | `NurbsCurve`: eval/derivs/tangent/curvature, knot insertion/refinement/removal, degree elevation/reduction, split, Bézier decomposition, reverse, join | every shape-preserving op reproduces the curve to ≤ 1e-12 on random curves |
 | ☐ | **S6** | `NurbsSurface`: eval/partials/normal, iso-curves, same shape ops in U and V, swap UV, split | same shape-preservation tests; normal orthogonality |
 | ☐ | **S7** | Analytic classes and exact conversions: `Line`, `Circle`, `Ellipse`, `Plane`, `Cylinder`, `Cone`, `Sphere`, `Torus`, revolution/extrusion surfaces ↔ NURBS | converted radius/axis error < 1e-12; area of sphere/torus patches vs closed form < 1e-9 relative |
@@ -788,7 +789,8 @@ Oracle assets (OpenCascade wasm etc.) are **never committed** and never loaded b
 | D-kbc | **v1.1:** how `.kbc` carries bodies (as D-kad for `.kad`) | same answer as D-kad |
 | D-kad | How `.kad` carries bodies (v2 bump vs v1 + detect-and-refuse) | v2 bump is cleaner; decide before S34 |
 | D-tr | Own fdlibm-style `sin/cos/exp/pow` or accept `Math.*` | **resolved (v1.2, S2):** own functions from + − × ÷ and √, bit-exact everywhere (§5.5) |
-| D-ccn2 | **v1.2:** how cc-nurbs and cc-step come to sit beside the engine in the library repo before S4 (D8) | synced copies, as `tools/shapes/` is; or move the engine into the site's `lib/` first |
+| D-det | **v1.3 (S4):** cc-nurbs' `vec.js`, `curve.js`, `surface.js` and `fit.js` use `Math.atan2`, `sin`, `cos`, `tan` and `**`, which differ between engines in the last bits. How does engine.solid use them without losing the same bits (§5)? | (b) import under `solid-allow: reach` with the functions used listed and checked to be + − × ÷ only, now; (a) deterministic trig upstream in the site's `lib/nurbs/` when the owner agrees; not (c), own evaluators (against D8) |
+| D-ccn2 | **v1.2 — taken as proposed at S4 (2026-11-12):** how cc-nurbs and cc-step come to sit beside the engine in the library repo before S4 (D8). cc-nurbs is now a pinned copy in `lib/nurbs/` (`tools/solid/sync-nurbs.mjs`, `pins.json`). cc-step waits: its two copies have drifted (`STATUS.md`) | synced copies, as `tools/shapes/` is; or move the engine into the site's `lib/` first |
 | D-store | Copy-on-write granularity for B-rep tables | decide by S11 benchmark |
 | D-ts | Ship optional `tsc --checkJs` dev script | yes, strictly optional |
 | D-ap | AP242 scope (geometry only, or names/colours/PMI) | geometry + names + colours; PMI out |
@@ -816,6 +818,8 @@ Append entries as `YYYY-MM-DD · ID · decision · reason · who`.
 - 2026-11-12 · D-tr · elementary functions computed from + − × ÷ and √, bit-exact in every engine, measured against BigInt · determinism of topology decisions; cc-field's precedent · S2
 - 2026-11-12 · D-mat (S2) · matrices row-major, translation in m[3], m[7], m[11], as cc-nurbs; converters for column-major and metres (three.js, ModelCraft) · curves and surfaces transform without conversion · S2
 - 2026-11-12 · D-prng (S2) · xoshiro128**, seeded through MurmurHash3's finaliser; checked against a C program · small, fast in 32-bit JavaScript, well studied · S2
+- 2026-11-12 · D-ccn2 (S4) · cc-nurbs beside the engine as an unedited copy of the site's canonical `lib/nurbs/` in `lib/nurbs/`, pinned by SHA-256 (`tools/solid/pins.json`, `sync-nurbs.mjs`); cc-step later, its copies having drifted · the plan's proposed option, taken to start S4 on the owner's "Build step4" · proposed (owner may reverse)
+- 2026-11-12 · D-det (S4) · raised: cc-nurbs' curve, surface, fit and vec code is not same-bits (the new `reach` rule); S5 needs a choice (§17.2) · determinism (§5) vs D8 · open
 
 ---
 

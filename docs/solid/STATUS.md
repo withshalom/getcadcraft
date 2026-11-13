@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.3 · **Last session:** S3 (2026-11-12)
+**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.4 · **Last session:** S4 (2026-11-12)
 
 > **Moved, 2026-11-12 (D-home, D-name):** S0 and S1 were built in the PartCraft fork (`withshalom/getpartcraft`, branch `partcore`, commit 34a1df2a) under the name PartCore. They now live here as engine.solid. Paths below are the new ones; S1's results were measured there, and are measured again here under "After the move".
 
@@ -123,11 +123,58 @@ Measured:
 - **Mutation check:** 9 of 9 caught. The faults: each predicate without its exact stage; a zero error bound; Grow-Expansion dropping error terms; rounded differences or products in the exact stage; insphere's sign flipped or guessed.
 - **The whole suite:** 261 checks in about 17 s.
 
+### S4 — basis functions (2026-11-12)
+D-ccn2 was settled the way the plan proposed (synced copies), so S4 could start. cc-nurbs now sits beside the engine:
+
+| File | What it is |
+|---|---|
+| `lib/nurbs/` (20 files) | cc-nurbs, **unedited**: the CadCraft site's canonical `lib/nurbs/` (0.8 SU.747b), byte-identical to PartCraft's `app/nurbs/` at 9ed2e65e |
+| `tools/solid/pins.json` | where that copy came from, and the SHA-256 of every file |
+| `tools/solid/sync-nurbs.mjs` | `--check` fails on any edited, added or missing file; `--from <canonical> --source "…"` is the only way the copy changes (D8, D-ccn) |
+| `lib/solid/geom/basis.js` | the first `geom/` file:<br>• `knots` (checks a knot vector once and returns a frozen record);<br>• `span`, `basis`, `ders`, `one`, `oneDers`, `clampedUniform`;<br>• unchecked `findSpan`, `basisFuns`, `dersBasisFuns` for hot loops.<br>The arithmetic is cc-nurbs' A2.2 and A2.3, called unchanged. |
+| `tools/solid/check-boundaries.mjs` | rule 16, **`reach`** (below) |
+| `tools/solid/test-geom.mjs` | sections `pins` and `basis` |
+| `lib/solid/index.js` | VERSION 0.0.4; `basis` namespace |
+
+What engine.solid adds to cc-nurbs' basis:
+- **Every input is checked once,** and a bad one gets a typed refusal instead of NaN.
+- **Unclamped knot vectors work.** cc-nurbs' `findSpan` returns an empty span at an end of the domain when the knot there repeats (for example `[0,1,1,1,2,3,3,3]`, p = 2, at u = 1), and `basisFuns` then gives NaN. The engine steps to the nearest non-empty span. A test shows cc-nurbs' NaN and the engine's right answer side by side.
+- **Knots are compared exactly.** No `KTOL`, so a very short span is still a span.
+- **Derivatives above the degree are zero rows.**
+- **Limits:** degree ≤ 15 and at most 65,536 knots (HANDOFF §6.6).
+- **A range for knots and u:** each is 0 or between 2^-500 and 2^500 in magnitude. Every non-zero knot difference is then a normal double.
+
+Acceptance (HANDOFF §14, S4):
+
+| Criterion | Result | Test |
+|---|---|---|
+| Partition of unity | Σ N within (7p + 1) u on 1e5 cases; measured worst 13 u | `basis` |
+| Non-negativity | every value ≥ 0 exactly, 1e5 cases | `basis` |
+| Values (the strong form) | every value within **γ(6p)** of exact Cox–de Boor, relative to itself. The test checks this exactly, in BigInt rationals.<br>• 2e4 cases, degrees 0–15;<br>• knot vectors clamped, unclamped, near-coincident (relative gaps of 6e-8) and widely spaced (ratios up to 1e9).<br>The bound is proved: A2.2 combines only non-negative numbers, with six roundings per degree. Measured worst: 1.74 p·u. | `basis` |
+| Derivatives vs high-order finite differences | a fourth-order central difference agrees to 7.9e-7 of scale (2,000 cases, p = 1–6, every order) | `basis` |
+| Derivatives (the strong form) | within 4 p²·u of the row's largest value, against exact derivatives (4,000 cases, p = 1–9, every order). Measured worst 0.94, so the bound has about 4× headroom. | `basis` |
+| Bézier case equals Bernstein | `[0…0, 1…1]` for degrees 0–15: values to γ(6p) against exact Bernstein, and the first derivatives | `basis` |
+
+Measured:
+- **Agrees with cc-nurbs.** On more than 2e4 clamped vectors, `span` equals cc-nurbs' `findSpan`, and `ders(…)[0]` equals `basis(…)` to the bit.
+- **Mutation check:** 16 of 16 caught. A fault of only 16 ulps (2^-49) in one value fails the γ(6p) check on its own.
+- **Speed, p = 3:** `basis` 187 ns (raw cc-nurbs 163 ns); `span` 111 ns; `ders` with d = 2 is 1.6 µs, mostly allocation in A2.3 (S43); `knots()` on 1,004 knots takes 120 µs, once per vector.
+- **Same bits:** 4,000 seeded evaluations hash to 0x98fda410.
+- **The whole suite:** 286 checks in about 30 s.
+
+### The `reach` rule, and what it found
+- **What the rule does:** a file in `nurbs/` or `step/` that `solid/` imports, and every file it imports in turn, must use only exactly specified arithmetic. That means no `**`, no approximated `Math` function, no `Math.random`, no `Date`, no `import()`.
+- **What it found:** of cc-nurbs' 20 files, only `basis.js` passes. `vec.js` uses `Math.atan2` and `**`. `curve.js`, `surface.js` and `fit.js` import `vec.js`, and `curve.js` itself uses `Math.sin`, `cos`, `tan` and `**`.
+- **Why it matters:** S5 (curves) and S6 (surfaces) cannot import cc-nurbs' curve and surface code without breaking engine.solid's same-bits promise.
+- **The owner decides** (D-det, `HANDOFF.md` §17.2). An import line may say `solid-allow: reach`, with the functions used and why they stay exact; the rule then accepts it.
+
 ## Learned
 - **The checker found a real fault on its first run.** `core/limits.js` named a local variable `self`, which is a worker global. It was renamed to `budget`. The rules hold engine.solid's own code to account, not just the fixtures.
 - **PartCraft's worker loader reads raw text, comments included** (`exact-client.js` `blobModules()`). A usage line such as `import … from './x.js'` in a comment would be fetched as a module, or reported as an import cycle. Hence the `bundler` rule, and why `index.js` documents its usage without a quoted path.
 - **That loader only follows certain specifiers:** single-quoted, relative, lower-case `[a-z0-9-]` names ending in `.js`. Hence the `specifier` rule, which matters for S24b, where engine.solid runs in that worker.
 - **SolidError follows NurbsError: `(code, vars)`, and the message is the code.** The app words it from its language tables, whose messages use `{placeholders}` filled from `vars` (`app/lang/en.json`).
+- **S4: an exact reference must avoid gcd.** Reducing BigInt fractions after every operation took 89% of the time (45 s). Giving each degree level one common denominator, the product of its knot differences, needs only multiplication and exact division; the same section runs in 9 s. All three versions of the reference gave the same measured maxima.
+- **S4: prove the bound where the algorithm allows it.** A2.2 never subtracts, so its error is componentwise and provable (γ(6p)). A2.3 subtracts, so its bound is measured and recorded, as `trig.js`'s ULPS table is.
 - **S3: measure the fast path, not only the answers.** The first insphere built arrays and closures on every call (510 ns); written out as scalars it computes the same operations in 107 ns.
 - **S3: test exact degeneracy on purpose.** Random and nudged points almost never land exactly on a plane, circle or sphere. Integer points built to do so are what exercise the exact stage in 3D.
 - **S2: the mutation run found a real gap.** With broken weights, `adaptive` had no cap on its number of pieces and ran for more than ten minutes. It now has `maxPieces` (default 4096) next to `maxDepth`, and always ends with `no_convergence`.
@@ -138,7 +185,8 @@ Measured:
 
 ## Found (for later sessions)
 - **cc-field's `detmath.js` is less accurate than it says.** Its comment claims about 1e-15 for |x| < 1e6. Measured against the BigInt reference, `dsin`'s absolute error is 3.3e-16 below 10, 5.7e-14 below 1e3, and 5.8e-11 below 1e6. The reduction multiplies by a full 53-bit 2π, so `n · 2π` is not exact. A Cody–Waite split of 2π with trailing zeros, as in `core/trig.js`, fixes it. The fix belongs in the site's `lib/field/` (owner).
-- **cc-nurbs and cc-step are not in the library repo.** S4 onward needs them beside `lib/solid/` (D8). Either synced copies come into this repo before S4, or the engine moves into the site's `lib/` first.
+- **cc-step has drifted between copies.** PartCraft's `app/step/` has a `part21.js` that the site's `lib/step/` lacks, and their `read.js` differs. Which one is canonical has to be settled before cc-step comes beside the engine (S28 or earlier). Only cc-nurbs is here so far.
+- **cc-nurbs' unclamped end spans.** `findSpan` returns an empty span at a repeated end knot, and the basis is NaN (S4). engine.solid works around it. The fix belongs in the site's `lib/nurbs/` (D-ccn).
 - **Exact bodies for library items.** LibraryCraft's standard parts have `body: null` (a 2D plan only). Once S20–S22 can extrude and revolve, the generators can give them exact solids: a STEP export, and a mesh made from the solid.
 - **Splines and conics across the suite (owner, 2026-11-12: "This later").** Check how each app draws and stores splines and conics. Conics are exact as rational quadratic NURBS (ellipse, parabola, hyperbola); CadCraft should have them. S7 (analytic curves) is the natural place.
 - **A sync script with `--check`** comes with the first host copy (PartCraft's `solid/`), as cc-nurbs' `tools/nurbs/sync.mjs`.
@@ -151,8 +199,11 @@ Measured:
 - **The KAD repositories' headers still say AGPL.** The sweep belongs in those repositories (`reference/kad/README.md`).
 
 ## Next
-- **S4 — basis functions** (HANDOFF §14; v1.1: cc-nurbs' `basis.js` exists, so engine.solid adds wrappers and property tests).
-  - Acceptance: partition of unity, non-negativity, derivatives checked against finite differences, the Bézier case equal to Bernstein.
-  - **Blocked on D-ccn2:** cc-nurbs must sit beside `lib/solid/` first.
-- **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc. D3, D-tr, D-name and D-home were settled on 2026-11-12.
+- **S5 — curves** (HANDOFF §14: B-spline and NURBS evaluation, derivatives, knot insertion and refinement).
+  - **Decide D-det first.** cc-nurbs' `curve.js` is not same-bits (the `reach` rule). The choices:
+    - **(a)** fix it upstream, in the site's `lib/nurbs/`: deterministic trig and products in place of `Math.*` and `**`. This changes cc-nurbs' bits for every app.
+    - **(b)** import it under `solid-allow: reach`, listing the evaluation functions used, after checking that each one calls only + − × ÷.
+    - **(c)** write engine.solid's own evaluators. This goes against D8.
+  - Recommended: (b) now, and (a) upstream when the owner agrees.
+- **Owner decisions still open** (`HANDOFF.md` §17.2): D-det (before S5), D-ccn, D-kad / D-kbc. D-ccn2 was taken as proposed at S4 (synced, pinned copies). D3, D-tr, D-name and D-home were settled on 2026-11-12.
 - **The pull request** to the library repo's `main` waits until engine.solid is finished (D-home).

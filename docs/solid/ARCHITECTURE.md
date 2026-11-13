@@ -19,7 +19,7 @@ add-ons can build on.
 | Host copies | `solid/` in each host app's build folder, byte-identical (a `sync.mjs --check` comes with the first host) |
 | Errors | `SolidError(code, vars)`, codes `solid.err.*` |
 | Licence | Apache-2.0 |
-| Version | `VERSION` in `index.js` (0.0.3 after S3) |
+| Version | `VERSION` in `index.js` (0.0.4 after S4) |
 
 **Why an engine, not an app feature.** Every 3D app in the suite (PartCraft, ModelCraft, CadCraft's 3D tab, BimCraft,
 SuperCad) needs exact solids. None has them today: they use mesh kernels and manifold booleans. Built once as an engine,
@@ -153,9 +153,17 @@ price of identical results in every browser. Tuning comes in S43.
 - **Layout:** `lib/solid/` (the engine), `tools/solid/` (checker, tests, references) and `bin/test-solid.mjs`. That is
   the site's own pattern (`lib/<name>`, `tools/<name>`, `bin/test-<name>.mjs`), so the engine can move into the site's
   monorepo without changing a path.
-- **Imports outside the engine:** cc-nurbs and cc-step only (D8), and only once `geom/` exists. They are not in the
-  library repo yet; S4 needs them beside the engine (D-ccn2).
-- **Size today:** 16 files, about 115 KB, well within the add-on package limit of 200 files and 5 MB.
+- **Imports outside the engine:** cc-nurbs and cc-step only (D8), and only from `geom/` up.
+  - **cc-nurbs (S4):** an unedited copy of the site's canonical `lib/nurbs/` sits beside the engine in `lib/nurbs/`.
+    `tools/solid/pins.json` holds the SHA-256 of each file, and the `pins` test fails on any edit in place. The copy
+    changes only through `tools/solid/sync-nurbs.mjs --from <canonical>` (D-ccn2, D-ccn).
+  - **cc-step** comes later; its copies have drifted.
+  - Hosts already carry cc-nurbs, so engine.solid's own package stays `solid/`.
+- **Same bits across the boundary:** the checker's `reach` rule applies engine.solid's exactness rules to every cc-nurbs or
+  cc-step file an import loads, followed to the end. Only cc-nurbs' `basis.js` passes today; D-det decides how S5 and S6
+  use `curve.js` and `surface.js`.
+- **Size today:** 17 files, about 126 KB (cc-nurbs beside it: 20 files, about 410 KB), well within the add-on package
+  limit of 200 files and 5 MB.
 
 ## 8. Decisions and their reasons
 
@@ -166,6 +174,8 @@ price of identical results in every browser. Tuning comes in S43.
 | D3 | Booleans in scope, not dominant; feature construction first, exact booleans in M9 | both routes are needed, or splines and conics are out of reach; booleans are the hardest part, so they come last |
 | D6 | Other kernels only as black-box oracles | clean copyright; the owner holds all rights |
 | D8 | Build on cc-nurbs and cc-step, never edit them in place | they already do most of the spline work; fixes go upstream |
+| D-ccn2 | cc-nurbs beside the engine as a pinned, unedited copy (S4) | the suite's synced-copy model, with drift caught by hashes |
+| D-det | (open) how S5–S6 use cc-nurbs' curve and surface code, which is not same-bits | determinism (§5) and D8 meet here; the owner decides |
 | D-name | `engine.solid` / cc-solid / `solid/` / `solid.err.*` / `SolidError` | the suite's engine naming |
 | D-home | Built in the library repo, branch `engine/solid`; pull request when finished | the owner authorizes it for each app from one place |
 | D-eng | Follow the engine conventions and catalogue format | the documented pattern for shared libraries |

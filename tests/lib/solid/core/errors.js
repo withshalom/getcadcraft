@@ -31,7 +31,8 @@
  *   solid.err.bad_input       an argument is missing, of the wrong type, out of range or unknown — { name, why }
  *   solid.err.bad_tolerance   a tolerance value cannot be used — { name, why, value?, min?, max? }
  *   solid.err.internal        cc-solid's own bug — { reason? } (the details stay out of the envelope)
- *   solid.err.limit           a budget ran out — { what: 'iterations' | 'entities' | 'time', limit, used }
+ *   solid.err.limit           a budget ran out — { what: 'iterations' | 'entities' | 'time', limit, used }; (S4) or
+ *                             a representation limit was passed — { what: 'degree' | 'knots', limit, used }
  *   solid.err.no_bracket      (S2) a root finder was given ends where f has the same sign — { fa, fb } (finite values only)
  *   solid.err.no_convergence  (S2) an iteration stopped before it met its tolerance — { what, iterations }
  *   solid.err.singular        (S2) a matrix cannot be solved — { why: 'pivot' | 'rank' | 'matrix', size?, column?, rcond? }

@@ -32,6 +32,11 @@
  *   [eval]         no eval, no Function constructor
  *   [epsilon]      no tolerance-sized literal (a decimal below 0.001, or any literal with a negative exponent) outside
  *                  core/tol.js; a line that needs one says why in a comment holding  solid-allow: epsilon
+ *   [reach]        (S4) a file in nurbs/ or step/ that solid/ imports, or any file it imports in turn, keeps the same
+ *                  exactness: no **, no implementation-approximated Math function, no Math.random, no Date, no import() or
+ *                  require(). Reported on the solid/ import line that reaches it. A file outside solid/ cannot be edited
+ *                  here (D8), so an import line whose comment holds  solid-allow: reach  is accepted when the comment names
+ *                  what is used and why it stays exact; the fix belongs upstream (D-ccn).
  *   [trig]         (S2) no Math function the language leaves "implementation-approximated" (sin, cos, exp, log, pow, atan2,
  *                  hypot, cbrt …), no ** or **= (also approximated), and no Math as a value or Math[…] (which would hide
  *                  the call): those differ in the last bits between engines. core/trig.js computes them from + − × ÷ and √,
@@ -43,7 +48,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const LAYERS = Object.freeze(['core', 'math', 'geom', 'topo', ['ops', 'mesh', 'audit', 'measure'], 'io', 'api']);
-export const RULES = Object.freeze(['naming', 'spdx', 'layer', 'audit', 'external', 'specifier', 'missing', 'cycle', 'bundler', 'dynamic', 'global', 'determinism', 'eval', 'epsilon', 'trig']);
+export const RULES = Object.freeze(['naming', 'spdx', 'layer', 'audit', 'external', 'specifier', 'missing', 'cycle', 'bundler', 'dynamic', 'global', 'determinism', 'eval', 'epsilon', 'trig', 'reach']);
 export const EXTERNAL = Object.freeze({ folders: Object.freeze(['nurbs', 'step']), fromLayer: 'geom' });
 export const FORBIDDEN_GLOBALS = Object.freeze([
   'window', 'self', 'document', 'navigator', 'location', 'localStorage', 'sessionStorage', 'indexedDB', 'caches',
@@ -254,6 +259,7 @@ export function checkTree(appDir) {
   const add = (file, line, rule, detail) => problems.push({ file, line, rule, detail });
   const imports = [];
   const graph = new Map();   // file → [{ to, line }] (cc-solid files only)
+  const externals = [];      // [reach]: { file, line, target, allow } for every import that leaves solid/ correctly
 
   for (const file of files) {
     const src = fs.readFileSync(path.join(appDir, file), 'utf8');
@@ -292,6 +298,7 @@ export function checkTree(appDir) {
         const top = target.split('/')[0];
         if (!EXTERNAL.folders.includes(top)) add(file, s.line, 'external', `${target} is outside solid/; only ${EXTERNAL.folders.map((f) => f + '/').join(' and ')} may be imported`);
         else if (tier !== null && tier < TIER.get(EXTERNAL.fromLayer)) add(file, s.line, 'external', `${layerName(file)} may not import ${target}: ${EXTERNAL.folders.join(' and ')} are for ${EXTERNAL.fromLayer} and higher layers`);
+        else externals.push({ file, line: s.line, target, allow: allowed(s.line, 'reach') });
       }
     }
     graph.set(file, graphEdges);
@@ -339,6 +346,42 @@ export function checkTree(appDir) {
       if (tk.v === 'eval') { add(file, tk.line, 'eval', 'eval is not allowed'); continue; }
       if (tk.v === 'Function' && ((next && next.t === 'p' && next.v === '(') || (prev && prev.t === 'id' && prev.v === 'new'))) add(file, tk.line, 'eval', 'the Function constructor is not allowed');
     }
+  }
+
+  // ----- [reach]: what an import into nurbs/ or step/ loads, followed to the end
+  const found = new Map();   // file → { uses: [{ line, what }], imports: [file] }
+  const scan = (rel) => {
+    if (found.has(rel)) return found.get(rel);
+    const info = { uses: [], imports: [] };
+    found.set(rel, info);
+    const { tokens } = tokenize(fs.readFileSync(path.join(appDir, rel), 'utf8'));
+    for (let k = 0; k < tokens.length; k++) {
+      const tk = tokens[k], prev = tokens[k - 1], next = tokens[k + 1];
+      if (tk.t === 'p' && (tk.v === '**' || tk.v === '**=')) { info.uses.push({ line: tk.line, what: tk.v }); continue; }
+      if (tk.t !== 'id' || (prev && prev.t === 'p' && (prev.v === '.' || prev.v === '?.'))) continue;
+      if ((tk.v === 'from' || tk.v === 'import') && next && next.t === 'str' && SPECIFIER.test(next.v)) {
+        const to = path.relative(appDir, path.resolve(path.dirname(path.join(appDir, rel)), next.v)).split(path.sep).join('/');
+        if (!to.startsWith('..') && !to.startsWith('solid/') && fs.existsSync(path.join(appDir, to))) info.imports.push(to);
+        continue;
+      }
+      if ((tk.v === 'import' && next && next.t === 'p' && (next.v === '(' || next.v === '.')) || (tk.v === 'require' && next && next.t === 'p' && next.v === '(')) { info.uses.push({ line: tk.line, what: tk.v === 'require' ? 'require()' : next.v === '(' ? 'import()' : 'import.meta' }); continue; }
+      if (tk.v === 'Date') { info.uses.push({ line: tk.line, what: 'Date' }); continue; }
+      if (tk.v === 'Math' && next && next.t === 'p' && (next.v === '.' || next.v === '?.')) {
+        const name = tokens[k + 2] && tokens[k + 2].t === 'id' ? tokens[k + 2].v : null;
+        if (name === 'random' || (name && INEXACT.has(name))) info.uses.push({ line: tk.line, what: 'Math.' + name });
+      }
+    }
+    return info;
+  };
+  for (const ex of externals) {
+    if (ex.allow) continue;
+    const seen = new Set([ex.target]), queue = [ex.target], hits = [];
+    while (queue.length) {
+      const f = queue.shift(), info = scan(f);
+      for (const u of info.uses) hits.push(`${f}:${u.line} ${u.what}`);
+      for (const t of info.imports) if (!seen.has(t)) { seen.add(t); queue.push(t); }
+    }
+    if (hits.length) add(ex.file, ex.line, 'reach', `${ex.target} loads ${seen.size} file${seen.size === 1 ? '' : 's'} with ${hits.length} use${hits.length === 1 ? '' : 's'} that are not the same bits everywhere (first: ${hits.slice(0, 3).join(', ')}); fix it upstream (D-ccn), or say solid-allow: reach on the line with what is used and why it stays exact`);
   }
 
   // ----- import cycles (cc-solid files): report every import that is part of a cycle
