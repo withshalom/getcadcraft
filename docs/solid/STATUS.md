@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.5 · **Last session:** S4 bug review and fixes (2026-11-13)
+**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.6 · **Last session:** browser runs (2026-11-13)
 
 > **Moved, 2026-11-12 (D-home, D-name):** S0 and S1 were built in the PartCraft fork (`withshalom/getpartcraft`, branch `partcore`, commit 34a1df2a) under the name PartCore. They now live here as engine.solid. Paths below are the new ones; S1's results were measured there, and are measured again here under "After the move".
 
@@ -191,10 +191,27 @@ Results:
 - **317 checks pass.** Both golden hashes are unchanged (trig 0x1cb4c414, basis 0x98fda410), so nothing that was right before changed its bits.
 - **Mutation check:** 32 of 32 caught.
 - **Checked and found sound:** `float.js`, `limits.js`, `errors.js`, `tol.js`, `vec3`, `mat4`, `frame`, `linalg`'s arithmetic, `basis.js`, and `predicates.js` (8,000 exactly degenerate cases at the bottom of its domain, all 0).
-- **Not reviewed:** browser runs (Chromium, Firefox, Safari) are still to do before the pull request.
+- **Not reviewed then:** the browser runs; they follow.
+
+### Browser runs (2026-11-13, version 0.0.6)
+- **What runs:** `tools/solid/digest.mjs` hashes some 200,000 seeded results in 12 areas (trig at every size of argument, basis, float, intervals, predicates, roots, quadrature, linear algebra, vectors and frames, the generator). It imports nothing, so the same file runs in Node, on a page and in a worker. Its `trig` and `basis` areas are the golden hashes of the tests, call for call.
+- **Where:** `node tools/solid/browser-run.mjs` serves the repository locally and opens `tools/solid/browser.html` in each engine through Playwright; the page also starts a module worker. The recorded hashes are in `tools/solid/digests.json`, and the suite's `digest` section holds Node to them.
+- **Result: the same bits in every host.** 12 of 12 areas, on the page and in a worker:
+
+| Host | Version | Page | Worker |
+|---|---|---|---|
+| Node (V8) | 22.23 | same | — |
+| Chromium (V8) | 158.0 | same | same |
+| Firefox (SpiderMonkey) | 159.0 | same | same |
+| WebKit (JavaScriptCore) | 27.2 | same | same |
+
+- **One real difference was found first, and fixed.** `float.bits(x)` returned a NaN's sign and payload, which ECMAScript leaves to the engine: Firefox and WebKit gave other bits than V8. No decision in the engine read them, but it was a public function with host-dependent output. `bits` now gives every NaN the same 64 bits.
+- **Still to do by hand:** Playwright's WebKit is Safari's engine, built for Linux, not Safari itself. Before the pull request, open `tools/solid/browser.html` once in Safari on a Mac or an iPhone (served over http) and read the table.
+- **The whole suite:** 322 checks.
 
 ## Learned
 - **Bug review: a passing suite says only what it was asked.** All seven faults sat in code with passing tests; each lived just outside the inputs the tests drew (unbounded intervals, huge angles, a root at exactly 0, an overflowing width, many pieces). The fixes' tests draw from those edges on purpose.
+- **Browser runs: a NaN is not one value in memory.** Every engine agrees on what a NaN does, and none promises which bits it has. A hash over raw bits, or a function that returns them, has to choose one NaN.
 - **Bug review: a waiver comment is not a guard.** `solid-allow: reach` accepted a whole import line, so it could not keep three functions out of a file. Reading the file function by function can, and needs no comment to trust.
 - **The checker found a real fault on its first run.** `core/limits.js` named a local variable `self`, which is a worker global. It was renamed to `budget`. The rules hold engine.solid's own code to account, not just the fixtures.
 - **PartCraft's worker loader reads raw text, comments included** (`exact-client.js` `blobModules()`). A usage line such as `import … from './x.js'` in a comment would be fetched as a module, or reported as an import cycle. Hence the `bundler` rule, and why `index.js` documents its usage without a quoted path.

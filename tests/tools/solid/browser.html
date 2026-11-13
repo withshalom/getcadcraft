@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- browser.html — cc-solid's "same bits everywhere" check in a browser. Serve the repository over http (module
+     scripts do not load from file://), open /tools/solid/browser.html, and read the table: every area must show the
+     recorded hash, on the page and in a worker. tools/solid/browser-run.mjs does this unattended. Loads nothing from
+     outside the repository. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cc-solid — same bits</title>
+<style>
+  body { font: 15px/1.4 system-ui, sans-serif; margin: 1rem; max-width: 46rem; }
+  table { border-collapse: collapse; width: 100%; } td, th { padding: .25rem .5rem; border-bottom: 1px solid #8884; text-align: left; font-variant-numeric: tabular-nums; }
+  code { font: 13px ui-monospace, monospace; } .ok { color: #0a7a2f; } .bad { color: #c0241c; font-weight: 600; }
+  #verdict { font-size: 1.3rem; margin: .5rem 0; } #ua { color: #8889; font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+<h1>cc-solid — same bits everywhere</h1>
+<p id="verdict">running…</p>
+<table><thead><tr><th>area</th><th>recorded</th><th>this page</th><th>worker</th></tr></thead><tbody id="rows"></tbody></table>
+<p id="ua"></p>
+<script type="module">
+const out = { done: false, ok: false, ua: navigator.userAgent, expected: null, main: null, worker: null, ms: null, error: null };
+window.__solid = out;
+const $ = (id) => document.getElementById(id);
+$('ua').textContent = navigator.userAgent;
+try {
+  out.expected = await (await fetch('./digests.json')).json();
+  const P = await import('../../lib/solid/index.js');
+  const { digest } = await import('./digest.mjs');
+  const t0 = performance.now();
+  out.main = digest(P);
+  out.ms = Math.round(performance.now() - t0);
+  out.worker = await new Promise((resolve) => {
+    let w;
+    try { w = new Worker(new URL('./browser-worker.mjs', import.meta.url), { type: 'module' }); } catch (e) { resolve({ error: String(e) }); return; }
+    w.onmessage = (ev) => resolve(ev.data.ok ? ev.data.result : { error: ev.data.error });
+    w.onerror = (ev) => resolve({ error: ev.message || 'the worker could not start' });
+  });
+  const names = Object.keys(out.expected.sections);
+  let ok = out.main.version === out.expected.version && !out.worker.error && Object.keys(out.main.sections).length === names.length;
+  for (const name of names) {
+    const want = out.expected.sections[name], a = out.main.sections[name], b = out.worker.sections ? out.worker.sections[name] : '—';
+    if (a !== want || b !== want) ok = false;
+    const tr = document.createElement('tr');
+    for (const [text, cls] of [[name, ''], [want, ''], [a, a === want ? 'ok' : 'bad'], [b, b === want ? 'ok' : 'bad']]) { const td = document.createElement('td'); td.textContent = text; td.className = cls; tr.appendChild(td); }
+    $('rows').appendChild(tr);
+  }
+  out.ok = ok;
+  $('verdict').textContent = ok ? `same bits: ${names.length} of ${names.length} areas, on the page and in a worker (cc-solid ${out.main.version}, ${out.ms} ms)` : 'DIFFERENT — see the red cells' + (out.worker.error ? ' (worker: ' + out.worker.error + ')' : '');
+  $('verdict').className = ok ? 'ok' : 'bad';
+} catch (e) {
+  out.error = String(e && e.stack ? e.stack : e);
+  $('verdict').textContent = 'could not run: ' + out.error; $('verdict').className = 'bad';
+}
+out.done = true;
+</script>
+</body>
+</html>

@@ -12,6 +12,7 @@
  *   EPS            2^-52, the gap above 1           U     2^-53, the unit roundoff: |fl(a ∘ b) − a ∘ b| ≤ U · |a ∘ b|
  *   MIN_NORMAL     2^-1022                          MAX   the largest double
  *   fromBits(hi, lo) → double · bits(x) → [hi, lo]     a double's 64 bits as two unsigned 32-bit halves
+ *                                                      (every NaN reads as [0x7ff80000, 0]: its payload differs by engine)
  *   pow2(k) → 2^k exactly, for a whole k (0 below 2^-1074, Infinity above 2^1023; NaN when k is not whole)
  *   exponent(x) → e with 2^e ≤ |x| < 2^(e+1) (subnormals included; −Infinity for 0, NaN for ±Infinity and NaN)
  *   ulp(x) → the gap between |x| and the next double away from zero (2^-1074 for 0 and subnormals, Infinity for ±Infinity)
@@ -33,7 +34,11 @@ const LITTLE = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 const HI = LITTLE ? 1 : 0, LO = LITTLE ? 0 : 1;
 
 export function fromBits(hi, lo) { U32[HI] = hi >>> 0; U32[LO] = lo >>> 0; return F64[0]; }
-export function bits(x) { F64[0] = x; return [U32[HI], U32[LO]]; }
+export function bits(x) {
+  if (x !== x) return [0x7ff80000, 0];                   // one NaN: ECMAScript leaves a NaN's sign and payload to the engine
+  F64[0] = x;
+  return [U32[HI], U32[LO]];
+}
 
 export const EPS = Number.EPSILON;
 export const U = EPS / 2;

@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as R from './bigref.mjs';
 import { checkPins, syncFrom, PINS_FILE } from './sync-nurbs.mjs';
+import { genKnots, genU, degree, digest } from './digest.mjs';   // the generators live there so a browser can run them too
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UR = 2 ** -53;                       // the unit roundoff
@@ -86,40 +87,6 @@ const withinGamma = (x, t, p) => {
   const err = diff(x, t);
   return qcmp({ n: err.n * ((1n << 53n) - BigInt(6 * p)), d: err.d }, { n: t.n * BigInt(6 * p), d: t.d }) <= 0 || qcmp(err, qd(TINY)) <= 0;
 };
-
-/** A random knot vector of degree p, exactly representable: (offset + whole numbers) · 2^e. */
-function genKnots(g, p, mode = ['plain', 'near', 'wide', 'clamped'][g.int(4)]) {
-  for (;;) {
-    const count = p + 1 + g.int(mode === 'near' ? 4 : 9), len = count + p + 1;
-    const sc = 2 ** (g.int(61) - 30);
-    const off = mode === 'near' ? (g.int(2) ? 1 : -1) * (2 ** 24 + g.int(1000)) : g.int(1 << 21) - (1 << 20);
-    const ints = [];
-    let x = 0;
-    for (let k = 0; k < len; k++) {
-      if (k && g.int(4) === 0) { ints.push(x); continue; }
-      x += mode === 'near' ? 1 + g.int(3) : mode === 'wide' ? 1 + g.int(2 ** g.int(31)) : 1 + g.int(1 << 16);
-      ints.push(x);
-    }
-    if (mode === 'clamped' || g.int(3) === 0) {
-      for (let i = 0; i < p; i++) ints[i] = ints[p];
-      for (let i = len - p; i < len; i++) ints[i] = ints[len - 1 - p];
-    }
-    for (let k = 1, run = 1; k < len; k++) {   // no value more than p + 1 times
-      run = ints[k] === ints[k - 1] ? run + 1 : 1;
-      if (run > p + 1) { for (let t = k; t < len; t++) ints[t]++; run = 1; }
-    }
-    const U = ints.map((v) => (off + v) * sc);
-    if (U[p] < U[count]) return U;
-  }
-}
-/** A u in [a, b]: a knot, an end, or any double between. */
-function genU(g, U, p) {
-  const n = U.length - p - 2, a = U[p], b = U[n + 1], r = g.int(5);
-  if (r === 0) { const c = U.filter((x) => x >= a && x <= b); return c[g.int(c.length)]; }
-  if (r === 1) return g.int(2) ? a : b;
-  return Math.min(b, Math.max(a, a + (b - a) * g.float()));
-}
-const degree = (g) => (g.int(4) === 0 ? g.int(16) : g.int(8));
 
 export async function register({ section, ok, refuses, same, appUrl }) {
   const P = await import(appUrl('solid/index.js'));
@@ -316,5 +283,16 @@ export async function register({ section, ok, refuses, same, appUrl }) {
       mix(r.span); for (const row of r.ders) for (const v of row) mix(v);
     }
     ok(hash === GOLDEN_BASIS, `the same bits: 4,000 seeded evaluations hash to 0x${hash.toString(16).padStart(8, '0')} (recorded 0x${GOLDEN_BASIS.toString(16).padStart(8, '0')}); a change here means the basis changed its answers`);
+  });
+
+  // ============================================================================================== digest
+  section('digest', 'the same bits everywhere: the hashes every host must compute (tools/solid/digests.json; browsers: browser-run.mjs)', () => {
+    const file = path.join(HERE, 'digests.json'), want = JSON.parse(fs.readFileSync(file, 'utf8')), now = digest(P);
+    const names = Object.keys(now.sections), off = names.filter((n) => now.sections[n] !== want.sections[n]);
+    ok(want.version === P.VERSION, `digests.json was recorded for this version (${want.version}; cc-solid is ${P.VERSION})`);
+    ok(off.length === 0 && Object.keys(want.sections).length === names.length, `Node computes the ${names.length} recorded hashes` + (off.length ? ' (differs: ' + off.join(', ') + '; after a deliberate change: node tools/solid/browser-run.mjs --record, then the browsers again)' : ''));
+    ok(now.sections.trig === '0x1cb4c414' && now.sections.basis === '0x' + GOLDEN_BASIS.toString(16), 'its trig and basis areas are the golden hashes of the trig and basis tests');
+    const again = digest(P);
+    ok(names.every((n) => again.sections[n] === now.sections[n]), 'a second run in the same process gives the same hashes (no state carried over)');
   });
 }

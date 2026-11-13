@@ -19,7 +19,7 @@ add-ons can build on.
 | Host copies | `solid/` in each host app's build folder, byte-identical (a `sync.mjs --check` comes with the first host) |
 | Errors | `SolidError(code, vars)`, codes `solid.err.*` |
 | Licence | Apache-2.0 |
-| Version | `VERSION` in `index.js` (0.0.5 after the S4 bug review) |
+| Version | `VERSION` in `index.js` (0.0.6 after the S4 bug review and the browser runs) |
 
 **Why an engine, not an app feature.** Every 3D app in the suite (PartCraft, ModelCraft, CadCraft's 3D tab, BimCraft,
 SuperCad) needs exact solids. None has them today: they use mesh kernels and manifold booleans. Built once as an engine,

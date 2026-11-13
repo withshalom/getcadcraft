@@ -38,7 +38,10 @@ node tools/solid/check-boundaries.mjs   # the architecture rules alone
    `float`, `trig`, `intervals`, `vec3`, `mat4`, `frame`, `aabb`, `quad`, `roots`, `linalg`; S3: `predicates`, with an exact BigInt determinant for each of 1.56e6 cases. S4: `pins` (the cc-nurbs copy matches its SHA-256 pins, and an edited, added or missing file is caught) and `basis`. In `basis` the values are checked against exact Cox–de Boor in BigInt rationals, using the proved bound γ(6p). The knots and u are scaled by a power of two to whole numbers, and each degree level shares one denominator, so no gcd is needed. Then `entry` (the export list,
    no globals added, every file reachable), `boundaries` and `worker` (the engine unchanged in a worker thread).
 3. **The same bits.** 18,000 trig results hash to a recorded value, and so do 4,000 basis evaluations (S4). Any change to one bit, from the code or from an engine,
-   fails. Run the suite in each browser to confirm it there.
+   fails. For browsers: `tools/solid/digest.mjs` hashes 12 areas and imports nothing, so the same file runs in Node, on
+   a page and in a worker. `node tools/solid/browser-run.mjs` (needs Playwright, which is not a dependency here) runs
+   it in Chromium, Firefox and WebKit against `tools/solid/digests.json`; `tools/solid/browser.html`, served over
+   http, is the same check by hand for any other browser. After a deliberate change of answers: `--record`.
 4. **Mutation runs, each session.** Break the code on purpose and the suite must fail. In S2, 19 of 20 faults were caught.
    The survivor was equivalent in practice. The run also found a real gap: adaptive integration had no cap on its number of
    pieces (`STATUS.md`). This is how the tests themselves are tested.

@@ -1,0 +1,18 @@
+{
+  "note": "Written by tools/solid/browser-run.mjs --record (Node). Every host must compute these: tools/solid/digest.mjs.",
+  "version": "0.0.6",
+  "sections": {
+    "trig": "0x1cb4c414",
+    "trigWide": "0x29dde48c",
+    "basis": "0x98fda410",
+    "basisMore": "0x089a56a3",
+    "float": "0xd778bbf1",
+    "intervals": "0x3e53f3b8",
+    "predicates": "0x80bc2445",
+    "roots": "0xcf487831",
+    "quad": "0xf51fbcf5",
+    "linalg": "0xe2b65a54",
+    "space": "0xbe045690",
+    "prng": "0xaee36f4f"
+  }
+}

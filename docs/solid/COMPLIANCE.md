@@ -58,7 +58,7 @@ Source: getcadcraft.com › Build an add-on › Upload and review.
 
 | Rule | How it is met | Evidence | Status |
 |---|---|---|---|
-| Same input, same output, in every engine | only exactly specified arithmetic; own elementary functions | checker rule `trig`; golden hash of 18,000 results | enforced |
+| Same input, same output, in every engine | only exactly specified arithmetic; own elementary functions | checker rule `trig`; golden hashes; `digest` in 12 areas, the same in Node, Chromium, Firefox and WebKit, page and worker (2026-11-13; Safari proper by hand before the PR) | enforced |
 | No hidden randomness or clock | no `Math.random`, no `Date`; budgets read an injected clock | checker rule `determinism` | enforced |
 | No `eval` or `Function` | — | checker rule `eval` | enforced |
 | Tolerances in one place | `core/tol.js` only | checker rule `epsilon` | enforced |
@@ -98,4 +98,4 @@ Source: `HANDOFF.md` §15; the owner's direction (D5, D6).
 - **D-det (decided (b)).** cc-nurbs' `arc`, `circle` and `angle` are not same-bits; S5 imports only the exact functions, and the checker's `reach` rule keeps those three out, function by function (built and tested on the real cc-nurbs, 2026-11-13). Option (a), deterministic trig upstream, is open for later investigation.
 - **Language-table keys for `solid.err.*`.** Due at S24b.
 - **The catalogue entry.** Drafted in `ENGINE.md`; the owner publishes it.
-- **A browser run of the golden hash.** Node is checked today; Chromium, Firefox and Safari come before the pull request.
+- **Safari itself.** The digest gives the same bits in Node, Chromium, Firefox and WebKit (`STATUS.md`). WebKit there is Safari's engine built for Linux; one run of `tools/solid/browser.html` in Safari proper comes before the pull request.

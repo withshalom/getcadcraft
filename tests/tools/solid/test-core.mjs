@@ -97,6 +97,7 @@ export async function register({ section, ok, refuses, same, appUrl }) {
   // ================================================================================================ float
   section('float', 'bits, neighbours, error-free transformations, directed rounding (checked exactly in BigInt)', () => {
     ok(F.EPS === Number.EPSILON && F.U === Number.EPSILON / 2 && isPow2(F.MIN_NORMAL, -1022) && F.MAX === Number.MAX_VALUE, 'EPS, U, MIN_NORMAL, MAX');
+    ok([[0x7ff00000, 1], [0xfff80000, 0], [0x7ff8dead, 0xbeef], [0xfff00000, 0x12345678]].every(([hi, lo]) => same(F.bits(F.fromBits(hi, lo)), [0x7ff80000, 0])) && same(F.bits(0 / 0), [0x7ff80000, 0]) && same(F.bits(-Infinity), [0xfff00000, 0]) && same(F.bits(-0), [0x80000000, 0]), 'bits gives every NaN the same 64 bits (a NaN\'s sign and payload differ between engines)');
     let good = true;
     for (let k = -1074; k <= 1023; k++) { const p = F.pow2(k); if (!(isPow2(p, k) && F.exponent(p) === k)) good = false; }
     ok(good && F.pow2(-1075) === 0 && F.pow2(1024) === Infinity && Number.isNaN(F.pow2(0.5)), 'pow2(k) is exactly 2^k for every k from -1074 to 1023, and exponent() gives k back');
