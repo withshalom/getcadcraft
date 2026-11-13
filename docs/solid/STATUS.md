@@ -164,7 +164,7 @@ Measured:
 
 ### The `reach` rule, and what it found
 - **What the rule does:** a file in `nurbs/` or `step/` that `solid/` imports, and every file it imports in turn, must use only exactly specified arithmetic. That means no `**`, no approximated `Math` function, no `Math.random`, no `Date`, no `import()`.
-- **What it found:** of cc-nurbs' 20 files, only `basis.js` passes. `vec.js` uses `Math.atan2` and `**`. `curve.js`, `surface.js` and `fit.js` import `vec.js`, and `curve.js` itself uses `Math.sin`, `cos`, `tan` and `**`.
+- **What it found:** of cc-nurbs' 20 files, only `basis.js` passes. Across `curve.js`, `surface.js` and `fit.js` there are just 8 such uses, in two places: `vec.angle()` (`Math.atan2`, `**`) and `curve.arc()` (`Math.cos`, `sin`, `tan`; `circle()` calls it). `surface.js` and `fit.js` are clean themselves and fail only because they import those files. No evaluation, derivative or knot function calls either place, and nothing in curve, surface or fit calls `vec.angle()` at all.
 - **Why it matters:** S5 (curves) and S6 (surfaces) cannot import cc-nurbs' curve and surface code without breaking engine.solid's same-bits promise.
 - **The owner decides** (D-det, `HANDOFF.md` §17.2). An import line may say `solid-allow: reach`, with the functions used and why they stay exact; the rule then accepts it.
 
