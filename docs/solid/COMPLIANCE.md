@@ -58,13 +58,13 @@ Source: getcadcraft.com › Build an add-on › Upload and review.
 
 | Rule | How it is met | Evidence | Status |
 |---|---|---|---|
-| Same input, same output, in every engine | only exactly specified arithmetic; own elementary functions | checker rule `trig`; golden hashes; `digest` in 12 areas, the same in Node, Chromium, Firefox and WebKit, page and worker (2026-11-13; Safari proper by hand before the PR) | enforced |
+| Same input, same output, in every engine | only exactly specified arithmetic; own elementary functions | checker rule `trig`; golden hashes; `digest` in 13 areas, the same in Node, Chromium, Firefox and WebKit, page and worker (2026-11-13; Safari proper by hand before the PR) | enforced |
 | No hidden randomness or clock | no `Math.random`, no `Date`; budgets read an injected clock | checker rule `determinism` | enforced |
 | No `eval` or `Function` | — | checker rule `eval` | enforced |
 | Tolerances in one place | `core/tol.js` only | checker rule `epsilon` | enforced |
 | Geometric decisions never take a wrong sign | exact predicates; outside their domain they refuse | `predicates` tests (BigInt, 1.56e6 cases); mutation run | enforced |
 | Every long loop is bounded | budgets; iteration caps; the integrator's `maxDepth` and `maxPieces` (its cost grows as pieces · log pieces); size and work limits in `linalg` | `limits`, `quad`, `roots` and `linalg` tests (refusals and limits) | enforced |
-| No quiet wrong answers | typed refusals; no NaN results from solvers | each refusal has a test that throws it | enforced |
+| No quiet wrong answers | typed refusals; no NaN results from solvers; root counts from exact discriminant signs; cubic roots certified by a sign change; rounded bounds exact over the whole range of doubles | each refusal has a test that throws it; the second review's exact tests (`float`, `exact`, `roots`, `quad`) | enforced |
 | Nothing leaks out of an error | `toEnvelope` strips messages and stacks from unknown errors | `errors` test | enforced |
 
 ## 6. Licence, copyright and clean room

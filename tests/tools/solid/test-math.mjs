@@ -118,6 +118,15 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     const Mm = M.mul(M.translation([0.25, -1.5, 3]), M.rotation([0, 1, 0], 0.3)), pm = [0.1, 0.2, 0.3];
     const mm = M.convertUnits(Mm, 1000);
     ok(M.apply(mm, V.scale(pm, 1000)).every((v, k) => Math.abs(v - 1000 * M.apply(Mm, pm)[k]) <= 1e3 * 4 * EPS), 'convertUnits(m, 1000): a ModelCraft matrix in metres moves millimetre points the same way');
+    const tinyBig = [1e-300, 1e-160, 1e-110, 3e-20, 7e40, 1e110, 1e200, 1e300].map((sc) => {
+      const R0 = M.rotation([1, 2, 3], 0.7), A = R0.map((v, k) => (k < 12 && k % 4 !== 3 ? v * sc : v)), I = M.invert(A), Pp = M.mul(I, A);
+      return Pp.every((v, k) => Math.abs(v - M.IDENTITY[k]) <= 16 * EPS) && (sc * sc * sc === 0 ? M.det3(A) === Number.MIN_VALUE : sc * sc * sc === Infinity ? M.det3(A) === Infinity : Math.abs(M.det3(A) / (sc * sc * sc) - 1) <= 16 * EPS) && M.applyNormal(A, [0, 0, 1]).every(Number.isFinite);
+    });
+    ok(tinyBig.every((v) => v), 'invert, applyNormal and det3 at every scale: a rotation times 1e-300 … 1e300 inverts as well as at scale 1 (the size of a matrix is not its condition)' + (tinyBig.every((v) => v) ? '' : ' (failed at index ' + tinyBig.map((v, k) => (v ? '' : k)).join('') + ')'));
+    ok(M.det3(M.scaling(1e-200)) === Number.MIN_VALUE && M.det3(M.scaling([-1e-200, 1e-200, 1e-200])) === -Number.MIN_VALUE && M.det3(M.scaling(1e200)) === Infinity && M.det3(M.scaling([1, 1, 0])) === 0 && M.det3(M.scaling([2, 3, 4])) === 24,
+      'det3 is 0 only for a singular matrix: a determinant below the smallest double comes back as ±2^-1074, one past the largest as ±Infinity');
+    ok(refuses(() => M.invert(M.scaling(1e-320)), bad, { name: 'matrix', why: 'overflow' }) && refuses(() => M.invert(M.mul(M.scaling(1e-200), M.translation([1e200, 0, 0])).map((v, k) => (k === 3 ? 1e300 : v))), bad, { why: 'overflow' }),
+      'invert refuses, as overflow and not as singular, a matrix whose inverse does not fit in doubles');
     ok(refuses(() => M.invert(M.scaling([1, 1, 0])), 'solid.err.singular', { why: 'matrix' }) && refuses(() => M.invert(M.scaling([1, 1, 1e-16])), 'solid.err.singular', { why: 'matrix' }) && refuses(() => M.applyNormal(M.scaling([0, 1, 1]), [1, 0, 0]), 'solid.err.singular'), 'invert and applyNormal refuse singular and nearly singular matrices');
     ok(refuses(() => M.fromColumnMajor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0]), bad, { why: 'not_affine' }) && refuses(() => M.invert([1, 2]), bad, { why: 'not_a_matrix' }) && refuses(() => M.rotation([0, 0, 0], 1), bad, { why: 'zero_length' }) && refuses(() => M.convertUnits(M.identity(), 0), bad), 'projections, short arrays, a zero axis and a zero unit factor are refused');
     ok(M.isAffine(M.identity()) && !M.isRigid(M.scaling(2)) && !M.isRigid(M.scaling([-1, 1, 1])) && Object.isFrozen(M.IDENTITY), 'isAffine, isRigid (no scalings, no mirrors), IDENTITY frozen');
@@ -188,6 +197,23 @@ export async function register({ section, ok, refuses, same, appUrl }) {
 
   // ================================================================================================ quad
   section('quad', 'Gauss–Legendre rules 1 to 64, exactness, adaptive integration, refusals', () => {
+    // the tables against the exact ones: Legendre's recurrence and Newton's method in 320-bit fixed point (bigref's scale)
+    {
+      const FB = R.F, ONE = R.ONE, fmul = (a, b) => (a * b) >> FB, fdiv = (a, b) => (a << FB) / b;
+      const leg = (n, x) => { let p0 = ONE, p1 = x; for (let k = 1; k < n; k++) { const p2 = (BigInt(2 * k + 1) * fmul(x, p1) - BigInt(k) * p0) / BigInt(k + 1); p0 = p1; p1 = p2; } return [p1, fdiv(BigInt(n) * (fmul(x, p1) - p0), fmul(x, x) - ONE)]; };
+      let wx = 0, ww = 0, where = '';
+      for (let n = 1; n <= 64; n++) {
+        const r = Q.rule(n);
+        for (let i = 0; i < n; i++) {
+          let z = R.fix(r.x[i]);
+          for (let it = 0; it < 6; it++) { const [p, d] = leg(n, z); z -= fdiv(p, d); }
+          const d = leg(n, z)[1], w = fdiv(2n * ONE, fmul(ONE - fmul(z, z), fmul(d, d)));
+          const ux = r.x[i] === 0 ? (z > (1n << 200n) || z < -(1n << 200n) ? 9 : 0) : R.ulpsOff(r.x[i], z), uw = R.ulpsOff(r.w[i], w);
+          if (ux > wx) wx = ux; if (uw > ww) { ww = uw; where = `n = ${n}, i = ${i}`; }
+        }
+      }
+      ok(wx <= 0.51 && ww <= 0.51, `every node and weight of rules 1 to 64 is the double nearest the exact one (2080 of each; worst ${wx.toFixed(3)} and ${ww.toFixed(3)} ulps` + (ww > 0.51 ? `, at ${where}` : '') + ')');
+    }
     let shape = true, sumw = true, exact = true;
     for (let n = 1; n <= 64; n++) {
       const r = Q.rule(n);
@@ -288,6 +314,116 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     ok(cb, 'cubic: at least one real root, each with a residual within 64 ulps of the polynomial\'s size (1e5 cubics)');
     ok(sep, 'cubic: three separated real roots found to 1e-10 (5e4 cubics built from their roots)');
     ok(same(Ro.cubic(1, -6, 11, -6), [1, 2, 3]) && same(Ro.cubic(1, -3, 3, -1), [1, 1, 1]) && same(Ro.cubic(4, -24, 44, -24), [1, 2, 3]) && same(Ro.cubic(1, -111, 1110, -1000), [1, 10, 100]) && same(Ro.cubic(2, 0, -2, 0), [-1, 0, 1]) && same(Ro.cubic(0, 1, -3, 2), [1, 2]) && same(Ro.cubic(1, 0, 0, -8), [2]), 'cubic: integer roots exactly, a triple root, d = 0, a = 0, one real root');
+    // ---- every finite input, checked exactly: the count against the exact discriminant, each root against an exact sign change
+    const xk = (k, v) => ({ N: BigInt(k) * v.N, E: v.E }), xsum = (...vs) => vs.reduce((p, q) => xadd(p, q)), sgnX = (v) => (v.N > 0n ? 1 : v.N < 0n ? -1 : 0);
+    const xval = (cs, x) => cs.reduce((p, c) => xadd(xmul(p, X(x)), X(c)), { N: 0n, E: 0 });
+    const step = (r, n, up) => { for (let k = 0; k < n; k++) r = up ? F.nextUp(r) : F.nextDown(r); return r; };
+    // a finite root sits within n doubles of an exact sign change; an infinite one stands for a root past MAX on that side
+    const placed = (cs, r, n) => {
+      const lead = Math.sign(cs.find((c) => c !== 0)), odd = (cs.length - 1 - cs.findIndex((c) => c !== 0)) % 2 === 1;
+      if (r === Infinity) return sgnX(xval(cs, F.MAX)) !== lead;
+      if (r === -Infinity) return sgnX(xval(cs, -F.MAX)) !== (odd ? -lead : lead);
+      if (sgnX(xval(cs, r)) === 0) return true;
+      for (let k = 1; k <= n; k++) {                     // any window up to n doubles each way (two roots may share a wide one)
+        const lo = step(r, k, false), hi = step(r, k, true);
+        if (!Number.isFinite(lo) || !Number.isFinite(hi) || sgnX(xval(cs, lo)) * sgnX(xval(cs, hi)) <= 0) return true;
+      }
+      return false;
+    };
+    const anyCoef = (h, lo, hi) => (h.u32() & 1 ? -1 : 1) * F.pow2(lo + h.int(hi - lo + 1)) * h.range(1, 2);
+    const h3 = P.makePrng(2607), qBad = [];
+    for (let i = 0; i < 6e4; i++) {
+      const fam = i % 3, mk = () => (fam === 0 ? anyCoef(h3, -1074, 1023) : fam === 1 ? anyCoef(h3, -300, 300) : anyCoef(h3, -3, 3));
+      const cs = [mk(), i % 11 === 0 ? 0 : mk(), i % 13 === 0 ? 0 : mk()];
+      let rs; try { rs = Ro.quadratic(...cs); } catch (e) { qBad.push(`refused ${cs}: ${e.code}`); continue; }
+      const [a, b, c] = cs.map(X), sign = sgnX(xsum(xmul(b, b), xk(-4, xmul(a, c))));
+      if (rs.length !== (sign < 0 ? 0 : 2)) { qBad.push(`${rs.length} roots, discriminant sign ${sign}: ${cs}`); continue; }
+      if (sign === 0 && rs[0] !== rs[1]) qBad.push(`a double root returned as two: ${cs} → ${rs}`);
+      if (sign > 0 && !(rs[0] <= rs[1])) qBad.push(`not ascending: ${cs}`);
+      if (rs.some((r) => r !== r)) { qBad.push(`NaN: ${cs}`); continue; }
+      if (sign > 0 && (fam < 2 || Math.abs(rs[1] - rs[0]) > 1e-3 * Math.abs(rs[1]))) for (const r of rs) if (!placed(cs, r, 4)) qBad.push(`root ${r} of ${cs} is not within 4 doubles of a sign change`);
+    }
+    ok(qBad.length === 0, 'quadratic, any finite coefficients (subnormal to MAX, zeros among them; 6e4 cases, seed 2607): the count is what the exact discriminant says, a double root comes back as a pair, and each root is within 4 doubles of an exact sign change' + (qBad.length ? `\n       ${qBad.length} wrong, e.g. ${qBad.slice(0, 3).join(' | ')}` : ''));
+    const q1 = Ro.quadratic(1e-320, 1, 1), q2 = Ro.quadratic(1e-200, 1e200, 1e-200), q3 = Ro.quadratic(1e-200, 1, 1e-200), q4 = Ro.quadratic(0, 5e-324, 1e308), q5 = Ro.quadratic(1e308, 1e308, -1e308);
+    ok(q1[0] === -Infinity && q1[1] === -1 && q2[0] === -Infinity && Object.is(q2[1], -0) && q3.length === 2 && Math.abs(q3[0] / -1e200 - 1) <= 2 * EPS && Math.abs(q3[1] / -1e-200 - 1) <= 2 * EPS && q4[0] === -Infinity && Math.abs(q5[1] - 0.6180339887498949) <= EPS,
+      'quadratic at the ends of the range: a root past the largest double comes back as ±Infinity (it exists, and its place in the order is right), one below the smallest as ±0, and the others are unharmed');
+
+    // cubic: whole-number roots, where the coefficients are exact and so is the answer about repeats
+    const cBad = [], kinds = ['distinct', 'double', 'triple', 'adjacent', 'large'];
+    let cWorst = 0;
+    for (let i = 0; i < 5e4; i++) {
+      const k = i % 5, S = k === 4 ? 100000 : 100, w = () => h3.int(2 * S + 1) - S;
+      let r1 = w(), r2 = w(), r3 = w();
+      if (k === 1) r2 = r1; if (k === 2) { r2 = r1; r3 = r1; } if (k === 3) r2 = r1 + 1;
+      const m = k === 4 ? 1 : (1 + h3.int(50)) * (h3.u32() & 1 ? 1 : -1), cs = [m, -m * (r1 + r2 + r3), m * (r1 * r2 + r1 * r3 + r2 * r3), -m * r1 * r2 * r3];
+      const want = [r1, r2, r3].sort((p, q) => p - q);
+      let rs; try { rs = Ro.cubic(...cs); } catch (e) { cBad.push(`refused ${kinds[k]} ${want}: ${e.code}`); continue; }
+      if (rs.length !== 3) { cBad.push(`${kinds[k]} roots ${want}: ${rs.length} returned`); continue; }
+      const repeated = want[0] === want[1] || want[1] === want[2];
+      if (repeated && !rs.every((x, j) => x === want[j])) cBad.push(`repeated whole roots ${want} came back as ${rs}`);
+      const err = Math.max(...rs.map((x, j) => Math.abs(x - want[j]) / Math.max(1, Math.abs(want[j]))));
+      cWorst = Math.max(cWorst, err);
+      if (err > 8 * EPS) cBad.push(`${kinds[k]} roots ${want} came back as ${rs}`);
+    }
+    ok(cBad.length === 0, `cubic with whole-number roots (5e4 cubics: distinct, double, triple, adjacent, large): always three roots; a double or triple root comes back exactly, as often as it repeats; the rest within 8 EPS (worst ${(cWorst / EPS).toFixed(1)} EPS)` + (cBad.length ? `\n       ${cBad.length} wrong, e.g. ${cBad.slice(0, 3).join(' | ')}` : ''));
+    // the count, for any coefficients in the domain, is the exact discriminant's
+    const disc = (cs) => { const [a, b, c, d] = cs.map(X), m = xmul; return sgnX(xsum(xk(18, m(m(a, b), m(c, d))), xk(-4, m(m(b, b), m(b, d))), m(m(b, b), m(c, c)), xk(-4, m(a, m(c, m(c, c)))), xk(-27, m(m(a, a), m(d, d))))); };
+    const dBad = []; let refusedWide = 0, three = 0, one = 0;
+    for (let i = 0; i < 6e4; i++) {
+      const fam = i % 3, mk = () => (fam === 0 ? anyCoef(h3, -110, 110) : fam === 1 ? anyCoef(h3, -20, 20) : h3.int(41) - 20);
+      const cs = [mk() || 1, mk(), mk(), mk()];
+      let rs; try { rs = Ro.cubic(...cs); } catch (e) { if (e.code === 'solid.err.bad_input' && e.vars.why === 'out_of_range' && fam === 0) refusedWide++; else dBad.push(`refused ${cs}: ${e.code}`); continue; }
+      const sd = disc(cs);
+      if (rs.length !== (sd < 0 ? 1 : 3)) { dBad.push(`${rs.length} roots, discriminant sign ${sd}: ${cs} → ${rs}`); continue; }
+      if (sd > 0) three++; else if (sd < 0) one++;
+      if (rs.some((r) => !Number.isFinite(r)) || !(rs.length === 1 || (rs[0] <= rs[1] && rs[1] <= rs[2]))) dBad.push(`not finite or not ascending: ${cs} → ${rs}`);
+      if (sd < 0 && !placed(cs, rs[0], 16)) dBad.push(`the single root ${rs[0]} of ${cs} is not within 16 doubles of a sign change`);
+      if (sd === 0 && !(rs[0] === rs[1] || rs[1] === rs[2])) dBad.push(`discriminant 0 but no repeated root: ${cs} → ${rs}`);
+    }
+    ok(dBad.length === 0 && three > 5000 && one > 5000, `cubic, 6e4 cubics over 220 binades and small whole numbers: one root or three exactly as the exact discriminant says (${one} and ${three}), a zero discriminant gives a repeated root, a single root is within 16 doubles of an exact sign change; ${refusedWide} too widely scaled were refused` + (dBad.length ? `\n       ${dBad.length} wrong, e.g. ${dBad.slice(0, 3).join(' | ')}` : ''));
+    // two roots close together, the hard case for any cubic solver: the coefficients are doubles, and the exact polynomial
+    // they stand for decides. Each root must have an exact sign change within 4 doubles of it, on one side or the other.
+    const beside = (cs, r, n) => { const s0 = sgnX(xval(cs, r)); if (s0 === 0) return true; for (let k = 1; k <= n; k++) if (sgnX(xval(cs, step(r, k, false))) !== s0 || sgnX(xval(cs, step(r, k, true))) !== s0) return true; return false; };
+    const nBad = []; let closeThree = 0, far4 = 0;
+    for (let i = 0; i < 3e4; i++) {
+      const k = i % 3; let cs;
+      if (k === 0) { const r = h3.int(2001) - 1000, dl = F.pow2(-(20 + h3.int(30))), sx = h3.int(2001) - 1000; cs = [1, -(2 * r + dl + sx), r * (r + dl) + sx * (2 * r + dl), -r * (r + dl) * sx]; }
+      else if (k === 1) { const r = h3.range(-3, 3), dl = F.pow2(-(8 + h3.int(44))) * h3.range(1, 2), sx = h3.range(-3, 3); cs = [1, -(2 * r + dl + sx), r * (r + dl) + sx * (2 * r + dl), -r * (r + dl) * sx]; }
+      else { const r = h3.range(-2, 2), sx = h3.range(-2, 2), e = h3.range(-1, 1) * F.pow2(-h3.int(52)); cs = [1, -(2 * r + sx), r * r + 2 * r * sx - e, -r * r * sx]; }
+      const rs = Ro.cubic(...cs), sd = disc(cs);
+      if (rs.length !== (sd < 0 ? 1 : 3)) { nBad.push(`${rs.length} roots, discriminant sign ${sd}: ${cs}`); continue; }
+      if (sd > 0) closeThree++;
+      for (const r of rs) if (sd !== 0 && !beside(cs, r, 4)) { far4++; if (nBad.length < 3) nBad.push(`root ${r} of ${cs}`); }
+    }
+    ok(nBad.length === 0 && closeThree > 5000, `cubic with two roots close together (3e4 cubics, the pair from 2^-8 down to nothing apart; ${closeThree} with three roots): the count is exact, and every root has an exact sign change within 4 doubles` + (nBad.length ? `\n       ${far4} roots farther; e.g. ${nBad.join(' | ')}` : ''));
+    // a pair closer than doubles can separate (1 ± 2^-120), on either side of the third root; and a pair that defeats the
+    // fast path beside a root 200 binades smaller, which bisection must reach in its ~70 steps
+    const tight1 = Ro.cubic(-F.pow2(-240), 1, -2, 1), tight2 = Ro.cubic(F.pow2(-240), 1, 2, 1), tight3 = Ro.cubic(-F.pow2(-240), -1, 2, -1), tight4 = Ro.cubic(F.pow2(-240), -1, -2, -1);
+    ok(same([...tight1], [1, 1, F.pow2(240)]) && same([...tight2], [-F.pow2(240), -1, -1]) && same([...tight3], [-F.pow2(240)]) && same([...tight4], [F.pow2(240)]),
+      'cubic: two roots 2^-119 apart beside one at ±2^240 (three real roots, exactly) come back as the pair at ±1 and the far root, on whichever side the pair lies; with the sign that makes the pair complex, the far root alone');
+    const oneThird = 0.3333333333333333, tight5 = Ro.cubic(-F.pow2(-240), 9, -6, 1), tight6 = Ro.cubic(F.pow2(-240), 9, 6, 1);
+    ok(same([...tight5], [oneThird, oneThird, 9 * F.pow2(240)]) && same([...tight6], [-9 * F.pow2(240), -oneThird, -oneThird]),
+      'cubic: the same around ±1/3, which no double lies between: both roots of the pair are reported at the double nearest 1/3');
+    const e40 = F.pow2(-50), mixed = [1, -(2 + e40), 1 + e40, F.pow2(-200) * (1 + e40)], mix = Ro.cubic(...mixed);
+    ok(mix.length === 3 && Math.abs(mix[0] / -F.pow2(-200) - 1) <= 4 * EPS && mix.every((r) => beside(mixed, r, 4)) && mix[1] < mix[2] && mix[2] - mix[1] < 2 * e40,
+      `cubic: roots at −2^-200, 1 and 1 + 2^-50 together: each within 4 doubles of its sign change (${mix.map((r) => r.toExponential(3)).join(', ')})`);
+    // scale: a change of variable x → 2^k x and a common factor 2^j move nothing but exponents
+    let inv = true;
+    for (let i = 0; i < 4000; i++) {
+      const cs = [h3.range(0.5, 2), i % 4 === 0 ? 0 : h3.range(-4, 4), h3.range(-4, 4), i % 8 < 2 ? 0 : h3.range(-4, 4)], base = Ro.cubic(...cs), k = h3.int(401) - 200, j = h3.int(401) - 200;
+      const moved = Ro.cubic(cs[0] * F.pow2(j - 3 * k), cs[1] * F.pow2(j - 2 * k), cs[2] * F.pow2(j - k), cs[3] * F.pow2(j));
+      if (!(moved.length === base.length && moved.every((x, n) => x === base[n] * F.pow2(k)))) inv = false;
+    }
+    ok(inv, 'cubic: scaling x by 2^k and every coefficient by 2^j (k and j from −200 to 200) scales the roots by 2^k and changes no other bit (4000 cubics, a third with zero coefficients, where two changes of variable tie)');
+    const c1 = Ro.cubic(1e-110, 1, -3, 2), c2 = Ro.cubic(1e-200, 0, 0, 1e200), c3 = Ro.cubic(1, 0, 0, -5e-324), c4 = Ro.cubic(5e-324, 1e308, 0, 0);
+    ok(c1.length === 3 && Math.abs(c1[0] / -1e110 - 1) <= 4 * EPS && Math.abs(c1[1] - 1) <= 4 * EPS && Math.abs(c1[2] - 2) <= 8 * EPS && c2.length === 1 && Math.abs(c2[0] / -2.1544346900318838e133 - 1) <= 4 * EPS && c3.length === 1 && Math.abs(c3[0] / 1.7031839360032603e-108 - 1) <= 4 * EPS && same([...c4], [-Infinity, 0, 0]),
+      'cubic far from scale 1: a leading coefficient of 1e-110 (roots −1e110, 1, 2), x³ = −1e400 and x³ = 5e-324, and a root past the largest double as −Infinity');
+    ok(refuses(() => Ro.cubic(1e-150, 1, -3, 2), bad, { name: 'coefficients', why: 'out_of_range' }) && refuses(() => Ro.cubic(1, 1e100, 1, 1e-100), bad, { why: 'out_of_range' }), 'cubic refuses coefficients no power-of-two change of variable brings within 2^250 of each other (roots some 1e75 apart), rather than answer wrongly');
+    const near = Ro.cubic(1, -(7 + F.pow2(-26)), 11 + 6 * F.pow2(-26), -5 * (1 + F.pow2(-26)));     // roots 1, 1 + 2^-26, 5: exact coefficients
+    ok(near.length === 3 && Math.abs(near[0] - 1) <= F.pow2(-40) && Math.abs(near[1] - (1 + F.pow2(-26))) <= F.pow2(-40) && Math.abs(near[2] - 5) <= 8 * EPS, `cubic: two roots 2^-26 apart are both found (errors ${Math.abs(near[0] - 1).toExponential(1)} and ${Math.abs(near[1] - 1 - F.pow2(-26)).toExponential(1)})`);
+    // a bracket wider than the largest double
+    const wideB = Ro.brent((x) => x - 1, -1e308, 1e308), wideN = Ro.newton((x) => x - 1, () => 1, -F.MAX, F.MAX), wideS = Ro.brent((x) => (x < -3e307 ? -1 : 1), -F.MAX, F.MAX);
+    ok(Math.abs(wideB.x - 1) <= 4 * EPS + 2 * EPS * EPS * 1e308 && wideN.x === 1 && Math.abs(wideS.x / -3e307 - 1) <= 4 * EPS, 'brent and newton on a bracket wider than the largest double (−1e308 to 1e308, −MAX to MAX): no overflow inside');
     const f1 = (x) => x * x * x - 2 * x - 5, d1 = (x) => 3 * x * x - 2;
     const b1 = Ro.brent(f1, 2, 3), n1 = Ro.newton(f1, d1, 2, 3);
     ok(Math.abs(b1.x - 2.0945514815423265) <= 4 * EPS * 2.1 && Math.abs(n1.x - 2.0945514815423265) <= 4 * EPS * 2.1 && b1.iterations < 15 && n1.iterations < 10 && Object.isFrozen(b1), `brent and newton: x³ − 2x − 5 = 0 at 2.0945514815423265 (brent ${b1.iterations} steps, newton ${n1.iterations})`);
@@ -349,6 +485,12 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     }
     ok(rc, 'rcond1 on the inverse Hilbert matrices (integer, exact in doubles; their inverse is the Hilbert matrix, so κ₁ is exact in BigInt), n = 2 … 11: estimate/true in [0.9, 3], and solves stay backward stable');
     if (!rc) console.log('       ' + notes.join('; '));
+    const dg = (v, n) => Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? v : 0)));
+    ok(LA.det(dg(1e200, 2)) === Infinity && LA.det(dg(-1e200, 3)) === -Infinity && LA.det(dg(1e-200, 2)) === Number.MIN_VALUE && LA.det(dg(-1e-200, 3)) === -Number.MIN_VALUE && LA.det(dg(1e100, 4).map((r, i) => (i < 2 ? r : r.map((v) => v * 1e-200)))) === 1e100 * 1e100 * (1e100 * 1e-200) * (1e100 * 1e-200) && LA.det([[1e-200, 0], [0, 0]]) === 0,
+      'det is 0 only when the matrix is singular: a determinant below the smallest double comes back as ±2^-1074, one past the largest as ±Infinity, and factors that only pass through overflow on the way are unharmed');
+    let detSame = true;
+    for (let i = 0; i < 2000; i++) { const n = 1 + g.int(7), A = Array.from({ length: n }, () => Array.from({ length: n }, () => g.range(-5, 5))), f = LA.lu(A); let d = f.sign; for (let k = 0; k < n; k++) d *= f.lu[k][k]; if (LA.det(A) !== d) detSame = false; }
+    ok(detSame, 'det in the ordinary range is the product of the pivots, bit for bit (2000 matrices)');
     ok(LA.det([[2, 0, 0], [0, 3, 0], [0, 0, 4]]) === 24 && LA.det([[0, 1], [1, 0]]) === -1 && LA.det([[1, 2], [2, 4]]) === 0 && LA.rcond1([[1, 2], [2, 4]]) === 0 && LA.rcond1([[5]]) === 1, 'det: diagonal, a swap, singular; rcond1 is 0 for a singular matrix and 1 for a 1 × 1');
     ok(refuses(() => LA.solve([[1, 2], [2, 4]], [1, 2]), 'solid.err.singular', { why: 'pivot', size: 2, column: 1 }) && refuses(() => LA.lu([[0, 0], [0, 1]]), 'solid.err.singular', { column: 0 }), 'singular systems are refused with the column where the pivot vanished');
     ok(refuses(() => LA.solve([[1, 2]], [1]), bad, { why: 'not_square' }) && refuses(() => LA.solve([[1, NaN], [0, 1]], [1, 1]), bad, { why: 'not_finite' }) && refuses(() => LA.solve([[1, 0], [0, 1]], [1]), bad, { name: 'b', why: 'shape' }) && refuses(() => LA.lu([]), bad, { why: 'not_a_matrix' }), 'malformed matrices and right-hand sides are refused');

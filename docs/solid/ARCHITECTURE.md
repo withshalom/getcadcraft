@@ -19,7 +19,7 @@ add-ons can build on.
 | Host copies | `solid/` in each host app's build folder, byte-identical (a `sync.mjs --check` comes with the first host) |
 | Errors | `SolidError(code, vars)`, codes `solid.err.*` |
 | Licence | Apache-2.0 |
-| Version | `VERSION` in `index.js` (0.0.6 after the S4 bug review and the browser runs) |
+| Version | `VERSION` in `index.js` (0.0.7 after the two reviews and the browser runs) |
 
 **Why an engine, not an app feature.** Every 3D app in the suite (PartCraft, ModelCraft, CadCraft's 3D tab, BimCraft,
 SuperCad) needs exact solids. None has them today: they use mesh kernels and manifold booleans. Built once as an engine,
@@ -51,7 +51,7 @@ cannot share a bug with what it judges. Only `geom` and above may import outside
 
 | Layer | Holds | Built |
 |---|---|---|
-| `core/` | `errors` (typed refusals) · `tol` (the one tolerance policy) · `limits` (work budgets) · `float` (bits, error-free transformations, directed rounding) · `trig` (deterministic elementary functions) · `prng` (seeded generator) · `intervals` (outward-rounded intervals) | S1, S2 |
+| `core/` | `errors` (typed refusals) · `tol` (the one tolerance policy) · `limits` (work budgets) · `float` (bits, error-free transformations, directed rounding) · `trig` (deterministic elementary functions) · `prng` (seeded generator) · `intervals` (outward-rounded intervals) · `exact` (exact signs and quotients, whole-number arithmetic) | S1, S2 |
 | `math/` | `vec3` · `mat4` · `frame` · `aabb` · `quad` · `roots` · `linalg` · `predicates` | S2, S3 |
 | `geom/` | curves and surfaces: wraps cc-nurbs, adds analytic classes, exact conversions, interval bounds, intersection rings | S4–S10, S25–S27 |
 | `topo/` | vertices, edges, coedges with pcurves, loops, faces, shells, solids; stable ids; Euler operators | S11–S13 |
@@ -121,7 +121,7 @@ decisions and build different solids from the same file. So:
   - Only operations ECMAScript specifies exactly: + − × ÷ (IEEE 754, round to nearest), and `Math.sqrt` (fully
     specified since ES2025).
   - Exact helpers: `floor`, `abs`, `min`, `max`, `fround`, `imul` and `clz32`.
-  - Whole-number (BigInt) arithmetic, which is exact by definition. One use: reducing a huge angle in `core/trig.js`.
+  - Whole-number (BigInt) arithmetic, which is exact by definition. Two uses: reducing a huge angle in `core/trig.js`, and `core/exact.js`, which decides a discriminant's sign when doubles cannot.
 - **Elementary functions** are computed in `core/trig.js` from those operations (D-tr). Not `Math.sin` or `**`: those are
   "implementation-approximated" and may differ between engines. The `trig` rule refuses them everywhere in the engine.
   cc-field took the same route (`detmath.js`); cc-solid adds:

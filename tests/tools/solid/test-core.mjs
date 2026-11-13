@@ -34,6 +34,7 @@ export async function register({ section, ok, refuses, same, appUrl }) {
   const T = await import(appUrl('solid/core/trig.js'));
   const P = await import(appUrl('solid/core/prng.js'));
   const I = await import(appUrl('solid/core/intervals.js'));
+  const P2 = { exact: await import(appUrl('solid/core/exact.js')) };
   const bad = 'solid.err.bad_input';
 
   /** Any double with a biased exponent in [lo, hi] (0: subnormals and zero; 2046: the top binade), either sign. */
@@ -168,6 +169,53 @@ export async function register({ section, ok, refuses, same, appUrl }) {
       if (!(xcmp(xmul(X(lo), X(lo)), ea) <= 0 && xcmp(xmul(X(hi), X(hi)), ea) >= 0 && (lo === s || lo === F.nextDown(s)) && (hi === s || hi === F.nextUp(s)) && (lo === s || hi === s))) sq = false;
     }
     ok(sq && F.sqrtDown(4) === 2 && F.sqrtUp(4) === 2 && F.sqrtDown(F.pow2(-1000)) === F.pow2(-500), 'sqrtDown² ≤ a ≤ sqrtUp², each the rounded root or its neighbour, one of them the rounded root (1e5 values of every binade, subnormals included); exact roots kept');
+    // The whole range, edges first: next to MAX, past 2^995, results below 2^-969, subnormals, x / x. A pair of bounds is
+    // right when it is the two doubles around the exact value, or one double equal to it. Nothing weaker.
+    const edge = (h) => {
+      const k = h.int(9), sgn = h.u32() & 1 ? -1 : 1;
+      if (k === 0) return sgn * F.MAX * (1 - h.int(6) * F.pow2(-53));
+      if (k === 1) return sgn * (1 + h.int(3000)) * Number.MIN_VALUE;
+      if (k === 2) return sgn * F.pow2(h.int(2046) - 1022) * (1 + h.int(4) * F.EPS);
+      if (k === 3) return sgn * F.pow2(h.int(2046) - 1022) * (2 - (1 + h.int(4)) * F.EPS);
+      if (k === 4) return sgn * [F.pow2(995), F.pow2(996), F.pow2(-969), F.pow2(-970), F.pow2(511), F.pow2(512), F.pow2(-537), F.pow2(-538), 134217729, 1, 3][h.int(11)];
+      if (k === 5) return sgn * (h.int(1 << 20) + 1);
+      return anyDouble(h, 0, 2046);
+    };
+    const around = (lo, hi, cmpLo, cmpHi) => (cmpLo === 0 && cmpHi === 0 && lo === hi) || (cmpLo < 0 && cmpHi > 0 && hi === F.nextUp(lo) && lo !== hi);   // cmp: sign(bound − exact)
+    const h2 = P.makePrng(1213), wrong = { mul: 0, div: 0, sqrt: 0 };
+    const sample = {};
+    const inf = (x) => x === Infinity || x === -Infinity;
+    for (let i = 0; i < 2e5; i++) {
+      let a = edge(h2), b = edge(h2);
+      if (i % 4 === 0) b = a * [1, -1, 0.5, 2, 1 + F.EPS][h2.int(5)];
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+      const ex = xmul(X(a), X(b)), lo = F.mulDown(a, b), hi = F.mulUp(a, b);
+      if (!around(lo, hi, inf(lo) ? -1 : xcmp(X(lo), ex), inf(hi) ? 1 : xcmp(X(hi), ex)) && !(a === 0 || b === 0)) { wrong.mul++; sample.mul ||= [a, b, lo, hi]; }
+      if (b !== 0 && a !== 0) {
+        const dl = F.divDown(a, b), dh = F.divUp(a, b), ea = X(a), sb = b > 0 ? 1 : -1;       // bound − a/b has the sign of (bound·b − a)·sign(b)
+        if (!around(dl, dh, inf(dl) ? -1 : sb * xcmp(xmul(X(dl), X(b)), ea), inf(dh) ? 1 : sb * xcmp(xmul(X(dh), X(b)), ea))) { wrong.div++; sample.div ||= [a, b, dl, dh]; }
+      }
+      const x = Math.abs(a), sl = F.sqrtDown(x), sh = F.sqrtUp(x);
+      if (x !== 0 && !around(sl, sh, xcmp(xmul(X(sl), X(sl)), X(x)), xcmp(xmul(X(sh), X(sh)), X(x)))) { wrong.sqrt++; sample.sqrt ||= [x, sl, sh]; }
+    }
+    ok(wrong.mul === 0 && wrong.div === 0 && wrong.sqrt === 0, 'mul, div and sqrt bounds are the two doubles around the exact value, or the value itself, over the whole range: next to MAX, past 2^995, below 2^-969, subnormals, x / x (2e5 pairs, seed 1213)' + (wrong.mul + wrong.div + wrong.sqrt ? `\n       wrong: ${JSON.stringify(wrong)} e.g. ${JSON.stringify(sample)}` : ''));
+    ok(F.sqrtUp(F.MAX) * F.sqrtUp(F.MAX) === Infinity && F.sqrtDown(F.MAX) === Math.sqrt(F.MAX) && F.mulDown(F.MAX, 1) === F.MAX && F.mulUp(F.MAX, 1) === F.MAX && F.divDown(F.MAX, F.MAX) === 1 && F.divUp(Number.MIN_VALUE, Number.MIN_VALUE) === 1 && F.divDown(3 * Number.MIN_VALUE, 3 * Number.MIN_VALUE) === 1 && F.mulDown(F.pow2(1000), 0.5) === F.pow2(999) && F.mulUp(F.pow2(-600), F.pow2(-450)) === F.pow2(-1050),
+      'exact results come back as they are at every size: MAX · 1, MAX / MAX, a subnormal by itself, 2^1000 · ½, 2^-600 · 2^-450');
+    let sb = true;
+    for (let i = 0; i < 1e5; i++) {
+      const x = edge(h2), k = h2.int(4401) - 2200;
+      if (!Number.isFinite(x) || x === 0) continue;
+      const y = F.scalb(x, k), ex = { N: X(x).N, E: X(x).E + k };                      // x · 2^k exactly
+      const off = xsub(X(Number.isFinite(y) ? y : 0), ex), twice = { N: 2n * (off.N < 0n ? -off.N : off.N), E: off.E };   // 2 · |y − exact|
+      const fine = !Number.isFinite(y) ? (y > 0) === (x > 0) && xcmp({ N: ex.N < 0n ? -ex.N : ex.N, E: ex.E }, X(F.MAX)) > 0
+        : off.N === 0n || (Math.abs(y) < F.MIN_NORMAL && xcmp(twice, X(Number.MIN_VALUE)) <= 0);          // exact, or rounded to nearest among the subnormals
+      if (!fine) sb = false;
+    }
+    ok(sb && F.scalb(3, 2) === 12 && F.scalb(Number.MIN_VALUE, 2097) === F.pow2(1023) && F.scalb(F.pow2(1023), -2097) === Number.MIN_VALUE && F.scalb(1.5, -1075) === Number.MIN_VALUE && F.scalb(1, -1075) === 0 && Object.is(F.scalb(-0, 5000), -0) && F.scalb(1, 5000) === Infinity && F.scalb(-1, -5000) === 0,
+      'scalb: x · 2^k exactly wherever that is a double, for k from −2200 to 2200 (1e5 edge values); into the subnormals it lands on a neighbour of the exact value; past MAX it is ±Infinity');
+    let pe = true;
+    for (let i = 0; i < 1e5; i++) { const a = edge(h2), b = edge(h2), p = a * b; if (Number.isFinite(a) && Number.isFinite(b) && F.prodExact(a, b, p)) { const e = F.prodErr(a, b, p); if (!(Number.isFinite(e) && xcmp(xmul(X(a), X(b)), xadd(X(p), X(e))) === 0)) pe = false; } }
+    ok(pe && !F.prodExact(Math.sqrt(F.MAX), Math.sqrt(F.MAX), Math.sqrt(F.MAX) * Math.sqrt(F.MAX)), 'prodErr is exact wherever prodExact says so, next to MAX included (1e5 edge pairs)');
     ok(F.addDown(F.MAX, F.MAX) === F.MAX && F.addUp(F.MAX, F.MAX) === Infinity && F.mulDown(F.pow2(-600), F.pow2(-600)) === 0 && F.mulUp(F.pow2(-600), F.pow2(-600)) === Number.MIN_VALUE && F.mulUp(-F.pow2(-600), F.pow2(-600)) === 0, 'overflow and underflow land on the right side');
   });
 
@@ -267,6 +315,37 @@ export async function register({ section, ok, refuses, same, appUrl }) {
   });
 
   // ================================================================================================ intervals
+  section('exact', 'exact signs and quotients of sums of products of doubles, against an independent exact evaluation', () => {
+    const Ex = P2.exact, h = P.makePrng(4409);
+    const anyX = () => { const k = h.int(6); return k === 0 ? (h.int(9) - 4) : k === 1 ? F.pow2(h.int(2098) - 1074) * (h.u32() & 1 ? -1 : 1) : k === 2 ? anyDouble(h, 0, 2046) : (h.u32() & 1 ? -1 : 1) * h.range(1, 2) * F.pow2(h.int(60) - 30); };
+    const valueOf = (sum) => sum.reduce((acc, [k, ...xs]) => xadd(acc, xs.reduce((p, x) => xmul(p, X(x)), { N: BigInt(k), E: 0 })), { N: 0n, E: 0 });
+    const mkSum = () => Array.from({ length: 1 + h.int(5) }, () => [h.int(61) - 30, ...Array.from({ length: h.int(5) }, anyX)].map((v) => (Number.isFinite(v) ? v : 1)));
+    let signs = true, zeros = 0, ratios = true, worst = '';
+    for (let i = 0; i < 3e4; i++) {
+      let sum = mkSum();
+      if (i % 3 === 0) { const t = sum[0]; sum = [...sum, [-t[0], ...t.slice(1).reverse()]]; if (i % 6 === 0) sum = [t, [-t[0], ...t.slice(1)]]; }   // cancelling pairs: exact zeros and near-zeros
+      const v = valueOf(sum), want = v.N > 0n ? 1 : v.N < 0n ? -1 : 0;
+      if (want === 0) zeros++;
+      if (Ex.sumSign(sum) !== want) signs = false;
+      const den = mkSum(), dv = valueOf(den);
+      if (dv.N === 0n) continue;
+      const r = Ex.sumRatio(sum, den);
+      // r is the exact quotient rounded to nearest: 2 · |r · den − num| ≤ ulp(r) · |den| (subnormal results: within one double)
+      if (!Number.isFinite(r)) { const big = xcmp({ N: v.N < 0n ? -v.N : v.N, E: v.E }, xmul(X(F.MAX), { N: dv.N < 0n ? -dv.N : dv.N, E: dv.E })) > 0; if (!big || (r > 0) !== ((v.N > 0n) === (dv.N > 0n))) { ratios = false; worst = 'infinite: ' + JSON.stringify(sum) + ' / ' + JSON.stringify(den) + ' → ' + r; } continue; }
+      const off = xsub(xmul(X(r), dv), v), absOff = { N: 2n * (off.N < 0n ? -off.N : off.N), E: off.E }, absDen = { N: dv.N < 0n ? -dv.N : dv.N, E: dv.E };
+      const ulpTop = F.nextUp(Math.abs(r)) - Math.abs(r);
+      if (xcmp(absOff, xmul(X(Math.abs(r) < F.MIN_NORMAL ? 2 * Number.MIN_VALUE : ulpTop), absDen)) > 0) { ratios = false; worst = `${JSON.stringify(sum)} / ${JSON.stringify(den)} → ${r}`; }
+    }
+    ok(signs && zeros > 3000, `sumSign: the sign of 3e4 sums of up to 6 products of up to 4 doubles of every size, ${zeros} of them exactly 0 (seed 4409)`);
+    ok(ratios, 'sumRatio: the exact quotient rounded to the nearest double (within one double among the subnormals), ±Infinity past the largest' + (ratios ? '' : ' — ' + worst));
+    ok(Ex.sumSign([[1, 0.1, 0.1], [-1, 0.01]]) === 1 && 0.1 * 0.1 - 0.01 > 0 && Ex.sumSign([[1, 3, 3], [-4, 1, 2.25]]) === 0 && Ex.sumSign([]) === 0 && Ex.sumSign([[5]]) === 1 && Ex.sumSign([[-1, Number.MIN_VALUE, Number.MIN_VALUE]]) === -1 && Ex.sumSign([[1, F.MAX, F.MAX], [-1, F.MAX, F.nextDown(F.MAX)]]) === 1,
+      'sumSign: 0.1 · 0.1 − 0.01 > 0 exactly, a perfect square\'s discriminant is 0, and products past the largest or below the smallest double keep their sign');
+    ok(Ex.sumRatio([[1, 1]], [[3]]) === 1 / 3 && Ex.sumRatio([[9, 1, -2], [-1, -4, 5]], [[2, -4, -4], [-6, 1, 5]]) === 1 && Ex.sumRatio([[0, 5]], [[1, 2]]) === 0 && Ex.sumRatio([[1, F.MAX, F.MAX]], [[1, F.MAX]]) === F.MAX && Ex.sumRatio([[1, F.MAX, 4]], [[1, 2]]) === Infinity && Ex.sumRatio([[-1, Number.MIN_VALUE]], [[1, 4]]) === 0,
+      'sumRatio: 1/3, the double root of x³ − 4x² + 5x − 2, a zero numerator, and quotients at the ends of the range');
+    ok(refuses(() => Ex.sumRatio([[1, 1]], [[1, 2], [-2, 1]]), bad, { name: 'den', why: 'zero' }) && refuses(() => Ex.sumSign([[1, NaN]]), bad, { name: 'sum', why: 'not_finite' }) && refuses(() => Ex.sumSign([[1, Infinity]]), bad, { why: 'not_finite' }) && refuses(() => Ex.sumSign([[0.5, 1]]), bad, { why: 'not_finite' }) && refuses(() => Ex.sumSign(5), bad, { why: 'not_finite' }),
+      'a zero denominator, a NaN or infinite factor, a multiplier that is not a whole number: refused');
+  });
+
   section('intervals', 'interval arithmetic: every exact result inside (BigInt), exact cases kept tight, crests found', () => {
     ok(same(I.iv(1, 2), [1, 2]) && same(I.iv(3), [3, 3]) && same(I.iv(-Infinity, Infinity), [-Infinity, Infinity]), 'iv makes intervals');
     ok([[2, 1], [NaN, 1], [0, NaN], ['0', 1]].every(([a, b]) => refuses(() => I.iv(a, b), bad, { name: 'interval', why: 'not_an_interval' })), 'iv refuses lo > hi, NaN and non-numbers');

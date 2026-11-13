@@ -107,6 +107,14 @@ const AREAS = {
       mix(F.twoSum(a, b)); mix(F.twoProd(a, b)); mix(F.nextUp(a)); mix(F.nextDown(a)); mix(F.ulp(a)); mix(F.bits(a));
       mix(F.sqrtDown(Math.abs(a))); mix(F.sqrtUp(Math.abs(a))); mix(Math.sqrt(Math.abs(b))); mix(a / b); mix(a * b + a);
     }
+    for (let i = 0; i < 3000; i++) {                     // the ends of the range: next to MAX, past 2^995, subnormals, x / x
+      const top = F.MAX * (1 - h.int(6) * F.pow2(-53)), sub = (1 + h.int(3000)) * Number.MIN_VALUE, big = F.pow2(996 + h.int(27)) * h.range(1, 2), x = any();
+      for (const [a, b] of [[top, h.range(0.5, 2)], [Math.sqrt(top), Math.sqrt(top)], [sub, h.range(1, 3)], [sub, sub], [big, F.pow2(-h.int(900)) * h.range(1, 2)], [top, top], [x, x], [sub, big]]) {
+        for (const f of [F.mulDown, F.mulUp, F.divDown, F.divUp]) mix(f(a, b));
+        mix(F.sqrtDown(Math.abs(a))); mix(F.sqrtUp(Math.abs(a)));
+      }
+      mix(F.scalb(x, h.int(4401) - 2200)); mix(F.scalb(sub, h.int(2200))); mix(F.scalb(top, -h.int(2200)));
+    }
   },
   intervals(P, { mix }) {
     const I = P.intervals, F = P.float, h = P.makePrng(102);
@@ -151,6 +159,20 @@ const AREAS = {
       mix(got(() => R.brent((x) => T.cos(x) - s * x, 0, 1.5, { eps: 1e-9 })));
     }
     mix(got(() => R.brent((x) => x * x * x, -1, 2))); mix(got(() => R.brent((x) => x * x + 1, -1, 2)));
+    const F = P.float, whole = (n) => h.int(2 * n + 1) - n, wide = () => (h.u32() & 1 ? -1 : 1) * F.pow2(h.int(2098) - 1074) * h.range(1, 2);
+    for (let i = 0; i < 1500; i++) {                     // repeated roots (decided exactly), every size of coefficient, refusals
+      const r1 = whole(100), r2 = i % 3 ? r1 : whole(100), r3 = i % 5 ? whole(100) : r1, m = 1 + h.int(40);
+      mix(got(() => R.cubic(m, -m * (r1 + r2 + r3), m * (r1 * r2 + r1 * r3 + r2 * r3), -m * r1 * r2 * r3)));
+      mix(got(() => R.quadratic(m, -m * (r1 + r2), m * r1 * r2))); mix(got(() => R.quadratic(wide(), i % 7 ? wide() : 0, i % 11 ? wide() : 0)));
+      const e = () => (h.u32() & 1 ? -1 : 1) * F.pow2(h.int(241) - 120) * h.range(1, 2);
+      mix(got(() => R.cubic(e(), e(), e(), e()))); mix(got(() => R.cubic(wide(), i % 2 ? 0 : wide(), 0, wide())));
+    }
+    for (let i = 0; i < 600; i++) {                      // two roots close together: certified, or bracketed between turning points
+      const r = h.range(-3, 3), dl = F.pow2(-(8 + h.int(44))) * h.range(1, 2), s = h.range(-3, 3);
+      mix(got(() => R.cubic(1, -(2 * r + dl + s), r * (r + dl) + s * (2 * r + dl), -r * (r + dl) * s)));
+    }
+    mix(got(() => R.cubic(-F.pow2(-240), 9, -6, 1))); mix(got(() => R.cubic(1, -(2 + F.pow2(-50)), 1 + F.pow2(-50), F.pow2(-200))));
+    mix(got(() => R.brent((x) => x - 1, -1e308, 1e308))); mix(got(() => R.newton((x) => x - 1, () => 1, -F.MAX, F.MAX)));
   },
   quad(P, { mix }) {
     const Q = P.quad, T = P.trig, h = P.makePrng(105);
@@ -176,10 +198,17 @@ const AREAS = {
       mix(got(() => { const r = L.lstsq(T2, c); return [r.x, r.residual]; }));
       const N = 3 + h.int(30), kl = h.int(3), ku = h.int(3), band = Array.from({ length: N }, () => Array.from({ length: kl + ku + 1 }, (_, j) => (j === kl ? h.range(4, 9) : h.range(-1, 1))));
       mix(got(() => L.bandSolve(band, kl, ku, Array.from({ length: N }, () => h.range(-4, 4)))));
+      if (i % 5 === 0) { const sc = P.float.pow2(h.int(1201) - 600); mix(got(() => L.det(A.map((r) => r.map((v) => v * sc))))); }
     }
   },
+  exact(P, { mix }) {                                    // whole-number arithmetic: signs and quotients of sums of products
+    const E = P.exact, F = P.float, h = P.makePrng(109);
+    const x = () => { const k = h.int(4); return k === 0 ? h.int(9) - 4 : k === 1 ? F.pow2(h.int(2098) - 1074) : (h.u32() & 1 ? -1 : 1) * h.range(1, 2) * F.pow2(h.int(k === 2 ? 60 : 2000) - (k === 2 ? 30 : 1000)); };
+    const sum = () => Array.from({ length: 1 + h.int(5) }, () => [h.int(61) - 30, ...Array.from({ length: h.int(5) }, x)]);
+    for (let i = 0; i < 4000; i++) { const a = sum(), b = sum(); mix(E.sumSign(a)); mix(got(() => E.sumRatio(a, b))); if (i % 4 === 0) mix(E.sumSign([a[0], [-a[0][0], ...a[0].slice(1)]])); }
+  },
   space(P, { mix }) {                                    // vectors, matrices, frames and boxes
-    const V = P.vec3, M = P.mat4, Fr = P.frame, B = P.aabb, h = P.makePrng(107);
+    const V = P.vec3, M = P.mat4, Fr = P.frame, B = P.aabb, F = P.float, h = P.makePrng(107);
     const v3 = (s = 10) => [h.range(-s, s), h.range(-s, s), h.range(-s, s)];
     for (let i = 0; i < 2000; i++) {
       const a = v3(), b = v3(), c = v3(), ang = h.range(-7, 7);
@@ -193,6 +222,7 @@ const AREAS = {
       }
       const f = got(() => Fr.frameFromZX(a, b, c));
       if (typeof f !== 'string') { mix(Fr.toMatrix(f)); mix(Fr.toWorld(f, c)); mix(Fr.toLocal(f, c)); } else mix(f);
+      if (i % 8 === 0 && typeof R !== 'string') { const sc = F.pow2(h.int(2001) - 1000), S = R.map((v, k) => (k < 12 && k % 4 !== 3 ? v * sc : v)); mix(M.det3(S)); mix(got(() => M.invert(S))); mix(got(() => M.applyNormal(S, c))); }
       const box = B.fromPoints([a, b]); mix(B.diagonal(box)); mix(B.size(box)); mix(B.overlaps(box, B.fromPoints([c, v3()])));
     }
   },

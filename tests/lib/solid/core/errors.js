@@ -28,7 +28,8 @@
  *                                  skipped.
  *
  * Codes (the vars each one carries):
- *   solid.err.bad_input       an argument is missing, of the wrong type, out of range or unknown — { name, why }
+ *   solid.err.bad_input       an argument is missing, of the wrong type, out of range or unknown — { name, why }; also an
+ *                             answer that does not fit in doubles — { name, why: 'overflow' }
  *   solid.err.bad_tolerance   a tolerance value cannot be used — { name, why, value?, min?, max? }
  *   solid.err.internal        cc-solid's own bug — { reason? } (the details stay out of the envelope)
  *   solid.err.limit           a budget ran out — { what: 'iterations' | 'entities' | 'time', limit, used }; (S4) or

@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.6 · **Last session:** browser runs (2026-11-13)
+**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.7 · **Last session:** second review and fixes (2026-11-13)
 
 > **Moved, 2026-11-12 (D-home, D-name):** S0 and S1 were built in the PartCraft fork (`withshalom/getpartcraft`, branch `partcore`, commit 34a1df2a) under the name PartCore. They now live here as engine.solid. Paths below are the new ones; S1's results were measured there, and are measured again here under "After the move".
 
@@ -207,10 +207,37 @@ Results:
 
 - **One real difference was found first, and fixed.** `float.bits(x)` returned a NaN's sign and payload, which ECMAScript leaves to the engine: Firefox and WebKit gave other bits than V8. No decision in the engine read them, but it was a public function with host-dependent output. `bits` now gives every NaN the same 64 bits.
 - **Still to do by hand:** Playwright's WebKit is Safari's engine, built for Linux, not Safari itself. Before the pull request, open `tools/solid/browser.html` once in Safari on a Mac or an iPhone (served over http) and read the table.
-- **The whole suite:** 322 checks.
+- **The whole suite:** 322 checks (350 after the second review below; 13 areas since then, all the same in the four hosts).
+
+### Second review: code, math and architecture (2026-11-13, version 0.0.7)
+The owner asked for rigour: every numerical claim was attacked with independent exact (BigInt) references on inputs chosen to break it, outside the suite. Seven faults; each fix began with a failing test.
+
+| # | Fault | Fix |
+|---|---|---|
+| 1 | Rounded bounds were on the wrong side when a product inside came within 2^-24 of the largest double (`sqrtUp(MAX)²` below MAX; `divUp`, `divDown`, `mulUp`, `mulDown` likewise): the error term overflowed where the guard said it was safe | outside the middle of the range the operands are brought to [1, 2) first (exact), so the error's sign is exact for every pair of doubles |
+| 2 | "An exact result comes back as it is" failed past 2^995 and below 2^-969 (`divDown(x, x)` gave 0.999… for a subnormal x) | the same fix: the bounds are now the two doubles around the exact value, or the value itself, over the whole range (2e5 edge pairs, exact) |
+| 3 | `cubic` returned ±Infinity and two wrong roots once \|b/a\| passed about 1e105; `quadratic` lost a root when scaling made a coefficient underflow | a change of variable x = 2^t y (exact) balances the coefficients first; a cubic no such change brings within 2^250 is refused. `quadratic` takes any finite coefficients. A root past the largest double is ±Infinity, by rule |
+| 4 | `cubic` lost or split double roots: with whole-number coefficients, 9% of double roots came back as one root, others as a pair 1e-8 apart; two roots 1e-5 apart came back 1e-8 off | the count comes from the discriminant's exact sign (`core/exact.js`); a zero discriminant gives the repeated root as an exact quotient; every other root is certified by a sign change of the cubic within 4 doubles, or found by bisection between the cubic's turning points |
+| 5 | Gauss–Legendre end weights were off by up to 762 ulps at order 64 (22 at order 10): a weight depends on its node as 1/(1 − x²) | the last Newton step and the weight are taken in double-double arithmetic: all 2080 nodes and 2080 weights are the doubles nearest the exact values |
+| 6 | `brent` on a bracket wider than the largest double blamed the function; `mat4.invert` called a small uniform scaling singular | wide brackets are solved in x/4; the 3×3 part is brought to scale 1 before its condition is judged |
+| 7 | `linalg.det` and `mat4.det3` overflowed to Infinity or underflowed to 0, and 0 reads as singular | the product is carried as mantissa and exponent: 0 only for a singular matrix; ±2^-1074 and ±Infinity past the ends |
+
+New: `core/exact.js` (`sumSign`, `sumRatio`: exact signs and quotients of sums of products of doubles, in whole-number arithmetic) and `float.scalb`.
+
+Results:
+- **350 checks pass**, 28 more than before. The golden hashes of trig and basis are unchanged.
+- **The independent audit scripts,** rerun on the fixed code, find nothing: 300,000 adversarial pairs for the rounded operations, 60,000 near-double cubics (every root within 4 doubles of an exact sign change, most within 1).
+- **Browsers:** 13 of 13 areas the same in Node, Chromium 158, Firefox 159 and WebKit 27.2, page and worker. The digest now covers the new paths.
+- **Mutation check:** 44 of 50 caught. The six that survive change nothing observable: three only cost speed (the fast path is then never certified), two are equal in exact arithmetic (a tie between two changes of variable; (1 − x)(1 + x) against 1 − x² in 106 bits), and one removes a second defence no input is known to need (the quadratic's discriminant sign, right in doubles on 3 million near-zero cases).
+- **Cost:** a cubic takes 2.4 µs (9 µs when two roots are close), a quadratic 0.5 µs, a rounded product and quotient 51 ns together.
+- **What held without change:** addition's bounds, the elementary functions (all inside their stated ulps on hard families; acos worst at 2.32 of 3), interval sin and cos (480,000 exact values enclosed), the linear solvers, box transforms, the predicates, immutability of every returned record, and determinism (no hidden clock, randomness, locale or key order).
+
+Two findings are design decisions, not faults, and wait for the owner (`HANDOFF.md` §17.2: D-size, D-wire).
 
 ## Learned
 - **Bug review: a passing suite says only what it was asked.** All seven faults sat in code with passing tests; each lived just outside the inputs the tests drew (unbounded intervals, huge angles, a root at exactly 0, an overflowing width, many pieces). The fixes' tests draw from those edges on purpose.
+- **Second review: test the claim, not the code.** The suite checked what the code did on the inputs it was written for. The faults were in what the documentation promised beyond them ("always", "with repeats", "exact results kept"). Each promise now has a test that would fail if it were false, or has been narrowed to what is true.
+- **Second review: certify, then trust.** A fast method that is usually right is made rigorous by checking its answer (a sign change within 4 doubles) and falling back to a slow method that cannot miss. The check costs six evaluations.
 - **Browser runs: a NaN is not one value in memory.** Every engine agrees on what a NaN does, and none promises which bits it has. A hash over raw bits, or a function that returns them, has to choose one NaN.
 - **Bug review: a waiver comment is not a guard.** `solid-allow: reach` accepted a whole import line, so it could not keep three functions out of a file. Reading the file function by function can, and needs no comment to trust.
 - **The checker found a real fault on its first run.** `core/limits.js` named a local variable `self`, which is a worker global. It was renamed to `budget`. The rules hold engine.solid's own code to account, not just the fixtures.
@@ -250,5 +277,5 @@ Results:
     - **(c)** write engine.solid's own evaluators. This goes against D8.
   - Recommended: (b) now, and (a) upstream when the owner agrees.
   - The guard for (b) is built (the `reach` rule), so S5 can start.
-- **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc (D-det decided: (b), see HANDOFF §17.3). D-ccn2 was taken as proposed at S4 (synced, pinned copies). D3, D-tr, D-name and D-home were settled on 2026-11-12.
+- **Owner decisions still open** (`HANDOFF.md` §17.2): D-size and D-wire (both before S5 fixes record shapes), D-ccn, D-kad / D-kbc (D-det decided: (b), see HANDOFF §17.3). D-ccn2 was taken as proposed at S4 (synced, pinned copies). D3, D-tr, D-name and D-home were settled on 2026-11-12.
 - **The pull request** to the library repo's `main` waits until engine.solid is finished (D-home).

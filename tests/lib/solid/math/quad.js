@@ -7,7 +7,9 @@
  * Arc length, area, volume and mass properties (S10, measure/) are integrals of smooth functions over parameter intervals.
  * An n-point Gauss–Legendre rule is exact for polynomials up to degree 2n − 1. The nodes and weights are computed here, not
  * typed in: Newton's method on the Legendre polynomial P_n, evaluated by its three-term recurrence, from the classical
- * starting values cos(π (i − ¼) / (n + ½)); then w = 2 / ((1 − x²) P_n′(x)²). Every engine computes the same tables.
+ * starting values cos(π (i − ¼) / (n + ½)); then w = 2 / ((1 − x²) P_n′(x)²). The last step and the weight are taken in
+ * double-double arithmetic (106 bits), because a weight next to ±1 is hundreds of times more sensitive than its node: every
+ * node and weight of rules 1 to 64 is the double nearest the exact value. Every engine computes the same tables.
  *
  *   MAX_ORDER                       64            MAX_PIECES   100000 (the most maxPieces may be)
  *   rule(n) → frozen { n, x, w }    nodes ascending in (−1, 1), symmetric to the last bit, and their weights; n from 1 to 64
@@ -26,7 +28,7 @@
  * backwards (the sign flips).
  */
 import { fail } from '../core/errors.js';
-import { EPS } from '../core/float.js';
+import { EPS, prodErr, sumErr } from '../core/float.js';
 import { cos, PI } from '../core/trig.js';
 import { resolveBudget } from '../core/limits.js';
 
@@ -40,25 +42,50 @@ function legendre(n, x) {                              // → [P_n(x), P_n′(x)
   return [p1, (n * (x * p1 - p0)) / (x * x - 1)];
 }
 
+// Double-double arithmetic: a number as [hi, lo], an unevaluated sum of two doubles that carries some 106 bits (Dekker
+// 1971). A weight depends on its node as 1 / (1 − x²): next to ±1, half an ulp in the node is hundreds of ulps in the
+// weight. So the last Newton step, and the weight, are taken with the node to 106 bits, and only then rounded.
+const ddD = (x) => [x, 0];
+function ddAdd(a, b) { const s = a[0] + b[0], e = sumErr(a[0], b[0], s) + (a[1] + b[1]), h = s + e; return [h, sumErr(s, e, h)]; }
+const ddNeg = (a) => [-a[0], -a[1]];
+function ddMul(a, b) { const p = a[0] * b[0], e = prodErr(a[0], b[0], p) + (a[0] * b[1] + a[1] * b[0]), h = p + e; return [h, sumErr(p, e, h)]; }
+function ddDiv(a, b) {
+  const q1 = a[0] / b[0];
+  let r = ddAdd(a, ddNeg(ddMul(b, ddD(q1))));
+  const q2 = r[0] / b[0];
+  r = ddAdd(r, ddNeg(ddMul(b, ddD(q2))));
+  const q3 = r[0] / b[0], h = q1 + q2;
+  return ddAdd([h, sumErr(q1, q2, h)], ddD(q3));
+}
+function legendreDD(n, x) {                            // → [P_n(x), P_n′(x)], x and both results double-doubles
+  let p0 = ddD(1), p1 = x;
+  for (let k = 1; k < n; k++) {
+    const p2 = ddDiv(ddAdd(ddMul(ddD(2 * k + 1), ddMul(x, p1)), ddNeg(ddMul(ddD(k), p0))), ddD(k + 1));
+    p0 = p1; p1 = p2;
+  }
+  return [p1, ddDiv(ddMul(ddD(n), ddAdd(ddMul(x, p1), ddNeg(p0))), ddAdd(ddMul(x, x), ddD(-1)))];
+}
+
 function compute(n) {
-  const x = new Array(n), w = new Array(n);
+  const x = new Array(n), w = new Array(n), ONE = ddD(1);
   for (let i = 1; i <= Math.floor(n / 2); i++) {      // the positive roots, largest first; the rest by symmetry
     let z = cos((PI * (i - 0.25)) / (n + 0.5));
-    let dp = 0;
-    for (let it = 0; it < 100; it++) {
+    for (let it = 0; it < 100; it++) {                 // to the last bit of a double,
       const [p, d] = legendre(n, z);
       const dz = p / d;
       z -= dz;
-      dp = d;
-      if (Math.abs(dz) <= 2 * EPS * Math.abs(z)) { dp = legendre(n, z)[1]; break; }
+      if (Math.abs(dz) <= 2 * EPS * Math.abs(z)) break;
     }
-    const wi = 2 / ((1 - z * z) * dp * dp);
-    x[n - i] = z; x[i - 1] = -z;
-    w[n - i] = wi; w[i - 1] = wi;
+    let Z = ddD(z), dP;
+    for (let it = 0; it < 2; it++) { const [p, d] = legendreDD(n, Z); Z = ddAdd(Z, ddNeg(ddDiv(p, d))); }   // then to 106 bits
+    dP = legendreDD(n, Z)[1];
+    const W = ddDiv(ddD(2), ddMul(ddMul(ddAdd(ONE, ddNeg(Z)), ddAdd(ONE, Z)), ddMul(dP, dP)));           // 2 / ((1 − x)(1 + x) P′²)
+    x[n - i] = Z[0]; x[i - 1] = -Z[0];
+    w[n - i] = W[0]; w[i - 1] = W[0];
   }
   if (n % 2) {                                         // the middle node is 0
-    const m = (n - 1) / 2, d = legendre(n, 0)[1];
-    x[m] = 0; w[m] = 2 / (d * d);
+    const m = (n - 1) / 2, d = legendreDD(n, ddD(0))[1];
+    x[m] = 0; w[m] = ddDiv(ddD(2), ddMul(d, d))[0];
   }
   return Object.freeze({ n, x: Object.freeze(x), w: Object.freeze(w) });
 }

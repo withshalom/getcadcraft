@@ -15,7 +15,8 @@
  *                                           L (unit, strictly below the diagonal) and U (on and above it) packed in lu
  *   luSolve(F, b) → x · luSolveT(F, c) → z with Aᵀ z = c (same factors) · solve(A, b) → x
  *   solveMany(A, B) → X (B and X arrays of rows with k columns)
- *   det(A) (0 when singular) · inverse(A) · norm1(A) (largest column sum) · normInf(A) (largest row sum)
+ *   det(A) (0 only when elimination finds A singular; a determinant below the smallest double comes back as ±2^-1074 and
+ *   one past the largest as ±Infinity) · inverse(A) · norm1(A) (largest column sum) · normInf(A) (largest row sum)
  *   rcond1(A, F?) → an estimate of 1 / (‖A‖₁ ‖A⁻¹‖₁), 0 for a singular A. ‖A⁻¹‖₁ is estimated from a few solves with A
  *                                           and Aᵀ (Hager 1984, with Higham's safeguards, 1988): never above the true norm,
  *                                           so the estimate never makes A look worse than it is, and it is seldom off by more
@@ -35,7 +36,7 @@
  * 'not_square' | 'not_finite' | 'out_of_range' }.
  */
 import { fail } from '../core/errors.js';
-import { EPS } from '../core/float.js';
+import { EPS, exponent, scalb } from '../core/float.js';
 
 const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 
@@ -149,9 +150,16 @@ export function det(A) {
   checkMatrix(A);
   const F = factor(A, false);
   if (!F) return 0;
-  let d = F.sign;
-  for (let i = 0; i < F.n; i++) d *= F.lu[i][i];
-  return d;
+  let m = F.sign, e = 0;                               // the product of the pivots as m · 2^e, so no partial product can
+  for (let i = 0; i < F.n; i++) {                      // overflow or underflow on the way (the same bits otherwise)
+    const u = F.lu[i][i];
+    if (!Number.isFinite(u)) fail('solid.err.bad_input', { name: 'matrix', why: 'overflow' });
+    const k = exponent(u);
+    m *= scalb(u, -k); e += k;
+    if (Math.abs(m) >= 2) { m *= 0.5; e += 1; }
+  }
+  const d = scalb(m, e);
+  return d === 0 ? (m > 0 ? Number.MIN_VALUE : -Number.MIN_VALUE) : d;   // 0 is kept for singular matrices
 }
 export function norm1(A) {
   const [m, n] = checkMatrix(A, false);

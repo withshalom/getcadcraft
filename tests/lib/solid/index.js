@@ -15,6 +15,7 @@
  *   errors · tol · limits                    S1: typed refusals, the tolerance policy, budgets
  *   float · trig · prng · intervals          S2 core: the bits of doubles and directed rounding; deterministic elementary
  *                                            functions; the seeded generator; interval arithmetic
+ *   exact                                    exact signs and quotients of sums of products of doubles (whole-number arithmetic)
  *   vec3 · mat4 · frame · aabb               S2 math: vectors, row-major affine matrices, placements, conservative boxes
  *   quad · roots · linalg                    S2 math: Gauss–Legendre integration; quadratic, cubic, Brent and bracketed
  *                                            Newton; LU, condition estimate, banded LU, QR and least squares
@@ -24,7 +25,7 @@
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.6';
+export const VERSION = '0.0.7';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -33,6 +34,7 @@ export * as float from './core/float.js';
 export * as trig from './core/trig.js';
 export * as prng from './core/prng.js';
 export * as intervals from './core/intervals.js';
+export * as exact from './core/exact.js';
 export * as vec3 from './math/vec3.js';
 export * as mat4 from './math/mat4.js';
 export * as frame from './math/frame.js';

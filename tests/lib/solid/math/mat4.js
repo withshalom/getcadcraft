@@ -18,12 +18,15 @@
  *   isRigid(m, tol) (L orthonormal and right-handed within tol.ang, a dimensionless bound)
  *   fromColumnMajor(a) · toColumnMajor(m) · convertUnits(m, f) (f = 1000: a ModelCraft matrix in metres → mm)
  * invert and applyNormal refuse a 3×3 part that is singular, or so close to it that its ∞-norm condition number passes
- * 1 / (16 EPS) ≈ 2.8e14, with solid.err.singular { why: 'matrix', rcond }. The builders, invert, applyNormal and the
- * converters check their arguments (solid.err.bad_input { name, why }); mul, apply, applyDir and det3 are hot paths and trust
- * theirs.
+ * 1 / (16 EPS) ≈ 2.8e14, with solid.err.singular { why: 'matrix', rcond }. The condition number is not the size: det3,
+ * invert and applyNormal first bring the 3×3 part to scale 1 by a power of two, so a matrix in any unit (a rotation times
+ * 1e-300 as much as times 1e300) is treated as at scale 1. det3 is 0 only for a singular part: a determinant below the
+ * smallest double comes back as ±2^-1074, one past the largest as ±Infinity. An inverse that does not fit in doubles is
+ * solid.err.bad_input { name: 'matrix', why: 'overflow' }. The builders, invert, applyNormal and the converters check their
+ * arguments (solid.err.bad_input { name, why }); mul, apply, applyDir and det3 are hot paths and trust theirs.
  */
 import { fail } from '../core/errors.js';
-import { EPS } from '../core/float.js';
+import { EPS, exponent, pow2, scalb } from '../core/float.js';
 import { sincos } from '../core/trig.js';
 import { resolveTol } from '../core/tol.js';
 import { unit, isVec3 } from './vec3.js';
@@ -96,39 +99,64 @@ export const applyDir = (m, v) => [
   m[8] * v[0] + m[9] * v[1] + m[10] * v[2],
 ];
 
-export const det3 = (m) => m[0] * (m[5] * m[10] - m[6] * m[9]) - m[1] * (m[4] * m[10] - m[6] * m[8]) + m[2] * (m[4] * m[9] - m[5] * m[8]);
+// The 3×3 part with its largest |entry| brought into [1, 2) by a power of two (exact, but for entries more than 2^1000
+// below the largest, which cannot matter): products of entries then neither overflow nor underflow, whatever the unit.
+function scaled3(m) {
+  let top = 0;
+  for (const k of PART) { const v = Math.abs(m[k]); if (v > top) top = v; }
+  if (top === 0) return null;
+  const e = exponent(top), f = e >= -1022 && e <= 1022 ? pow2(-e) : 0;
+  return { e, a: PART.map((k) => (f !== 0 ? m[k] * f : scalb(m[k], -e))) };
+}
+const PART = Object.freeze([0, 1, 2, 4, 5, 6, 8, 9, 10]);
+const det9 = (a) => a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6]) + a[2] * (a[3] * a[7] - a[4] * a[6]);
 
-/** The inverse of L (row-major 3×3, as 9 numbers), refused when L is singular or nearly so. */
+export function det3(m) {
+  const s = scaled3(m);
+  if (s === null) return 0;
+  const d = det9(s.a), r = scalb(d, 3 * s.e);
+  return r === 0 && d !== 0 ? (d > 0 ? Number.MIN_VALUE : -Number.MIN_VALUE) : r;   // 0 is kept for singular matrices
+}
+
+/** The inverse of L (the 3×3 part, as 9 numbers row by row), refused when L is singular or nearly so. */
 function inverse3(m) {
-  const c00 = m[5] * m[10] - m[6] * m[9], c01 = m[6] * m[8] - m[4] * m[10], c02 = m[4] * m[9] - m[5] * m[8];
-  const det = m[0] * c00 + m[1] * c01 + m[2] * c02;
+  const s = scaled3(m);
+  if (s === null) fail('solid.err.singular', { why: 'matrix', rcond: 0 });
+  const a = s.a;
+  const c00 = a[4] * a[8] - a[5] * a[7], c01 = a[5] * a[6] - a[3] * a[8], c02 = a[3] * a[7] - a[4] * a[6];
+  const det = a[0] * c00 + a[1] * c01 + a[2] * c02;
   const inv = [
-    c00, m[2] * m[9] - m[1] * m[10], m[1] * m[6] - m[2] * m[5],
-    c01, m[0] * m[10] - m[2] * m[8], m[2] * m[4] - m[0] * m[6],
-    c02, m[1] * m[8] - m[0] * m[9], m[0] * m[5] - m[1] * m[4],
+    c00, a[2] * a[7] - a[1] * a[8], a[1] * a[5] - a[2] * a[4],
+    c01, a[0] * a[8] - a[2] * a[6], a[2] * a[3] - a[0] * a[5],
+    c02, a[1] * a[6] - a[0] * a[7], a[0] * a[4] - a[1] * a[3],
   ].map((v) => v / det);
-  const rowSum = (a, i) => Math.abs(a[i]) + Math.abs(a[i + 1]) + Math.abs(a[i + 2]);
-  const nL = Math.max(rowSum(m, 0), rowSum(m, 4), rowSum(m, 8));
+  const rowSum = (r, i) => Math.abs(r[i]) + Math.abs(r[i + 1]) + Math.abs(r[i + 2]);
+  const nL = Math.max(rowSum(a, 0), rowSum(a, 3), rowSum(a, 6));
   const nI = Math.max(rowSum(inv, 0), rowSum(inv, 3), rowSum(inv, 6));
-  const rcond = 1 / (nL * nI);
+  const rcond = 1 / (nL * nI);                         // of the scaled part: the condition number does not depend on the unit
   if (!(det !== 0 && Number.isFinite(nI) && rcond >= RCOND_MIN)) fail('solid.err.singular', { why: 'matrix', rcond: Number.isFinite(rcond) ? rcond : 0 });
-  return inv;
+  return inv.map((v) => scalb(v, -s.e));               // may be ±Infinity for a very small matrix: the callers refuse that
+}
+/** v, or a refusal when the inverse of a very small matrix does not fit in doubles. */
+function finite(v) {
+  for (const x of v) if (!Number.isFinite(x)) fail('solid.err.bad_input', { name: 'matrix', why: 'overflow' });
+  return v;
 }
 export function invert(m) {
   needMat(m);
   const i = inverse3(m);
   const t = [m[3], m[7], m[11]];
-  return [
+  return finite([
     i[0], i[1], i[2], -(i[0] * t[0] + i[1] * t[1] + i[2] * t[2]),
     i[3], i[4], i[5], -(i[3] * t[0] + i[4] * t[1] + i[5] * t[2]),
     i[6], i[7], i[8], -(i[6] * t[0] + i[7] * t[1] + i[8] * t[2]),
     0, 0, 0, 1,
-  ];
+  ]);
 }
 export function applyNormal(m, n) {
   needMat(m); needVec(n, 'n');
   const i = inverse3(m);                               // (L⁻¹)ᵀ n: the columns of L⁻¹ dotted with n
-  return [i[0] * n[0] + i[3] * n[1] + i[6] * n[2], i[1] * n[0] + i[4] * n[1] + i[7] * n[2], i[2] * n[0] + i[5] * n[1] + i[8] * n[2]];
+  return finite([i[0] * n[0] + i[3] * n[1] + i[6] * n[2], i[1] * n[0] + i[4] * n[1] + i[7] * n[2], i[2] * n[0] + i[5] * n[1] + i[8] * n[2]]);
 }
 
 export function isRigid(m, tol) {
