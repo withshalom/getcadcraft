@@ -200,10 +200,10 @@ Measured:
 
 ## Next
 - **S5 — curves** (HANDOFF §14: B-spline and NURBS evaluation, derivatives, knot insertion and refinement).
-  - **Decide D-det first.** cc-nurbs' `curve.js` is not same-bits (the `reach` rule). The choices:
+  - **D-det decided: (b)** (owner, 2026-11-12). Import only the exact cc-nurbs functions; the checker guards `arc`, `circle` and `angle`. This is a compromise, and option (a) is noted for later investigation. The choices, for the record:
     - **(a)** fix it upstream, in the site's `lib/nurbs/`: deterministic trig and products in place of `Math.*` and `**`. This changes cc-nurbs' bits for every app.
     - **(b)** import it under `solid-allow: reach`, listing the evaluation functions used, after checking that each one calls only + − × ÷.
     - **(c)** write engine.solid's own evaluators. This goes against D8.
   - Recommended: (b) now, and (a) upstream when the owner agrees.
-- **Owner decisions still open** (`HANDOFF.md` §17.2): D-det (before S5), D-ccn, D-kad / D-kbc. D-ccn2 was taken as proposed at S4 (synced, pinned copies). D3, D-tr, D-name and D-home were settled on 2026-11-12.
+- **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc (D-det decided: (b), see HANDOFF §17.3). D-ccn2 was taken as proposed at S4 (synced, pinned copies). D3, D-tr, D-name and D-home were settled on 2026-11-12.
 - **The pull request** to the library repo's `main` waits until engine.solid is finished (D-home).

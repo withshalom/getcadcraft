@@ -95,7 +95,7 @@ Source: `HANDOFF.md` §15; the owner's direction (D5, D6).
 
 - **The sync script with `--check`.** It comes with the first host copy (PartCraft).
 - **cc-step beside the engine.** Its copies have drifted; settle which is canonical first. cc-nurbs is here (S4).
-- **D-det.** cc-nurbs' curve and surface code is not same-bits; S5 needs the owner's choice.
+- **D-det (decided (b)).** cc-nurbs' `arc`, `circle` and `angle` are not same-bits; S5 imports only the exact functions and a guard keeps those out. Option (a), deterministic trig upstream, is open for later investigation.
 - **Language-table keys for `solid.err.*`.** Due at S24b.
 - **The catalogue entry.** Drafted in `ENGINE.md`; the owner publishes it.
 - **A browser run of the golden hash.** Node is checked today; Chromium, Firefox and Safari come before the pull request.

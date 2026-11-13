@@ -175,7 +175,7 @@ price of identical results in every browser. Tuning comes in S43.
 | D6 | Other kernels only as black-box oracles | clean copyright; the owner holds all rights |
 | D8 | Build on cc-nurbs and cc-step, never edit them in place | they already do most of the spline work; fixes go upstream |
 | D-ccn2 | cc-nurbs beside the engine as a pinned, unedited copy (S4) | the suite's synced-copy model, with drift caught by hashes |
-| D-det | (open) how S5–S6 use cc-nurbs' curve and surface code, which is not same-bits | determinism (§5) and D8 meet here; the owner decides |
+| D-det | (b): S5–S6 import only the exact cc-nurbs functions; a checker guard keeps `arc`, `circle` and `angle` out. A compromise: option (a), deterministic trig upstream, is open for later investigation. Originally: how S5–S6 use cc-nurbs' curve and surface code, which is not same-bits | determinism (§5) and D8 meet here; the owner decides |
 | D-name | `engine.solid` / cc-solid / `solid/` / `solid.err.*` / `SolidError` | the suite's engine naming |
 | D-home | Built in the library repo, branch `engine/solid`; pull request when finished | the owner authorizes it for each app from one place |
 | D-eng | Follow the engine conventions and catalogue format | the documented pattern for shared libraries |
