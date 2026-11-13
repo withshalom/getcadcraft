@@ -1,7 +1,8 @@
 # engine.solid — where each module comes from
 
-One row per file under `lib/solid/`, added in the session that creates the file (`HANDOFF.md` §15). PartCraft's own
-`PROVENANCE.md` rules apply: no code copied from other projects; copyleft tools are black-box test oracles only.
+One row per file under `lib/solid/`, added in the session that creates the file (`HANDOFF.md` §15). The suite's rules apply:
+no code copied from other projects; copyleft tools and other kernels are black-box test oracles only. Algorithms are written
+from the publications named here; numeric constants are computed (in BigInt, by `tools/solid/bigref.mjs`), not copied.
 
 | File | Implements (book / paper / standard, section) | Taken from (in-repo library or `reference/kad/` snapshot + lines) | Checked against (oracle / identity) | Session |
 |---|---|---|---|---|
@@ -9,6 +10,17 @@ One row per file under `lib/solid/`, added in the session that creates the file 
 | `lib/solid/core/errors.js` | the refusal contract (`HANDOFF.md` § 4.6) | The shape follows cc-nurbs' `NurbsError(code, vars)` (`app/nurbs/curve.js` line 30). The KAD2 code names follow `reference/kad/kad2/src/engine/util/errors.js`. Both are the owner's own code; no lines were copied. | `errors` tests, including a real cc-nurbs `NurbsError` passing through | S1 |
 | `lib/solid/core/tol.js` | the tolerance policy (`HANDOFF.md` § 5.2) | — (written new) | `tol` tests: defaults, every refusal, both ends of every range | S1 |
 | `lib/solid/core/limits.js` | cooperative budgets (`HANDOFF.md` § 13.3) | — (written new) | `limits` tests, on a clock the test controls | S1 |
+| `lib/solid/core/float.js` | error-free transformations: TwoSum (D. E. Knuth, *TAOCP* vol. 2, 4.2.2), Fast2Sum and TwoProduct (T. J. Dekker, "A floating-point technique for extending the available precision", Numer. Math. 18, 1971) with Veltkamp's split; directed rounding from the sign of the exact error | — (written new) | `float` tests: every claim checked exactly in BigInt on 1e5 cases per operation, every binade, overflow and underflow | S2 |
+| `lib/solid/core/trig.js` | Cody–Waite argument reduction (W. J. Cody, W. Waite, *Software Manual for the Elementary Functions*, 1980) in four parts, carried as a double-double; Taylor series; the 1 − w compensation in cos; atan reduction at fixed breakpoints; log by 2 atanh((m−1)/(m+1)); exp by k ln 2 + r; cbrt by Newton with an exact residual | The approach (elementary functions from + − × ÷ for identical bits) follows cc-field's `lib/field/detmath.js`, the owner's code; trig.js is written new and reduces more accurately. Every constant (four parts of π/2, 2/π, π/4, atan ½, atan 3/2, ln 2 in two parts, 1/ln 2) was computed with `bigref.mjs` and is checked there. | `trig` tests: 1.6e5 arguments against a 320-bit BigInt reference (π from Machin's formula), 6000 near multiples of π/2, special values, a golden hash of 18,000 results | S2 |
+| `lib/solid/core/prng.js` | xoshiro128** (D. Blackman, S. Vigna, "Scrambled linear pseudorandom number generators", ACM TOMS 47(4), 2021); seeding by a Weyl sequence through MurmurHash3's 32-bit finaliser `fmix32` (A. Appleby, public domain); Marsaglia's polar method for normal deviates | — (written new) | `prng` tests: state, first outputs and millionth output equal `tools/solid/ref/xoshiro128ss.c` for five seeds; ranges; a chi-square test | S2 |
+| `lib/solid/core/intervals.js` | interval arithmetic with outward rounding (R. E. Moore, *Interval Analysis*, 1966); tight bounds from error-free transformations | — (written new) | `intervals` tests: the exact result (BigInt) of points of the arguments is always inside, 1e5 cases per operation; sin and cos against the BigInt reference | S2 |
+| `lib/solid/math/vec3.js` | vector algebra; lengths rescaled by a power of two before they can overflow; angles by atan2(|a×b|, a·b), accurate where acos of the normalised dot product is not | The array conventions follow cc-nurbs' `vec.js` (owner's code); no lines copied. | `vec3` tests: Lagrange's identity and other identities on 1e5 cases | S2 |
+| `lib/solid/math/mat4.js` | affine transforms; Rodrigues' rotation formula; inverse by cofactors with an ∞-norm condition check | Row-major order and the translation column are cc-nurbs' (`vec.js` `xform`); the column-major converters follow three.js's documented `Matrix4.elements` layout. | `mat4` tests: rigidity, inverses, three.js layout, agreement with cc-nurbs' `xform` to the bit | S2 |
+| `lib/solid/math/frame.js` | orthonormal frames by Gram–Schmidt (twice, for orthogonality to rounding) | — (written new) | `frame` tests: orthonormal, right-handed, round trips | S2 |
+| `lib/solid/math/aabb.js` | conservative boxes: an affine image bounded term by term (J. Arvo, "Transforming axis-aligned bounding boxes", *Graphics Gems*, 1990) with directed rounding | The `{ min, max }` shape is cc-nurbs' `bbox`. | `aabb` tests: the exact (BigInt) image of every corner inside the result, 1e4 boxes | S2 |
+| `lib/solid/math/quad.js` | Gauss–Legendre quadrature: nodes by Newton's method on the three-term recurrence of Pₙ from the usual starting values cos(π(i − ¼)/(n + ½)), weights 2/((1 − x²) P′ₙ(x)²) (M. Abramowitz, I. A. Stegun, *Handbook of Mathematical Functions*, 1964, 25.4.29); adaptive integration with global error control (the worst piece is halved first) | — (written new) | `quad` tests: symmetry, weights summing to 2, polynomial exactness, the known rules for n = 1, 2, 3, √x and a sharp peak | S2 |
+| `lib/solid/math/roots.js` | the quadratic with an accurate discriminant (W. Kahan, "On the cost of floating-point computation without extra-precise arithmetic", 2004); Kahan's cubic ("To solve a real cubic equation", 1986); Brent's method (R. P. Brent, *Algorithms for Minimization without Derivatives*, 1973, ch. 4); bracketed Newton; compensated Horner (S. Graillat, P. Langlois, N. Louvet, "Compensated Horner scheme", 2005) | — (written new) | `roots` tests: backward errors on 1e5 quadratics and 1e5 cubics, the root count against the exact BigInt discriminant, Kahan's hard case | S2 |
+| `lib/solid/math/linalg.js` | Gaussian elimination with partial pivoting; banded LU with pivoting (the storage scheme of LAPACK's `dgbtrf`, E. Anderson et al., *LAPACK Users' Guide*, 1999); Householder QR; the 1-norm condition estimate (W. W. Hager, "Condition estimates", SIAM J. Sci. Stat. Comput. 5, 1984; N. J. Higham, "FORTRAN codes for estimating the one-norm of a real or complex matrix", ACM TOMS 14, 1988) | The arrays-of-rows convention is cc-nurbs' (`vec.js` `solve`). | `linalg` tests: backward errors on dense, banded and least-squares systems; the inverse Hilbert matrices with κ₁ exact in BigInt | S2 |
 
 Test tools (under `tools/solid/`, not shipped):
 
@@ -16,11 +28,15 @@ Test tools (under `tools/solid/`, not shipped):
 |---|---|---|---|---|
 | `check-boundaries.mjs` | the architecture rules (`HANDOFF.md` § 4.2, 4.5, 5.2, 15), modelled on KAD2's boundary check | The import pattern of PartCraft's worker loader (`app/exact-client.js`, `blobModules()`) is quoted as data, so the checker sees what the loader sees. The tokenizer was written new. Import cycles are found with Tarjan's strongly connected components (R. E. Tarjan, "Depth-first search and linear graph algorithms", SIAM J. Comput. 1(2), 1972). | `boundaries` tests: every rule fires exactly where `fixtures/bad/` says, and nothing fires on `fixtures/clean/` | S1 |
 | `test.mjs`, `worker-probe.mjs`, `fixtures/` | engine.solid's test runner, in PartCraft's style (`tests/tools/nurbs/test.mjs`) | — (written new) | ten deliberate faults (in tol, limits, errors and the checker itself) each made it fail | S1 |
+| `bigref.mjs` | exact references in BigInt fixed point: Machin's formula for π, the atanh series for ln 2 and log, Taylor series, integer roots by Newton's method | — (written new) | the constants it computes agree with the published values of π/2's Cody–Waite parts and of atan ½ and atan 3/2 | S2 |
+| `test-core.mjs`, `test-math.mjs` | the S2 sections | — (written new) | 20 deliberate faults across the S2 modules and the `trig` rule; 19 caught, the 20th equivalent in practice (STATUS) | S2 |
+| `ref/xoshiro128ss.c` | xoshiro128** and its seeding in C, from the paper | — (written new) | compiled with gcc 13.3; its outputs agree with `prng.js` to the bit | S2 |
+| `bin/test-solid.mjs` | the entry the site's `bin/test-<name>.mjs` pattern expects | — (written new) | — | S1 (moved) |
 
 Sources already in the repository that engine.solid builds on (imported, not copied):
 
 | Library | Path | Licence | Its own provenance |
 |---|---|---|---|
-| cc-nurbs | `app/nurbs/` | Apache-2.0 | each file cites The NURBS Book (Piegl & Tiller, 2nd ed.) by algorithm number |
-| cc-step | `app/step/` | Apache-2.0 | ISO 10303-21 / -42 / -43 long-form schemas; OpenCascade only as a black-box test oracle |
-| cc-acis | `tests/lib/acis/` (canonical in the monorepo's `lib/acis`) | Apache-2.0 | `docs/ACIS-READER.md` in the monorepo |
+| cc-nurbs | the site's `lib/nurbs/` (in each app as `nurbs/`; not yet in this repo) | Apache-2.0 | each file cites The NURBS Book (Piegl & Tiller, 2nd ed.) by algorithm number |
+| cc-step | the site's `lib/step/` (in each app as `step/`; not yet in this repo) | Apache-2.0 | ISO 10303-21 / -42 / -43 long-form schemas; OpenCascade only as a black-box test oracle |
+| cc-acis | the site's `lib/acis/` | Apache-2.0 | `docs/ACIS-READER.md` in the monorepo |

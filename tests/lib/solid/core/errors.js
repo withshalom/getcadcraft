@@ -32,6 +32,9 @@
  *   solid.err.bad_tolerance   a tolerance value cannot be used — { name, why, value?, min?, max? }
  *   solid.err.internal        cc-solid's own bug — { reason? } (the details stay out of the envelope)
  *   solid.err.limit           a budget ran out — { what: 'iterations' | 'entities' | 'time', limit, used }
+ *   solid.err.no_bracket      (S2) a root finder was given ends where f has the same sign — { fa, fb } (finite values only)
+ *   solid.err.no_convergence  (S2) an iteration stopped before it met its tolerance — { what, iterations }
+ *   solid.err.singular        (S2) a matrix cannot be solved — { why: 'pivot' | 'rank' | 'matrix', size?, column?, rcond? }
  * Later sessions add codes here, each with its KAD2 code, a test that throws it, and its language-table key.
  */
 
@@ -40,6 +43,9 @@ export const CODES = Object.freeze([
   'solid.err.bad_tolerance',
   'solid.err.internal',
   'solid.err.limit',
+  'solid.err.no_bracket',
+  'solid.err.no_convergence',
+  'solid.err.singular',
 ].sort());
 
 export const KAD2_CODES = Object.freeze({
@@ -47,6 +53,9 @@ export const KAD2_CODES = Object.freeze({
   'solid.err.bad_tolerance': 'REFUSED_TOLERANCE',
   'solid.err.internal': 'INTERNAL',
   'solid.err.limit': 'LIMIT',
+  'solid.err.no_bracket': 'REFUSED_NO_BRACKET',
+  'solid.err.no_convergence': 'REFUSED_NO_CONVERGENCE',
+  'solid.err.singular': 'REFUSED_SINGULAR',
 });
 
 const KNOWN = new Set(CODES);

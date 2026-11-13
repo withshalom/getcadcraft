@@ -3,7 +3,7 @@
 
 > **Name:** `engine.solid`, named as the suite's engines are (owner, 2026-11-12): the library is cc-solid, its folder `solid/`, its error codes `solid.err.*`, its error class `SolidError`. Earlier names: the placeholder KNOT (branches `knot/dev` and `knot/kad-reference` in the PartCraft fork) and PartCore (branch `partcore` there, where S1 was built).
 >
-> **Status of this document:** the plan. **Building has started:** S0 (audit) and S1 (scaffold) are done. What is built is recorded in `docs/solid/STATUS.md`, not here. Everything not yet built is a proposal for the owner to confirm, change or reject. Where I am inferring rather than reading something in your repositories, it says so.
+> **Status of this document:** the plan. **Building has started:** S0 (audit), S1 (scaffold) and S2 (math kit) are done. What is built is recorded in `docs/solid/STATUS.md`, not here. Everything not yet built is a proposal for the owner to confirm, change or reject. Where I am inferring rather than reading something in your repositories, it says so.
 >
 > **Version 1.2 (2026-11-12):**
 > - **Home (D-home):** the library repo `withshalom/getlibrarycraft`, branch `engine/solid`. The engine is in `lib/solid/`, its tools in `tools/solid/` (run by `bin/test-solid.mjs`), these documents in `docs/solid/`. A pull request follows once engine.solid is finished; the owner then authorizes it for the apps that need it, and each of them carries a byte-identical copy (`solid/` in its build folder), as with every engine.
@@ -34,8 +34,8 @@ Section map: 1 Decisions · 2 Goals and constraints · 3 What your repos tell us
 | # | Decision | Source |
 |---|---|---|
 | D1 | The 3D kernel is **NURBS-based** and written in **pure JavaScript**. No Rust, no WebAssembly in the kernel, no OpenCascade dependency. | You, this session |
-| D2 | **Everything must run offline.** No network, no CDN, no cloud service, no lazy-fetched module. "Local" means offline. | You, earlier |
-| D3 | **No booleans in the kernel's core scope.** See the interpretation below. | You, this session |
+| D2 | **Everything must run offline.** No network, no CDN, no cloud service, no lazy-fetched module. "Local" means offline. **v1.2, made precise:** the engine is local and embedded as the core. No CAD function depends on a web-loaded service. The suite around it may use cloud services (accounts, sync, the library); the kernel never needs them, and each host carries its own copy. | You, earlier; refined 2026-11-12 |
+| D3 | ~~No booleans in the kernel's core scope.~~ **v1.2: booleans are in scope, but not dominant.** Profile and feature construction stays the main route; exact NURBS booleans (M9) are planned beside it, so both can be used. Without them, splines and conics would be out of reach. | You, 2026-11-12 |
 | D4 | The kernel is built by you and me, **one complete build per session, one step at a time.** | You, earlier |
 | D5 | Code written for KAD, KAD2, KADsuite and the rest is **MIT/Apache** and you hold full copyright discretion. AGPL text still sitting in file headers is to be ignored. | You, this session |
 | D6 | OpenCascade (and SMLib, etc.) may be used **only as test oracles**, never as source to copy. PartCraft already works this way (its exact kernel is opt-in and off by default). | PartCraft practice |
@@ -54,6 +54,8 @@ That reading has a consequence you should confirm, because it affects KUBIC:
 - **KUBIC's card on the KADsuite page says "push/pull and booleans".** Either that copy changes, or milestone M9 (optional NURBS booleans, §14) is eventually scheduled. The architecture in this plan keeps that door open (the same surface/surface intersection that sections and fillets need is what booleans would need) but nothing is built for it before M9.
 
 **Please confirm or correct D3.** If you meant "no booleans, ever, in any form", delete M9 and I will note which KUBIC features must be redefined.
+
+**v1.2, settled (owner, 2026-11-12):** "Booleans are fine as well, they just shouldn't be dominant. We should be able to map both." M9 is planned, not optional. Everything above about building the core without booleans first still holds: M9 comes after the intersection rings it needs.
 
 **v1.1, made concrete:** PartCraft's cc-nurbs already has solids and booleans, but they are mesh booleans. `solid.boolean` sews faces by tessellation and hands them to manifold-3d, and `blend.fillet` is applied through it. engine.solid's core **never calls `solid.boolean` or manifold**. Those stay available to PartCraft as the existing mesh route, outside engine.solid.
 
@@ -216,7 +218,7 @@ Plain ES modules. Type information as **JSDoc** with optional `// @ts-check` and
 ### 4.6 API shape (KAD2-compatible)
 - **Functions are pure** and return new immutable values (frozen).
 - **Failure = thrown `EngineError`** with stable codes. Kernel-specific codes:
-  `REFUSED_OPEN_PROFILE`, `REFUSED_SELF_INTERSECTING_PROFILE`, `REFUSED_DEGENERATE_SWEEP`, `REFUSED_INCOMPATIBLE_SECTIONS`, `REFUSED_TOLERANCE`, `REFUSED_NOT_SUPPORTED` (e.g. an intersection configuration not handled yet), `AUDIT_FAILED`, `LIMIT`, `BAD_INPUT`.
+  `REFUSED_OPEN_PROFILE`, `REFUSED_SELF_INTERSECTING_PROFILE`, `REFUSED_DEGENERATE_SWEEP`, `REFUSED_INCOMPATIBLE_SECTIONS`, `REFUSED_TOLERANCE`, `REFUSED_NOT_SUPPORTED` (e.g. an intersection configuration not handled yet), `AUDIT_FAILED`, `LIMIT`, `BAD_INPUT`; **v1.2 (S2):** `REFUSED_NO_BRACKET`, `REFUSED_NO_CONVERGENCE`, `REFUSED_SINGULAR`.
 - **v1.1, PartCraft's convention:**
   - **Inside PartCraft:** engine.solid throws a `SolidError` shaped like cc-nurbs' `NurbsError`. Its `code` is an i18n key (`solid.err.open_profile`, `solid.err.self_intersecting_profile`, …, `solid.err.limit`) that the app turns into words, plus `details`. engine.solid itself carries no English text.
   - **At the KAD2 adapter:** the same refusals are mapped to KAD2's `EngineError(code, message, details)`, with the upper-case codes above.
@@ -264,6 +266,7 @@ Rules: no hard-coded `1e-9` anywhere else in `src/` (lint-checked). Comparisons 
 ### 5.5 Determinism
 - Same input → same output and same IDs on one machine and Node version. Iteration order is defined by arrays and sorted keys, never by `Map` insertion order of externally-derived keys, hash-iteration, or `Date`/`Math.random`.
 - **Cross-engine caveat:** the ECMAScript spec allows `Math.sin`, `Math.cos`, `Math.exp`, `Math.pow` etc. to differ in the last bits between engines. For goldens we compare within tolerance or hash after rounding. All transcendental calls go through `core/trig.js` so an fdlibm-style port can be swapped in later if bit-exact cross-browser behaviour is ever required (decision D-tr in §17).
+- **v1.2 (S2, D-tr settled):** bit-exact from the start. `core/trig.js` computes sin, cos, tan, atan, atan2, asin, acos, exp, log and cbrt from + − × ÷ and √ only, which ECMAScript specifies exactly (√ since ES2025). Every engine gives the same bits; a golden hash in the tests guards them. Accuracy is measured against a BigInt reference: within 1 ulp for sin, cos, atan, exp, log and cbrt, 2 for tan, atan2 and asin, 3 for acos. cc-field made the same choice for its fields (`detmath.js`). The boundary checker's `trig` rule refuses `Math.sin` and the like, and `**`, everywhere else in the engine.
 - Randomized tests use a seeded PRNG (`core/prng.js`), seed printed on failure.
 
 ### 5.6 Linear algebra needed (small, in-house)
@@ -551,7 +554,7 @@ Legend: ☐ not started, ☑ done. Each session ends with passing tests, updated
 |---|---|---|
 | S0 | **done** (2026-11-12) | review §2 is the audit table |
 | S1 | **done** (2026-11-12) | `lib/solid/` (index, core/errors, core/tol, core/limits), the 14-rule boundary checker with its fixtures, `tools/solid/test.mjs`, `bin/test-solid.mjs`; see `STATUS.md` |
-| S2 | new, smaller | the math kit; cc-nurbs `vec.js` has the vector basics |
+| S2 | **done** (2026-11-12) | `core/float`, `trig`, `prng`, `intervals`; `math/vec3`, `mat4`, `frame`, `aabb`, `quad`, `roots`, `linalg`; the `trig` rule; see `STATUS.md` |
 | S3 | new | adaptive exact predicates (nothing robust exists yet) |
 | S4–S6 | **exists** (`basis.js`, `curve.js`, `surface.js`) | engine.solid-side property tests against cc-nurbs; wrappers only |
 | S7 | new | analytic classes plus exact conversions. cc-step `geom.js` and cc-acis `geom.js` evaluate the analytic forms and are the reference |
@@ -583,7 +586,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 |---|---|---|---|
 | ☑ | **S0** | *Audit and decisions (no kernel code)*: read PartCraft `app/step/` and `app/nurbs/` and the `ExactKernel` interface; decide reuse vs rewrite per module; confirm D3, repo name, D-kad, D-tr (§17) | written audit table in `STATUS.md`; each reusable module has a provenance/licence note |
 | ☑ | **S1** | Repo scaffold: `package.json` (zero deps), LICENSE-MIT/APACHE/NOTICE, `PROVENANCE.md`, `STATUS.md`, `core/errors.js` (KAD2 shape), `core/tol.js`, `core/limits.js`, `tools/check-boundaries.mjs`, `node --test` runner, CI workflow | `npm test` green; boundary checker fails a deliberately violating fixture; no-hard-coded-epsilon lint works |
-| ☐ | **S2** | Math kit: `vec3`, `mat4`, `frame`, `aabb`, Gauss–Legendre tables, root finders, LU/banded/QR solvers, intervals, seeded PRNG, `trig` shim | property tests pass (1e5 random cases); solver residual and condition-number tests |
+| ☑ | **S2** | Math kit: `vec3`, `mat4`, `frame`, `aabb`, Gauss–Legendre tables, root finders, LU/banded/QR solvers, intervals, seeded PRNG, `trig` shim | property tests pass (1e5 random cases); solver residual and condition-number tests |
 | ☐ | **S3** | Adaptive exact predicates (`orient2d/3d`, `incircle`) | 0 disagreements vs BigInt reference on 1e6 random + adversarial near-degenerate inputs |
 
 ### M1 — Splines (S4–S10)
@@ -662,7 +665,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 | ☐ | **S38** | Fillet and chamfer (rolling ball between two faces, constant radius), using ring I-4 | fillet radius deviation ≤ `tol.fit`; corner cases refused with locations |
 | ☐ | **S39** | Face split/imprint; draft; **push/pull outward** on planar faces with clash refusal | KUBIC push-out works on corpus; clash detected and refused |
 
-### M9 — Optional NURBS booleans (S40–S42) — only if D3 is later relaxed
+### M9 — NURBS booleans (S40–S42) — v1.2: planned (D3 settled: in scope, not dominant)
 | ☐ | Session | Build | Accept |
 |---|---|---|---|
 | ☐ | **S40** | Face classification and imprinting (intersection curves from ring I-4, split faces, inside/outside labelling with exact predicates) | classification agrees with a point-membership oracle on random points |
@@ -724,6 +727,8 @@ The header sweep belongs in the KAD repositories themselves.
 
 Oracle assets (OpenCascade wasm etc.) are **never committed** and never loaded by any app path; they exist in the devshell like PartCraft's `oracles` vendor area.
 
+**v1.2 (S2), what is in place:** exact references in BigInt for anything about rounding (`tools/solid/bigref.mjs`); a C program as a second implementation of the generator; a golden hash of results for the same bits everywhere; seeded property tests that print their seed; and a mutation run each session, where deliberate faults must make the suite fail. `docs/solid/TESTING.md` explains the method.
+
 ### 16.2 Performance targets (hypotheses to be replaced by measured values)
 - Degree-3 curve evaluation: ≥ 2 million points/s single-threaded in Node.
 - Extrude a 1,000-segment profile including audit: < 100 ms.
@@ -775,14 +780,15 @@ Oracle assets (OpenCascade wasm etc.) are **never committed** and never loaded b
 ### 17.2 Open decisions (to settle in S0 unless noted)
 | ID | Question | My lean |
 |---|---|---|
-| D3 | Confirm "no booleans" reading (§1) | Keep M9 as optional and last |
+| D3 | Confirm "no booleans" reading (§1) | **resolved (v1.2):** booleans in scope, not dominant; M9 planned |
 | D-repo | Repo name and location | **resolved (v1.2, D-home):** the library repo, `lib/solid/`, branch `engine/solid` |
 | D-ccn | **v1.1:** when engine.solid needs a change in cc-nurbs or cc-step, does it go to the monorepo's canonical copy first, or may PartCraft's copy diverge for a while? | canonical first; engine.solid works around gaps in its own files meanwhile |
 | D-lic | **v1.1:** header for engine.solid files | **resolved:** `Apache-2.0`, as PartCraft |
 | D-name | **v1.1:** KUBE vs KUBIC | KUBIC is current (owner, 2026-11-12); nothing new says KUBE |
 | D-kbc | **v1.1:** how `.kbc` carries bodies (as D-kad for `.kad`) | same answer as D-kad |
 | D-kad | How `.kad` carries bodies (v2 bump vs v1 + detect-and-refuse) | v2 bump is cleaner; decide before S34 |
-| D-tr | Own fdlibm-style `sin/cos/exp/pow` or accept `Math.*` | start with `Math.*` behind the shim; revisit if cross-browser bit-exactness is needed |
+| D-tr | Own fdlibm-style `sin/cos/exp/pow` or accept `Math.*` | **resolved (v1.2, S2):** own functions from + − × ÷ and √, bit-exact everywhere (§5.5) |
+| D-ccn2 | **v1.2:** how cc-nurbs and cc-step come to sit beside the engine in the library repo before S4 (D8) | synced copies, as `tools/shapes/` is; or move the engine into the site's `lib/` first |
 | D-store | Copy-on-write granularity for B-rep tables | decide by S11 benchmark |
 | D-ts | Ship optional `tsc --checkJs` dev script | yes, strictly optional |
 | D-ap | AP242 scope (geometry only, or names/colours/PMI) | geometry + names + colours; PMI out |
@@ -804,6 +810,12 @@ Append entries as `YYYY-MM-DD · ID · decision · reason · who`.
 - 2026-11-12 · D-spec (S1) · import specifiers in `lib/solid/` are single-quoted, relative, lower-case `[a-z0-9-]` names ending in `.js` · `exact-client.js` `blobModules()` only follows imports written that way, and S24b runs engine.solid in that worker · S1
 - 2026-11-12 · D-name · renamed **engine.solid**: library cc-solid, folder `solid/`, codes `solid.err.*`, class `SolidError` · named as the suite's engines are (getcadcraft.com › Build an add-on › Engines; cc-nurbs → engine.nurbs, cc-field → engine.field) · owner
 - 2026-11-12 · D-home · built in the library repo `withshalom/getlibrarycraft`, branch `engine/solid` (`lib/solid/`, `tools/solid/`, `bin/test-solid.mjs`, `docs/solid/`); a pull request once engine.solid is finished; the owner then authorizes it for the apps that need it · owner's direction · owner
+- 2026-11-12 · D3 · booleans are in scope, but not dominant; M9 planned · "we should be able to map both. Otherwise we're limited and can't handle splines or conic" · owner
+- 2026-11-12 · D2 (refined) · the engine is local and embedded; no CAD function depends on a web-loaded service; cloud services around it are fine · "We're building a local application with cloud services possibilities" · owner
+- 2026-11-12 · D-eng · engine.solid follows the suite's engine conventions (getcadcraft.com › Build an add-on › Engines): Apache-2.0, DOM-free, workers, an id `engine.<name>`, a catalogue page (`ENGINE.md` drafts it), one edited copy and byte-identical host copies · the documented pattern for shared libraries · S2
+- 2026-11-12 · D-tr · elementary functions computed from + − × ÷ and √, bit-exact in every engine, measured against BigInt · determinism of topology decisions; cc-field's precedent · S2
+- 2026-11-12 · D-mat (S2) · matrices row-major, translation in m[3], m[7], m[11], as cc-nurbs; converters for column-major and metres (three.js, ModelCraft) · curves and surfaces transform without conversion · S2
+- 2026-11-12 · D-prng (S2) · xoshiro128**, seeded through MurmurHash3's finaliser; checked against a C program · small, fast in 32-bit JavaScript, well studied · S2
 
 ---
 

@@ -6,7 +6,7 @@
  *   node tools/solid/test.mjs [--verbose] [--only <section>]      from the repository root (bin/test-solid.mjs runs it too)
  *   SOLID_LIB=<folder holding solid/> overrides where the engine is (default: lib/ in this checkout).
  *
- * S1 sections:
+ * Sections, in order (S1: errors, tol, limits, entry, boundaries, worker; S2: test-core.mjs and test-math.mjs):
  *   errors      typed refusals: codes, vars, the envelope, cc-nurbs' errors passing through
  *   tol         the tolerance policy: defaults (HANDOFF § 5.2), overrides, every refusal, ranges, relations
  *   limits      budgets: exact counts, the clock, child budgets that cannot outgrow their parent, every refusal
@@ -14,6 +14,8 @@
  *   boundaries  check-boundaries.mjs: the app is clean, a clean fixture stays clean, and every rule fires on the bad
  *               fixture exactly where its "expect:" comments say (and nowhere else)
  *   worker      cc-solid imported and run inside a worker thread
+ *   prng · float · trig · intervals                       (test-core.mjs) the S2 core, exact checks in BigInt (bigref.mjs)
+ *   vec3 · mat4 · frame · aabb · quad · roots · linalg    (test-math.mjs) the S2 math layer
  * Exit 1 when anything fails.
  */
 import fs from 'node:fs';
@@ -62,6 +64,7 @@ const B = await import(pathToFileURL(path.join(HERE, 'check-boundaries.mjs')).hr
 section('errors', 'typed refusals: codes, vars, the envelope', () => {
   ok(Object.isFrozen(E.CODES) && E.CODES.length >= 4, 'CODES is frozen and lists the S1 codes');
   ok(E.CODES.every((c) => /^solid\.err\.[a-z0-9_]+$/.test(c)), 'every code is solid.err.<lower_snake>');
+  ok(['solid.err.no_bracket', 'solid.err.no_convergence', 'solid.err.singular'].every((c) => E.CODES.includes(c)) && E.KAD2_CODES['solid.err.singular'] === 'REFUSED_SINGULAR', 'S2 adds no_bracket, no_convergence and singular, each with its KAD2 code');
   ok(same([...E.CODES].sort(), E.CODES) && new Set(E.CODES).size === E.CODES.length, 'CODES is sorted and has no duplicates');
   ok(['solid.err.bad_input', 'solid.err.bad_tolerance', 'solid.err.internal', 'solid.err.limit'].every((c) => E.CODES.includes(c)), 'bad_input, bad_tolerance, internal and limit are codes');
   ok(same(Object.keys(E.KAD2_CODES).sort(), E.CODES) && Object.values(E.KAD2_CODES).every((c) => /^[A-Z][A-Z0-9_]*$/.test(c)), 'every code has exactly one upper-case KAD2 code (and KAD2_CODES has nothing else)');
@@ -255,12 +258,21 @@ section('limits', 'budgets', () => {
   ok(Object.isFrozen(parent) && Object.isFrozen(parent.limits), 'a budget and its limits are frozen');
 });
 
+// ================================================================================================== S2: the math kit
+const api = { section, ok, refuses, same, deepFrozen, appUrl, VERBOSE };
+await (await import('./test-core.mjs')).register(api);
+await (await import('./test-math.mjs')).register(api);
+
 // ================================================================================================== entry
-section('entry', 'the public entry', () => {
+section('entry', 'the public entry', async () => {
   ok(/^\d+\.\d+\.\d+$/.test(P.VERSION), 'VERSION is x.y.z (' + P.VERSION + ')');
-  const expected = ['CODES', 'DEFAULT_TOL', 'SolidError', 'VERSION', 'errors', 'fail', 'isBudget', 'isSolidError', 'isTol', 'limits', 'makeBudget', 'makeTol', 'resolveBudget', 'resolveTol', 'toEnvelope', 'tol'];
-  ok(same(Object.keys(P).sort(), expected), 'index.js exports exactly the S1 names (a new export is a deliberate change to this list)');
+  const expected = ['CODES', 'DEFAULT_TOL', 'SolidError', 'VERSION', 'aabb', 'errors', 'fail', 'float', 'frame', 'intervals', 'isBudget', 'isSolidError', 'isTol', 'limits', 'linalg', 'makeBudget', 'makePrng', 'makeTol', 'mat4', 'prng', 'quad', 'resolveBudget', 'resolveTol', 'roots', 'toEnvelope', 'tol', 'trig', 'vec3'];
+  ok(same(Object.keys(P).sort(), [...expected].sort()), 'index.js exports exactly the S1 and S2 names (a new export is a deliberate change to this list)');
   ok(P.errors.SolidError === E.SolidError && P.tol.DEFAULT_TOL === T.DEFAULT_TOL && P.limits.makeBudget === L.makeBudget, 'the namespaces are the core modules themselves');
+  const mods = { float: 'core/float.js', trig: 'core/trig.js', prng: 'core/prng.js', intervals: 'core/intervals.js', vec3: 'math/vec3.js', mat4: 'math/mat4.js', frame: 'math/frame.js', aabb: 'math/aabb.js', quad: 'math/quad.js', roots: 'math/roots.js', linalg: 'math/linalg.js' };
+  let nsOk = true;
+  for (const [ns, file] of Object.entries(mods)) { const m = await import(appUrl('solid/' + file)); if (!same(Object.keys(P[ns]).sort(), Object.keys(m).sort()) || !Object.keys(m).every((k) => P[ns][k] === m[k])) nsOk = false; }
+  ok(nsOk && P.makePrng === P.prng.makePrng, 'the S2 namespaces are their modules, and makePrng is prng.makePrng');
   ok(P.fail === E.fail && P.makeTol === T.makeTol && P.resolveBudget === L.resolveBudget, 'the named exports are the same functions');
   ok(globalsAdded.length === 0, 'importing cc-solid adds no globals' + (globalsAdded.length ? ' (added: ' + globalsAdded.join(', ') + ')' : ''));
   const { files, imports } = B.checkTree(APP);

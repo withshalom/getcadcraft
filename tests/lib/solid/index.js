@@ -1,25 +1,44 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* i18n-ignore-file: cc-solid is a standalone library; its errors are codes (the app words them). */
 /**
- * index.js — cc-solid, the NURBS-based solid kernel for PartCraft: its one public entry (docs/solid/HANDOFF.md § 4).
- * DOM-free, no network, no timers, no third-party code; it runs the same in a page, a Worker and Node.
+ * index.js — cc-solid, the engine engine.solid: the CadCraft suite's NURBS-based exact solid kernel, its one public entry
+ * (docs/solid/HANDOFF.md § 4). DOM-free, no network, no timers, no third-party code: the same results, to the bit, in a
+ * page, a Worker and Node.
  *
- * S1 holds the ground rules only: typed errors, the tolerance policy and budgets. Geometry and topology arrive one
- * session at a time; docs/solid/STATUS.md says what is built. Callers import this file as a namespace (cc-solid),
- * never a file inside it, so the layers behind it can change.
+ * The edited copy is lib/solid/ in the library repo (withshalom/getlibrarycraft, branch engine/solid). Each app that hosts the
+ * engine carries a byte-identical copy as solid/ in its build folder; a sync script with --check keeps them in step once the
+ * first host takes one. Add-ons name engine.solid in their manifest's needs and import it through the app (the engine:solid/
+ * form of the add-on loader), so the app's own copy answers. Callers import this file as a namespace, never a file behind
+ * it, so the layers can change. docs/solid/STATUS.md says what is built.
  *
- *   cc-solid.VERSION
- *   cc-solid.errors · cc-solid.tol · cc-solid.limits          the core modules, as namespaces
- *   cc-solid.SolidError · fail · isSolidError · toEnvelope · CODES
- *   cc-solid.DEFAULT_TOL · makeTol · resolveTol · isTol
- *   cc-solid.makeBudget · resolveBudget · isBudget
+ *   VERSION
+ *   errors · tol · limits                    S1: typed refusals, the tolerance policy, budgets
+ *   float · trig · prng · intervals          S2 core: the bits of doubles and directed rounding; deterministic elementary
+ *                                            functions; the seeded generator; interval arithmetic
+ *   vec3 · mat4 · frame · aabb               S2 math: vectors, row-major affine matrices, placements, conservative boxes
+ *   quad · roots · linalg                    S2 math: Gauss–Legendre integration; quadratic, cubic, Brent and bracketed
+ *                                            Newton; LU, condition estimate, banded LU, QR and least squares
+ *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
+ *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.1';
+export const VERSION = '0.0.2';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
 export * as limits from './core/limits.js';
+export * as float from './core/float.js';
+export * as trig from './core/trig.js';
+export * as prng from './core/prng.js';
+export * as intervals from './core/intervals.js';
+export * as vec3 from './math/vec3.js';
+export * as mat4 from './math/mat4.js';
+export * as frame from './math/frame.js';
+export * as aabb from './math/aabb.js';
+export * as quad from './math/quad.js';
+export * as roots from './math/roots.js';
+export * as linalg from './math/linalg.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';
 export { makeBudget, resolveBudget, isBudget } from './core/limits.js';
+export { makePrng } from './core/prng.js';

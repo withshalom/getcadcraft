@@ -32,6 +32,10 @@
  *   [eval]         no eval, no Function constructor
  *   [epsilon]      no tolerance-sized literal (a decimal below 0.001, or any literal with a negative exponent) outside
  *                  core/tol.js; a line that needs one says why in a comment holding  solid-allow: epsilon
+ *   [trig]         (S2) no Math function the language leaves "implementation-approximated" (sin, cos, exp, log, pow, atan2,
+ *                  hypot, cbrt …), no ** or **= (also approximated), and no Math as a value or Math[…] (which would hide
+ *                  the call): those differ in the last bits between engines. core/trig.js computes them from + − × ÷ and √,
+ *                  the same everywhere. Math.sqrt, abs, floor, min, max, fround, clz32, imul and the constants stay allowed.
  * A comment holding  solid-allow: global  lets one line use a forbidden global, with the reason in the comment.
  */
 import fs from 'node:fs';
@@ -39,7 +43,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const LAYERS = Object.freeze(['core', 'math', 'geom', 'topo', ['ops', 'mesh', 'audit', 'measure'], 'io', 'api']);
-export const RULES = Object.freeze(['naming', 'spdx', 'layer', 'audit', 'external', 'specifier', 'missing', 'cycle', 'bundler', 'dynamic', 'global', 'determinism', 'eval', 'epsilon']);
+export const RULES = Object.freeze(['naming', 'spdx', 'layer', 'audit', 'external', 'specifier', 'missing', 'cycle', 'bundler', 'dynamic', 'global', 'determinism', 'eval', 'epsilon', 'trig']);
 export const EXTERNAL = Object.freeze({ folders: Object.freeze(['nurbs', 'step']), fromLayer: 'geom' });
 export const FORBIDDEN_GLOBALS = Object.freeze([
   'window', 'self', 'document', 'navigator', 'location', 'localStorage', 'sessionStorage', 'indexedDB', 'caches',
@@ -54,12 +58,16 @@ export const ALLOWED_GLOBALS = Object.freeze({
   'solid/api/worker.js': Object.freeze(['self', 'postMessage', 'addEventListener']),
 });
 export const SPDX = '/* SPDX-License-Identifier: Apache-2.0 */';
+// ECMA-262 §21.3.2: the Math functions whose results are "implementation-approximated" (Math.sqrt is exact since ES2025)
+export const APPROXIMATED = Object.freeze(['acos', 'acosh', 'asin', 'asinh', 'atan', 'atan2', 'atanh', 'cbrt', 'cos', 'cosh', 'exp', 'expm1',
+  'hypot', 'log', 'log10', 'log1p', 'log2', 'pow', 'sin', 'sinh', 'tan', 'tanh']);
 const EPSILON_FILE = 'solid/core/tol.js';
 const SPECIFIER = /^\.\.?\/(?:\.\.\/)*(?:[a-z0-9-]+\/)*[a-z0-9-]+\.js$/;
 // exact-client.js blobModules(): the pattern its loader runs over a module's raw text (comments included)
 const BUNDLER = /(?:from|import)\s*\(?\s*'(\.\.?\/(?:(?:\.\.\/)*(?:[a-z0-9-]+\/)*)[a-z0-9-]+\.js)'/g;
 
 const FORBIDDEN = new Set(FORBIDDEN_GLOBALS);
+const INEXACT = new Set(APPROXIMATED);
 const TIER = new Map();
 LAYERS.forEach((l, i) => { for (const n of [].concat(l)) TIER.set(n, i); });
 const TOP_TIER = LAYERS.length;   // files directly in solid/ (index.js): the public entry
@@ -305,6 +313,7 @@ export function checkTree(appDir) {
         if (v !== null && ((v > 0 && v < 1e-3) || /e-/i.test(tk.v))) add(file, tk.line, 'epsilon', `${tk.v}: tolerances come from core/tol.js (or say solid-allow: epsilon on the line, with the reason)`);
         continue;
       }
+      if (tk.t === 'p' && (tk.v === '**' || tk.v === '**=')) { add(file, tk.line, 'trig', `${tk.v} is implementation-approximated (it differs between engines): multiply, or use core/trig.js`); continue; }
       if (tk.t !== 'id') continue;
       const member = prev && prev.t === 'p' && (prev.v === '.' || prev.v === '?.');
       if (member) continue;
@@ -313,12 +322,19 @@ export function checkTree(appDir) {
       const okHere = (name) => (ALLOWED_GLOBALS[file] || []).includes(name) || allowed(tk.line, 'global');
       if (tk.v === 'globalThis' && next && next.t === 'p') {
         const after = tokens[k + 2];
-        if ((next.v === '.' || next.v === '?.') && after && after.t === 'id' && FORBIDDEN.has(after.v) && !okHere(after.v)) add(file, tk.line, 'global', `globalThis.${after.v} is not allowed in cc-solid`);
+        if ((next.v === '.' || next.v === '?.') && after && after.t === 'id' && after.v === 'Math') add(file, tk.line, 'trig', 'globalThis.Math hides which Math functions are called: name Math directly (and see core/trig.js)');
+        else if ((next.v === '.' || next.v === '?.') && after && after.t === 'id' && FORBIDDEN.has(after.v) && !okHere(after.v)) add(file, tk.line, 'global', `globalThis.${after.v} is not allowed in cc-solid`);
         else if (next.v === '[' && !okHere('globalThis[]')) add(file, tk.line, 'global', 'computed access on globalThis is not allowed');
         continue;
       }
       if (FORBIDDEN.has(tk.v)) { if (!okHere(tk.v)) add(file, tk.line, 'global', `${tk.v} is not allowed in cc-solid (DOM-free, network-free, timer-free, no WebAssembly)`); continue; }
-      if (tk.v === 'Math' && next && next.t === 'p' && (next.v === '.' || next.v === '?.') && tokens[k + 2] && tokens[k + 2].v === 'random') { add(file, tk.line, 'determinism', 'Math.random is not allowed: cc-solid is deterministic (tests use a seeded generator)'); continue; }
+      if (tk.v === 'Math') {
+        const dot = next && next.t === 'p' && (next.v === '.' || next.v === '?.'), name = dot && tokens[k + 2] && tokens[k + 2].t === 'id' ? tokens[k + 2].v : null;
+        if (name === 'random') add(file, tk.line, 'determinism', 'Math.random is not allowed: cc-solid is deterministic (tests use a seeded generator)');
+        else if (name && INEXACT.has(name)) add(file, tk.line, 'trig', `Math.${name} differs between engines in the last bits: use core/trig.js, which gives the same bits everywhere`);
+        else if (!dot) add(file, tk.line, 'trig', next && next.t === 'p' && next.v === '[' ? 'computed access on Math hides which function is called' : 'Math used as a value hides which functions are called');
+        continue;
+      }
       if (tk.v === 'Date') { add(file, tk.line, 'determinism', 'Date is not allowed: cc-solid is deterministic (budgets read their own clock)'); continue; }
       if (tk.v === 'eval') { add(file, tk.line, 'eval', 'eval is not allowed'); continue; }
       if (tk.v === 'Function' && ((next && next.t === 'p' && next.v === '(') || (prev && prev.t === 'id' && prev.v === 'new'))) add(file, tk.line, 'eval', 'the Function constructor is not allowed');
