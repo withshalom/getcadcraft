@@ -8,15 +8,19 @@
  * min +Infinity and max −Infinity, so extending it by a point gives that point. Culling (a BVH, clash tests, picking) may
  * then skip whatever a box misses without ever skipping something it should have found.
  *
- *   EMPTY · isEmpty(b) · box(min, max) (checked: finite or infinite numbers, min ≤ max per axis, or the empty box)
- *   fromPoints(points) (exact: no arithmetic) · extend(b, p) · union(a, b) · intersection(a, b) (EMPTY when they miss)
+ *   EMPTY · isEmpty(b) · box(min, max) (checked: numbers, no NaN, min ≤ max per axis with min < +Infinity and
+ *   max > −Infinity, or the empty box)
+ *   fromPoints(points) (exact: no arithmetic) · extend(b, p) (p checked: three numbers, no NaN) · union(a, b) ·
+ *   intersection(a, b) (EMPTY when they miss)
  *   inflate(b, d) (each side moved out by d ≥ 0, rounded outward) · transform(b, m) (the box of the moved box, mat4 m)
  *   contains(b, p) · containsBox(a, b) · overlaps(a, b) (closed boxes: touching counts)
- *   center(b) · size(b) (rounded up) · diagonal(b) (rounded up)
+ *   center(b) (a point inside: 0 on an axis unbounded both ways, ±MAX_VALUE on one unbounded one way; the empty box has
+ *   none: bad_input { name: 'box', why: 'empty' }) · size(b) (rounded up) · diagonal(b) (rounded up)
+ * The functions trust their boxes to be boxes; box(), fromPoints() and extend() check what goes into one.
  * Bad arguments are solid.err.bad_input { name, why }.
  */
 import { fail } from '../core/errors.js';
-import { addDown, addUp, subUp, mulDown, mulUp, nextUp } from '../core/float.js';
+import { MAX, addDown, addUp, subUp, mulDown, mulUp, nextUp } from '../core/float.js';
 
 const make = (min, max) => Object.freeze({ min: Object.freeze(min), max: Object.freeze(max) });
 export const EMPTY = make([Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]);
@@ -27,6 +31,7 @@ export function box(min, max) {
   if (!isCoord(min) || !isCoord(max)) fail('solid.err.bad_input', { name: 'box', why: 'not_a_box' });
   if (min.every((v) => v === Infinity) && max.every((v) => v === -Infinity)) return EMPTY;
   if (!(min[0] <= max[0] && min[1] <= max[1] && min[2] <= max[2])) fail('solid.err.bad_input', { name: 'box', why: 'min_above_max' });
+  if (min.some((v) => v === Infinity) || max.some((v) => v === -Infinity)) fail('solid.err.bad_input', { name: 'box', why: 'at_infinity' });
   return make(min.slice(), max.slice());
 }
 
@@ -40,6 +45,7 @@ export function fromPoints(points) {
   return min[0] === Infinity ? EMPTY : make(min, max);
 }
 export function extend(b, p) {
+  if (!isCoord(p)) fail('solid.err.bad_input', { name: 'point', why: 'not_a_point' });
   return make([Math.min(b.min[0], p[0]), Math.min(b.min[1], p[1]), Math.min(b.min[2], p[2])],
     [Math.max(b.max[0], p[0]), Math.max(b.max[1], p[1]), Math.max(b.max[2], p[2])]);
 }
@@ -80,7 +86,14 @@ export function transform(b, m) {
 export const contains = (b, p) => b.min[0] <= p[0] && p[0] <= b.max[0] && b.min[1] <= p[1] && p[1] <= b.max[1] && b.min[2] <= p[2] && p[2] <= b.max[2];
 export const containsBox = (a, b) => isEmpty(b) || (contains(a, b.min) && contains(a, b.max));
 export const overlaps = (a, b) => a.min[0] <= b.max[0] && b.min[0] <= a.max[0] && a.min[1] <= b.max[1] && b.min[1] <= a.max[1] && a.min[2] <= b.max[2] && b.min[2] <= a.max[2];
-export const center = (b) => [0, 1, 2].map((i) => 0.5 * b.min[i] + 0.5 * b.max[i]);
+export function center(b) {
+  if (isEmpty(b)) fail('solid.err.bad_input', { name: 'box', why: 'empty' });
+  return [0, 1, 2].map((i) => {
+    const lo = b.min[i], hi = b.max[i];
+    if (lo === -Infinity) return hi === Infinity ? 0 : -MAX;
+    return hi === Infinity ? MAX : 0.5 * lo + 0.5 * hi;
+  });
+}
 export const size = (b) => (isEmpty(b) ? [0, 0, 0] : [0, 1, 2].map((i) => subUp(b.max[i], b.min[i])));
 export function diagonal(b) {
   const [x, y, z] = size(b);

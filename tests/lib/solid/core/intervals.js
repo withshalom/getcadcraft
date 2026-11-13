@@ -8,13 +8,17 @@
  * bound). Each operation returns an interval holding every exact result: a bound is rounded outward (float.js), and kept as
  * it is only where an error-free transformation proves it exact. So a decision taken on intervals is safe: an interval that
  * excludes zero proves the sign of what it encloses, and "cannot tell" is an answer of its own (sign → null) for the caller
- * to refine or refuse (HANDOFF § 7). The functions trust their arguments to be intervals; iv() checks one.
+ * to refine or refuse (HANDOFF § 7). The functions trust their arguments to be intervals; iv() checks one. Given
+ * intervals, every operation returns an interval: no bound is ever NaN, a lower bound is never +Infinity and an upper
+ * bound never −Infinity.
  *
- *   iv(lo, hi = lo) → [lo, hi]   solid.err.bad_input { name: 'interval', why: 'not_an_interval' } unless lo ≤ hi (no NaN)
+ *   iv(lo, hi = lo) → [lo, hi]   solid.err.bad_input { name: 'interval', why: 'not_an_interval' } unless lo ≤ hi (no NaN),
+ *                                 lo < +Infinity and hi > −Infinity (an interval holds at least one real number)
  *   ENTIRE                        [−Infinity, Infinity], frozen
- *   add · sub · mul · div(a, b)   div by an interval holding 0 gives [−Infinity, Infinity]
+ *   add · sub · mul · div(a, b)   div by an interval holding 0 gives [−Infinity, Infinity]; unbounded ends are allowed
+ *                                 everywhere (0 times an unbounded end is 0; ∞ / ∞ is no bound, never NaN)
  *   neg · abs · sqr · sqrt(a)     sqrt keeps the part ≥ 0 (a wholly negative a → bad_input { why: 'negative' })
- *   scale(a, s)                   a · s for a number s
+ *   scale(a, s)                   a · s for a finite number s (anything else: bad_input { name: 'scale', why: 'not_finite' })
  *   sin(a) · cos(a)               the end values widened by trig.ULPS, and ±1 wherever a crest may lie inside, found with an
  *                                 enclosure of π/2; [−1, 1] for wide or far-out intervals (|x| > 1.6e6, width ≥ 7)
  *   hull(a, b) · intersect(a, b) → interval or null · contains(a, x) · width(a) (rounded up) · mid(a) · mag(a) · mig(a)
@@ -27,11 +31,11 @@ import { HALF_PI, ULPS, sin as dsin, cos as dcos } from './trig.js';
 export const ENTIRE = Object.freeze([-Infinity, Infinity]);
 const PIO2_DOWN = HALF_PI;                             // the double below π/2
 const PIO2_UP = nextUp(HALF_PI);                       // and the one above
-const TRIG_RANGE = 1647099;                            // trig.js's bound holds up to here
+const TRIG_RANGE = 1647099;                            // past it an enclosure of m·π/2 is too wide to place a crest
 const TRIG_WIDTH = 7;                                  // > 2π: any interval this wide holds both crests
 
 export function iv(lo, hi = lo) {
-  if (typeof lo !== 'number' || typeof hi !== 'number' || !(lo <= hi)) fail('solid.err.bad_input', { name: 'interval', why: 'not_an_interval' });
+  if (typeof lo !== 'number' || typeof hi !== 'number' || !(lo <= hi) || lo === Infinity || hi === -Infinity) fail('solid.err.bad_input', { name: 'interval', why: 'not_an_interval' });
   return [lo, hi];
 }
 
@@ -51,15 +55,20 @@ export function mul(a, b) {
   ];
 }
 export function scale(a, s) {
+  if (typeof s !== 'number' || !Number.isFinite(s)) fail('solid.err.bad_input', { name: 'scale', why: 'not_finite' });
   if (s >= 0) return [mDown(a[0], s), mUp(a[1], s)];
   return [mDown(a[1], s), mUp(a[0], s)];
 }
+// A quotient at a corner where both ends are unbounded (∞ / ∞) is no bound at all: division is monotone in each argument,
+// so the bounds are the smallest and largest of the other corners. NaN there is left out, never passed on.
+const qDown = (x, y) => { const q = divDown(x, y); return q !== q ? Infinity : q; };
+const qUp = (x, y) => { const q = divUp(x, y); return q !== q ? -Infinity : q; };
 export function div(a, b) {
   const [p, q] = a, [r, s] = b;
   if (r <= 0 && s >= 0) return [-Infinity, Infinity];
   return [
-    Math.min(divDown(p, r), divDown(p, s), divDown(q, r), divDown(q, s)),
-    Math.max(divUp(p, r), divUp(p, s), divUp(q, r), divUp(q, s)),
+    Math.min(qDown(p, r), qDown(p, s), qDown(q, r), qDown(q, s)),
+    Math.max(qUp(p, r), qUp(p, s), qUp(q, r), qUp(q, s)),
   ];
 }
 export function sqr(a) {

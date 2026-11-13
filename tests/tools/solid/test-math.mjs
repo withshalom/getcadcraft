@@ -177,6 +177,11 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     const inf = B.inflate(B.box([0.1, 0.1, 0.1], [0.2, 0.2, 0.2]), 0.3);
     ok(inf.min.every((v) => xcmp(X(v), xadd(X(0.1), X(-0.3))) <= 0) && inf.max.every((v) => xcmp(X(v), xadd(X(0.2), X(0.3))) >= 0), 'inflate moves each side out by d, rounded outward (exact check)');
     ok(B.diagonal(B.box([0, 0, 0], [3, 4, 12])) >= 13 && B.diagonal(B.box([0, 0, 0], [3, 4, 12])) <= F.nextUp(F.nextUp(13)), 'diagonal is an upper bound, within an ulp or two');
+    const unit = B.box([0, 0, 0], [1, 1, 1]), inf3 = [Infinity, Infinity, Infinity], ninf3 = [-Infinity, -Infinity, -Infinity];
+    ok([[NaN, 0, 0], [1, 2], [1, 2, 3, 4], ['1', 2, 3], null, undefined].every((p) => refuses(() => B.extend(unit, p), bad, { name: 'point', why: 'not_a_point' })) && same(B.extend(unit, [2, -1, 0.5]).max, [2, 1, 1]), 'extend refuses a point that is not three numbers (no NaN reaches a box)');
+    const allBox = B.box(ninf3, inf3), halfBox = B.box([0, -Infinity, 2], [Infinity, 5, 4]);
+    ok(same(B.center(allBox), [0, 0, 0]) && same(B.center(halfBox), [Number.MAX_VALUE, -Number.MAX_VALUE, 3]) && same(B.center(unit), [0.5, 0.5, 0.5]) && refuses(() => B.center(B.EMPTY), bad, { name: 'box', why: 'empty' }), 'center: a point inside even for unbounded boxes (never NaN); the empty box has none');
+    ok(refuses(() => B.box(inf3, inf3), bad, { name: 'box', why: 'at_infinity' }) && refuses(() => B.box([0, -Infinity, 0], [1, -Infinity, 1]), bad, { why: 'at_infinity' }) && B.box(inf3, ninf3) === B.EMPTY, 'a box with a side wholly at infinity holds no point and is refused');
     ok(refuses(() => B.box([1, 0, 0], [0, 1, 1]), bad, { why: 'min_above_max' }) && refuses(() => B.fromPoints([[1, 2]]), bad) && refuses(() => B.inflate(b, -1), bad) && refuses(() => B.transform(b, [1]), bad), 'malformed boxes, points, distances and matrices are refused');
     ok(Object.isFrozen(b) && Object.isFrozen(b.min) && Object.isFrozen(B.EMPTY), 'boxes are frozen');
   });
@@ -217,6 +222,32 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     const t0 = performance.now();
     const ends = refuses(() => Q.adaptive((x) => (x < 0.3 ? 0 : 1), 0, 1, { eps: 1e-15 }), 'solid.err.no_convergence') && refuses(() => Q.adaptive((x) => T.sin(1e6 * x), 0, 1, { eps: 1e-12 }), 'solid.err.no_convergence', { what: 'integral' });
     ok(ends && performance.now() - t0 < 5000, 'a jump or a wild oscillation is refused quickly with the default limits (maxDepth 40, maxPieces 4096): it always ends');
+    const t1 = performance.now();
+    const many = Q.adaptive((x) => T.sin(1e6 * x), 0, 1, { eps: 1e-6, maxPieces: 100000, maxDepth: 60 });
+    const manyMs = performance.now() - t1;
+    ok(Math.abs(many.value - (1 - T.cos(1e6)) / 1e6) <= 1e-6 && many.error <= 1e-6 && many.intervals > 30000, `adaptive with many pieces: ∫₀¹ sin(1e6 x) to 1e-6 (${many.intervals} pieces)`);
+    ok(manyMs < 5000, `and its cost grows with the pieces, not with their square: ${many.intervals} pieces in ${Math.round(manyMs)} ms (the worst piece comes from a heap)`);
+    ok(same(many, Q.adaptive((x) => T.sin(1e6 * x), 0, 1, { eps: 1e-6, maxPieces: 100000, maxDepth: 60 })), 'many pieces: the same input gives the same bits');
+    // the heap must choose exactly the pieces a plain search for the worst one would (largest error, leftmost of equals)
+    const plain = (f, a, b, eps, order = 10) => {
+      const r = Q.rule(order), gl = (p, q) => { const c = 0.5 * p + 0.5 * q, h = 0.5 * q - 0.5 * p; let t = 0; for (let i = 0; i < r.n; i++) t += r.w[i] * f(c + h * r.x[i]); return h * t; };
+      const mk = (p, q, whole) => { const m = 0.5 * p + 0.5 * q, l = gl(p, m), rr = gl(m, q); return { p, q, m, l, r: rr, value: l + rr, err: Math.abs(l + rr - whole) }; };
+      const ps = [mk(a, b, gl(a, b))];
+      for (;;) {
+        let total = 0, sum = 0, w = 0;
+        ps.forEach((pc, i) => { total += pc.err; sum += pc.value; if (pc.err > ps[w].err) w = i; });
+        if (total <= eps || total <= 4 * EPS * Math.abs(sum)) return { value: sum, error: total, intervals: ps.length };
+        ps.splice(w, 1, mk(ps[w].p, ps[w].m, ps[w].l), mk(ps[w].m, ps[w].q, ps[w].r));
+      }
+    };
+    const shapes = [[Math.sqrt, 0, 1, 1e-11], [(x) => 1 / (1e-4 + (x - 0.3) * (x - 0.3)), 0, 1, 1e-9], [(x) => T.sin(300 * x), 0, 1, 1e-10], [(x) => Math.abs(x - 0.4), 0, 1, 1e-13], [(x) => T.exp(-50 * x) * T.cos(40 * x), 0, 2, 1e-13], [(x) => T.cbrt(x - 0.7), 0, 1, 1e-8]];
+    const differ = shapes.map(([f, a, b, eps], i) => { const h = Q.adaptive(f, a, b, { eps }), w = plain(f, a, b, eps); return h.intervals === w.intervals && Object.is(h.value, w.value) && Object.is(h.error, w.error) ? null : `#${i}: ${h.intervals} pieces against ${w.intervals}`; }).filter((x) => x !== null);
+    // equal errors: a shape repeated in both halves, seen by the 1-point rule (dyadic nodes), gives exact ties, and the leftmost piece must go first (same calls, in order)
+    const step = (x) => Math.sqrt(x < 0.5 ? x : x - 0.5), seenH = [], seenP = [];   // the same shape in each half of [0, 1], to the bit
+    const tieH = Q.adaptive((x) => { seenH.push(x); return step(x); }, 0, 1, { eps: 1e-5, order: 1 }), tieP = plain((x) => { seenP.push(x); return step(x); }, 0, 1, 1e-5, 1);
+    ok(tieH.intervals === tieP.intervals && tieH.intervals >= 20 && same(seenH, seenP), `of pieces with equal errors the leftmost is halved first: the same ${seenH.length} evaluations in the same order as the plain search`);
+    ok(differ.length === 0, `the heap picks the pieces a plain search for the worst would: the same pieces, value and error to the bit on ${shapes.length} integrands` + (differ.length ? ' (' + differ.join('; ') + ')' : ''));
+    ok(refuses(() => Q.adaptive(Math.sqrt, 0, 1, { eps: 1e-3, maxPieces: 100001 }), bad, { name: 'maxPieces', why: 'out_of_range' }), 'maxPieces above 100000 is refused');
     ok(refuses(() => Q.rule(0), bad, { name: 'n' }) && refuses(() => Q.rule(65), bad) && refuses(() => Q.fixed(() => NaN, 0, 1), bad, { name: 'f', why: 'not_finite' }) && refuses(() => Q.adaptive(Math.sqrt, 0, 1, {}), bad, { name: 'eps' }) && refuses(() => Q.fixed(1, 0, 1), bad, { why: 'not_a_function' }) && refuses(() => Q.fixed(Math.sqrt, 0, Infinity), bad, { name: 'b' }), 'bad orders, functions, ends and tolerances are refused');
   });
 
@@ -264,6 +295,22 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     ok(Math.abs(k1.x - 0.7390851332151607) <= 1e-6, 'brent: cos x = x to the eps asked for');
     const n2 = Ro.newton(T.atan, (x) => 1 / (1 + x * x), -10, 20, { x0: 15 });
     ok(n2.x === 0 || Math.abs(n2.x) <= 4 * EPS, `newton: atan x = 0 from x0 = 15, where plain Newton diverges, by falling back to bisection (${n2.iterations} steps)`);
+    // roots at 0, where a tolerance relative to x alone can never be met (the default eps is 0)
+    const cubed = (x) => x * x * x, fifth = (x) => x * x * x * x * x, flat = (x) => (x < 0 ? -1 : 1) * Math.sqrt(Math.abs(x));
+    const atZero = [['x/(1+|x|)', (x) => x / (1 + Math.abs(x)), (x) => 1 / ((1 + Math.abs(x)) * (1 + Math.abs(x)))], ['x³', cubed, (x) => 3 * x * x], ['x⁵', fifth, (x) => 5 * x * x * x * x], ['±√|x|', flat, null], ['atan', T.atan, (x) => 1 / (1 + x * x)]];
+    const zeroBad = [];
+    let zeroIts = 0;
+    for (const [name, f, df] of atZero) for (const [lo, hi] of [[-1, 2], [-3e-7, 1e-7], [-1e10, 4e9]]) {
+      const floor = 4 * EPS * EPS * Math.max(Math.abs(lo), Math.abs(hi));
+      try {
+        const b = Ro.brent(f, lo, hi); zeroIts = Math.max(zeroIts, b.iterations);
+        if (!(Math.abs(b.x) <= floor)) zeroBad.push(`brent ${name} [${lo}, ${hi}] → ${b.x}`);
+        if (df) { const n = Ro.newton(f, df, lo, hi); zeroIts = Math.max(zeroIts, n.iterations); if (!(Math.abs(n.x) <= floor)) zeroBad.push(`newton ${name} [${lo}, ${hi}] → ${n.x}`); }
+      } catch (e) { zeroBad.push(`${name} [${lo}, ${hi}] refused: ${e.code}`); }
+    }
+    ok(zeroBad.length === 0, `brent and newton with the default eps find a root at 0 (simple, triple, quintuple, vertical) to EPS² of the bracket's size (most iterations: ${zeroIts})` + (zeroBad.length ? '\n       ' + zeroBad.join('\n       ') : ''));
+    const small = Ro.brent((x) => x - 1e-9, -1, 2), smallN = Ro.newton((x) => x - 1e-9, () => 1, -1, 2), third = Ro.brent((x) => (x - 0.3) * (x - 0.3) * (x - 0.3), -1, 2);
+    ok(Math.abs(small.x - 1e-9) <= 4 * EPS * 1e-9 && Math.abs(smallN.x - 1e-9) <= 4 * EPS * 1e-9 && Math.abs(third.x - 0.3) <= 1e-15, 'a small root in a wide bracket keeps its relative accuracy (1e-9 in [−1, 2]), and a triple root at 0.3 is found');
     ok(Ro.brent((x) => x - 1, 1, 5).x === 1 && Ro.newton((x) => x - 5, () => 1, 1, 5).x === 5, 'a root at a bracket end is returned at once');
     ok(refuses(() => Ro.brent(f1, 3, 4), 'solid.err.no_bracket', { fa: 16, fb: 51 }) && refuses(() => Ro.newton(f1, d1, 3, 4), 'solid.err.no_bracket'), 'no sign change → solid.err.no_bracket { fa, fb }');
     ok(refuses(() => Ro.brent(f1, 2, 3, { maxIterations: 2 }), 'solid.err.no_convergence', { what: 'brent', iterations: 2 }) && refuses(() => Ro.newton((x) => x * x * x, (x) => 3 * x * x, -1, 2, { maxIterations: 2 }), 'solid.err.no_convergence', { what: 'newton' }), 'too few iterations → solid.err.no_convergence { what, iterations }');
@@ -346,6 +393,15 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     ok(ls, 'lstsq: Aᵀ(Ax − b) ≈ 0 and the reported residual is ‖Ax − b‖ (2000 random overdetermined systems)');
     const l1 = LA.lstsq([[1, 0], [0, 1], [1, 1]], [1, 2, 3]);
     ok(Math.abs(l1.x[0] - 1) <= 4 * EPS && Math.abs(l1.x[1] - 2) <= 4 * EPS && l1.residual <= 8 * EPS && Object.isFrozen(l1), 'lstsq: a consistent system is solved, residual 0');
+    const eye = (n) => Array.from({ length: n }, (_, i) => { const r = new Array(n).fill(0); r[i] = 1; return r; });
+    const tall = (m, n) => Array.from({ length: m }, (_, i) => { const r = new Array(n).fill(0); r[i % n] = 1; return r; });
+    const lim = 'solid.err.limit';
+    ok(Object.isFrozen(LA.LIMITS) && LA.LIMITS.columns === 1024 && LA.LIMITS.rows === 65536 && LA.LIMITS.work === 2147483648, 'LIMITS: 1024 columns, 65536 rows, 2^31 multiply-adds');
+    ok(refuses(() => LA.lu(eye(1025)), lim, { what: 'size', limit: 1024, used: 1025 }) && refuses(() => LA.det(eye(1025)), lim, { what: 'size' }) && refuses(() => LA.rcond1(eye(1025)), lim, { what: 'size' }) && refuses(() => LA.norm1(tall(2, 1025)), lim, { what: 'size' })
+      && refuses(() => LA.qr(tall(65537, 1)), lim, { what: 'size', limit: 65536, used: 65537 }) && refuses(() => LA.lstsq(tall(4096, 1024), new Array(4096).fill(0)), lim, { what: 'work', limit: 2147483648, used: 4294967296 }),
+    'a matrix past the limits is refused before any work: solid.err.limit { what: \'size\' | \'work\', limit, used }');
+    ok(refuses(() => LA.bandSolve(Array.from({ length: 3000 }, () => new Array(2001).fill(1)), 1000, 1000, new Array(3000).fill(1)), lim, { what: 'work' }) && refuses(() => LA.bandSolve([[1]], 0, 1025, [1]), lim, { what: 'size', limit: 1024, used: 1025 }), 'bandSolve: the same limits on its bandwidths and its work');
+    ok(same(LA.solve(eye(1024), new Array(1024).fill(3)), new Array(1024).fill(3)), 'the largest allowed dense system (1024 × 1024) is solved');
     ok(refuses(() => LA.lstsq([[1, 1], [2, 2], [3, 3]], [1, 2, 3]), 'solid.err.singular', { why: 'rank', column: 1 }) && refuses(() => LA.qr([[1, 2, 3]]), bad, { why: 'shape' }), 'lstsq refuses a rank-deficient matrix; qr refuses more columns than rows');
     ok(LA.norm1([[1, -2], [3, 4]]) === 6 && LA.normInf([[1, -2], [3, 4]]) === 7, 'norm1 and normInf');
   });

@@ -32,11 +32,14 @@
  *   [eval]         no eval, no Function constructor
  *   [epsilon]      no tolerance-sized literal (a decimal below 0.001, or any literal with a negative exponent) outside
  *                  core/tol.js; a line that needs one says why in a comment holding  solid-allow: epsilon
- *   [reach]        (S4) a file in nurbs/ or step/ that solid/ imports, or any file it imports in turn, keeps the same
- *                  exactness: no **, no implementation-approximated Math function, no Math.random, no Date, no import() or
- *                  require(). Reported on the solid/ import line that reaches it. A file outside solid/ cannot be edited
- *                  here (D8), so an import line whose comment holds  solid-allow: reach  is accepted when the comment names
- *                  what is used and why it stays exact; the fix belongs upstream (D-ccn).
+ *   [reach]        (S4) whatever solid/ takes from nurbs/ or step/ keeps the same exactness, followed to the end: no **,
+ *                  no implementation-approximated Math function, no Math as a value or Math[…], no Math.random, no Date,
+ *                  no import() or require(). Judged function by function: an import by name ({ a, b }, or N.a through
+ *                  import * as N) reaches the top-level declarations those names mention, and what those mention, across
+ *                  files. So the exact functions of a file can be imported while its inexact ones (cc-nurbs' arc, circle
+ *                  and angle: decision D-det (b)) cannot; const { a } = N counts as N.a. A namespace passed on as a value,
+ *                  an import for effect, or an export the reading cannot place counts as the whole file. Reported on the
+ *                  solid/ import line. There is no waiver comment: the fix is to import less, or upstream (D-ccn).
  *   [trig]         (S2) no Math function the language leaves "implementation-approximated" (sin, cos, exp, log, pow, atan2,
  *                  hypot, cbrt …), no ** or **= (also approximated), and no Math as a value or Math[…] (which would hide
  *                  the call): those differ in the last bits between engines. core/trig.js computes them from + − × ÷ and √,
@@ -250,6 +253,186 @@ const layerName = (rel) => { const parts = rel.split('/'); return parts.length =
 // ---------------------------------------------------------------------------------------------------- the check
 
 /** Checks app/solid under `appDir` (the folder holding solid/, nurbs/ and step/). */
+const OPENERS = new Set(['{', '(', '[']), CLOSERS = new Set(['}', ')', ']']);
+const DECLARES = new Set(['const', 'let', 'var']);
+
+/**
+ * One module, read for [reach]: its top-level declarations ("chunks"), what each one uses that is not the same bits
+ * everywhere, and which names each one mentions. A reading, not a parser: where it cannot tell, it errs towards "reaches"
+ * (an unknown export means the whole file; code before the first declaration counts for every function of the file).
+ * → { chunks: [{ names, uses, refs, members, nsValue }], local: name → chunk, exports: name → { local } | { from, name } |
+ *     { whole }, named: id → { file, name }, spaces: id → file, imports: [{ line, file, names, ns, bare }], pre: uses,
+ *     members: [[id, name]], nsValue: Set(id) } — files are app-relative, null when outside the app or inside solid/.
+ */
+export function analyse(appDir, rel) {
+  const { tokens } = tokenize(fs.readFileSync(path.join(appDir, rel), 'utf8'));
+  const target = (spec) => {
+    if (!SPECIFIER.test(spec)) return null;
+    const to = path.relative(appDir, path.resolve(path.dirname(path.join(appDir, rel)), spec)).split(path.sep).join('/');
+    return !to.startsWith('..') && !to.startsWith('solid/') && fs.existsSync(path.join(appDir, to)) ? to : null;
+  };
+  const isP = (tk, v) => !!tk && tk.t === 'p' && tk.v === v;
+  const isId = (tk, v) => !!tk && tk.t === 'id' && (v === undefined || tk.v === v);
+  const afterDot = (k) => k > 0 && tokens[k - 1].t === 'p' && (tokens[k - 1].v === '.' || tokens[k - 1].v === '?.');
+
+  // where top-level statements start
+  const starts = [];
+  let depth = 0;
+  for (let k = 0; k < tokens.length; k++) {
+    const tk = tokens[k], prev = tokens[k - 1], next = tokens[k + 1];
+    if (tk.t === 'p' && OPENERS.has(tk.v)) { depth++; continue; }
+    if (tk.t === 'p' && CLOSERS.has(tk.v)) { depth--; continue; }
+    if (depth !== 0 || tk.t !== 'id' || afterDot(k)) continue;
+    const led = isId(prev) && (prev.v === 'export' || prev.v === 'default' || prev.v === 'async');
+    if (tk.v === 'export' || (tk.v === 'import' && !(isP(next, '(') || isP(next, '.')))) { starts.push(k); continue; }
+    if (DECLARES.has(tk.v) && !led) { starts.push(k); continue; }
+    const fn = tk.v === 'function' || tk.v === 'class' || (tk.v === 'async' && isId(next, 'function'));
+    if (fn && !led && (!prev || isP(prev, ';') || isP(prev, '}') || prev.t === 'str')) starts.push(k);
+  }
+
+  const m = { chunks: [], local: new Map(), exports: new Map(), named: new Map(), spaces: new Map(), imports: [], pre: [], members: [], nsValue: new Set() };
+  const usesIn = (from, to) => {
+    const out = [];
+    for (let k = from; k < to; k++) {
+      const tk = tokens[k], next = tokens[k + 1];
+      if (tk.t === 'p' && (tk.v === '**' || tk.v === '**=')) { out.push({ line: tk.line, what: tk.v }); continue; }
+      if (tk.t !== 'id') continue;
+      if (tk.v === 'Math') {                             // also globalThis.Math: any Math counts
+        const name = next && next.t === 'p' && (next.v === '.' || next.v === '?.') && isId(tokens[k + 2]) ? tokens[k + 2].v : null;
+        if (name === null) out.push({ line: tk.line, what: 'Math used as a value (hides which functions are called)' });
+        else if (name === 'random' || INEXACT.has(name)) out.push({ line: tk.line, what: 'Math.' + name });
+        continue;
+      }
+      if (afterDot(k)) continue;
+      if ((tk.v === 'import' && (isP(next, '(') || isP(next, '.'))) || (tk.v === 'require' && isP(next, '('))) { out.push({ line: tk.line, what: tk.v === 'require' ? 'require()' : next.v === '(' ? 'import()' : 'import.meta' }); continue; }
+      if (tk.v === 'Date') out.push({ line: tk.line, what: 'Date' });
+    }
+    return out;
+  };
+  m.pre = usesIn(0, starts.length ? starts[0] : tokens.length);
+
+  // const { a, b: c } = N at j (N a namespace import) → the names taken from N: [a, b]; null when j is not that
+  const taken = (j) => {
+    if (!isP(tokens[j - 1], '=') || !isP(tokens[j - 2], '}')) return null;
+    const after = tokens[j + 1];
+    if (after && after.t === 'p' && after.v !== ';' && after.v !== ',') return null;
+    const keys = [];
+    let i = j - 3;
+    for (; i >= 0 && !isP(tokens[i], '{'); i--) {
+      const q = tokens[i];
+      if (q.t === 'p' && q.v !== ',' && q.v !== ':') return null;          // nested patterns, defaults, rest: not read
+      if (q.t === 'id' && !isP(tokens[i - 1], ':')) keys.push(q.v);
+    }
+    return i >= 0 ? keys : null;
+  };
+
+  // a clause { a, b as c } starting at the '{' at k → [[a, a], [b, c]] and the index after its '}'
+  const clause = (k) => {
+    const pairs = [];
+    let j = k + 1;
+    while (j < tokens.length && !isP(tokens[j], '}')) {
+      if (tokens[j].t === 'id' || tokens[j].t === 'str') {
+        const a = tokens[j].v;
+        if (isId(tokens[j + 1], 'as') && tokens[j + 2]) { pairs.push([a, tokens[j + 2].v]); j += 3; continue; }
+        pairs.push([a, a]);
+      }
+      j++;
+    }
+    return [pairs, j + 1];
+  };
+
+  for (let c = 0; c < starts.length; c++) {
+    const s = starts[c], e = c + 1 < starts.length ? starts[c + 1] : tokens.length;
+    const head = tokens[s];
+    if (head.v === 'import') {
+      let j = s + 1;
+      const im = { line: head.line, file: null, names: [], ns: null, bare: false };
+      const binds = [];
+      while (j < e && tokens[j].t !== 'str') {
+        const tk = tokens[j];
+        if (isP(tk, '*') && isId(tokens[j + 1], 'as') && isId(tokens[j + 2])) { im.ns = tokens[j + 2].v; j += 3; continue; }
+        if (isP(tk, '{')) { const [pairs, after] = clause(j); for (const [a, b2] of pairs) binds.push([b2, a]); j = after; continue; }
+        if (tk.t === 'id' && tk.v !== 'from') binds.push([tk.v, 'default']);
+        j++;
+      }
+      if (j < e) { im.file = target(tokens[j].v); im.line = tokens[j].line; }
+      im.bare = binds.length === 0 && im.ns === null;
+      for (const [id, name] of binds) { m.named.set(id, { file: im.file, name }); im.names.push(name); }
+      if (im.ns !== null) m.spaces.set(im.ns, im.file);
+      m.imports.push(im);
+      continue;
+    }
+    let k = s, exported = false, isDefault = false;
+    if (head.v === 'export') {
+      exported = true; k++;
+      if (isP(tokens[k], '{') || isP(tokens[k], '*')) {            // export { … } [from], export * [as ns] from
+        let pairs = [], j = k, star = false, ns = null;
+        if (isP(tokens[k], '{')) [pairs, j] = clause(k);
+        else { star = true; j = k + 1; if (isId(tokens[j], 'as') && tokens[j + 1]) { ns = tokens[j + 1].v; j += 2; } }
+        const src = isId(tokens[j], 'from') && tokens[j + 1] && tokens[j + 1].t === 'str' ? tokens[j + 1] : null;
+        const file = src ? target(src.v) : null;
+        if (src) m.imports.push({ line: src.line, file, names: pairs.map(([a]) => a), ns: null, bare: star });
+        if (star && ns !== null) m.exports.set(ns, { whole: file });
+        for (const [a, b2] of pairs) m.exports.set(b2, src ? { from: file, name: a } : { local: a });
+        if (!star || ns !== null) continue;
+        continue;                                        // export * from: its names are not listed, so asking for one reads the whole file
+      }
+      if (isId(tokens[k], 'default')) { isDefault = true; k++; }
+    }
+    const names = [];
+    let t = tokens[k];
+    if (isId(t, 'async')) { k++; t = tokens[k]; }
+    if (isId(t, 'function') || isId(t, 'class')) {
+      let j = k + 1;
+      if (isP(tokens[j], '*')) j++;
+      if (isId(tokens[j]) && tokens[j].v !== 'extends') names.push(tokens[j].v);
+    } else if (t && t.t === 'id' && DECLARES.has(t.v)) {
+      let d = 0, binding = true;
+      for (let j = k + 1; j < e; j++) {
+        const tk = tokens[j];
+        if (binding) {
+          if (tk.t === 'id') { names.push(tk.v); binding = false; continue; }
+          if (isP(tk, '{') || isP(tk, '[')) {             // a pattern: every name inside it (more than are bound, never fewer)
+            let dd = 0;
+            for (; j < e; j++) { const q = tokens[j]; if (q.t === 'p' && OPENERS.has(q.v)) dd++; else if (q.t === 'p' && CLOSERS.has(q.v)) { dd--; if (dd === 0) break; } else if (q.t === 'id') names.push(q.v); }
+            binding = false; continue;
+          }
+        }
+        if (tk.t === 'p' && OPENERS.has(tk.v)) d++;
+        else if (tk.t === 'p' && CLOSERS.has(tk.v)) d--;
+        else if (d === 0 && isP(tk, ',')) binding = true;
+      }
+    }
+    if (isDefault) names.push('default');
+    const ch = { names, uses: usesIn(s, e), refs: new Set(), members: [], nsValue: new Set() };
+    for (let j = k; j < e; j++) {
+      const tk = tokens[j];
+      if (tk.t !== 'id' || afterDot(j)) continue;
+      ch.refs.add(tk.v);
+      const dot = tokens[j + 1] && tokens[j + 1].t === 'p' && (tokens[j + 1].v === '.' || tokens[j + 1].v === '?.') && isId(tokens[j + 2]);
+      const keys = m.spaces.has(tk.v) ? taken(j) : null;
+      if (dot) ch.members.push([tk.v, tokens[j + 2].v]);
+      else if (keys) for (const key of keys) ch.members.push([tk.v, key]);
+      else ch.nsValue.add(tk.v);
+    }
+    const idx = m.chunks.length;
+    m.chunks.push(ch);
+    for (const nm of names) { if (!m.local.has(nm)) m.local.set(nm, idx); if (exported) m.exports.set(nm, { local: nm }); }
+  }
+  // the names a namespace import is asked for, anywhere in the file; and namespaces used whole (passed on, indexed)
+  for (let j = 0; j < tokens.length; j++) {
+    const tk = tokens[j];
+    if (tk.t !== 'id' || afterDot(j) || !m.spaces.has(tk.v)) continue;
+    if (isId(tokens[j - 1], 'as')) continue;             // its own declaration
+    const dot = tokens[j + 1] && tokens[j + 1].t === 'p' && (tokens[j + 1].v === '.' || tokens[j + 1].v === '?.') && isId(tokens[j + 2]);
+    const keys = taken(j);
+    if (dot) m.members.push([tk.v, tokens[j + 2].v]);
+    else if (keys) for (const key of keys) m.members.push([tk.v, key]);
+    else m.nsValue.add(tk.v);
+  }
+  return m;
+}
+
 export function checkTree(appDir) {
   const problems = [];
   const root = path.join(appDir, 'solid');
@@ -259,7 +442,7 @@ export function checkTree(appDir) {
   const add = (file, line, rule, detail) => problems.push({ file, line, rule, detail });
   const imports = [];
   const graph = new Map();   // file → [{ to, line }] (cc-solid files only)
-  const externals = [];      // [reach]: { file, line, target, allow } for every import that leaves solid/ correctly
+  const externals = [];      // [reach]: { file, line, target } for every import that leaves solid/ correctly
 
   for (const file of files) {
     const src = fs.readFileSync(path.join(appDir, file), 'utf8');
@@ -298,7 +481,7 @@ export function checkTree(appDir) {
         const top = target.split('/')[0];
         if (!EXTERNAL.folders.includes(top)) add(file, s.line, 'external', `${target} is outside solid/; only ${EXTERNAL.folders.map((f) => f + '/').join(' and ')} may be imported`);
         else if (tier !== null && tier < TIER.get(EXTERNAL.fromLayer)) add(file, s.line, 'external', `${layerName(file)} may not import ${target}: ${EXTERNAL.folders.join(' and ')} are for ${EXTERNAL.fromLayer} and higher layers`);
-        else externals.push({ file, line: s.line, target, allow: allowed(s.line, 'reach') });
+        else externals.push({ file, line: s.line, target });
       }
     }
     graph.set(file, graphEdges);
@@ -348,40 +531,54 @@ export function checkTree(appDir) {
     }
   }
 
-  // ----- [reach]: what an import into nurbs/ or step/ loads, followed to the end
-  const found = new Map();   // file → { uses: [{ line, what }], imports: [file] }
-  const scan = (rel) => {
-    if (found.has(rel)) return found.get(rel);
-    const info = { uses: [], imports: [] };
-    found.set(rel, info);
-    const { tokens } = tokenize(fs.readFileSync(path.join(appDir, rel), 'utf8'));
-    for (let k = 0; k < tokens.length; k++) {
-      const tk = tokens[k], prev = tokens[k - 1], next = tokens[k + 1];
-      if (tk.t === 'p' && (tk.v === '**' || tk.v === '**=')) { info.uses.push({ line: tk.line, what: tk.v }); continue; }
-      if (tk.t !== 'id' || (prev && prev.t === 'p' && (prev.v === '.' || prev.v === '?.'))) continue;
-      if ((tk.v === 'from' || tk.v === 'import') && next && next.t === 'str' && SPECIFIER.test(next.v)) {
-        const to = path.relative(appDir, path.resolve(path.dirname(path.join(appDir, rel)), next.v)).split(path.sep).join('/');
-        if (!to.startsWith('..') && !to.startsWith('solid/') && fs.existsSync(path.join(appDir, to))) info.imports.push(to);
-        continue;
-      }
-      if ((tk.v === 'import' && next && next.t === 'p' && (next.v === '(' || next.v === '.')) || (tk.v === 'require' && next && next.t === 'p' && next.v === '(')) { info.uses.push({ line: tk.line, what: tk.v === 'require' ? 'require()' : next.v === '(' ? 'import()' : 'import.meta' }); continue; }
-      if (tk.v === 'Date') { info.uses.push({ line: tk.line, what: 'Date' }); continue; }
-      if (tk.v === 'Math' && next && next.t === 'p' && (next.v === '.' || next.v === '?.')) {
-        const name = tokens[k + 2] && tokens[k + 2].t === 'id' ? tokens[k + 2].v : null;
-        if (name === 'random' || (name && INEXACT.has(name))) info.uses.push({ line: tk.line, what: 'Math.' + name });
-      }
-    }
-    return info;
+  // ----- [reach]: what each import into nurbs/ or step/ can run, function by function, followed to the end
+  const modules = new Map();
+  const load = (rel) => {
+    if (!modules.has(rel)) modules.set(rel, analyse(appDir, rel));
+    return modules.get(rel);
   };
   for (const ex of externals) {
-    if (ex.allow) continue;
-    const seen = new Set([ex.target]), queue = [ex.target], hits = [];
-    while (queue.length) {
-      const f = queue.shift(), info = scan(f);
-      for (const u of info.uses) hits.push(`${f}:${u.line} ${u.what}`);
-      for (const t of info.imports) if (!seen.has(t)) { seen.add(t); queue.push(t); }
+    const from = load(ex.file);
+    const stmts = from.imports.filter((im) => im.line === ex.line && im.file === ex.target);
+    const seenChunks = new Set(), touched = new Set(), hits = [];
+    const queue = [];
+    const visit = (file, k) => { const key = file + '#' + k; if (!seenChunks.has(key)) { seenChunks.add(key); touched.add(file); queue.push([file, k]); } };
+    const whole = (file) => { const m = load(file); touched.add(file); m.chunks.forEach((_, k) => visit(file, k)); };
+    const resolve = (file, name, guard = new Set()) => {
+      if (file === null) return;
+      const key = file + ':' + name;
+      if (guard.has(key)) return;
+      guard.add(key);
+      const m = load(file), e = m.exports.get(name);
+      if (e && e.local !== undefined) { if (m.local.has(e.local)) visit(file, m.local.get(e.local)); else if (m.named.has(e.local)) resolve(m.named.get(e.local).file, m.named.get(e.local).name, guard); else whole(file); return; }
+      if (e && e.whole !== undefined) { if (e.whole !== null) whole(e.whole); return; }
+      if (e) { resolve(e.from, e.name, guard); return; }
+      whole(file);                                       // not an export this reading understands (or export *): the whole file
+    };
+    let names = [], everything = stmts.length === 0;
+    for (const st of stmts) {
+      if (st.bare) everything = true;
+      names.push(...st.names);
+      if (st.ns !== null) { if (from.nsValue.has(st.ns)) everything = true; for (const [x, y] of from.members) if (x === st.ns) names.push(y); }
     }
-    if (hits.length) add(ex.file, ex.line, 'reach', `${ex.target} loads ${seen.size} file${seen.size === 1 ? '' : 's'} with ${hits.length} use${hits.length === 1 ? '' : 's'} that are not the same bits everywhere (first: ${hits.slice(0, 3).join(', ')}); fix it upstream (D-ccn), or say solid-allow: reach on the line with what is used and why it stays exact`);
+    names = [...new Set(names)];
+    if (everything) whole(ex.target); else for (const nm of names) resolve(ex.target, nm);
+    while (queue.length) {
+      const [file, k] = queue.shift(), m = load(file), ch = m.chunks[k];
+      for (const u of ch.uses) hits.push(`${file}:${u.line} ${u.what}`);
+      for (const id of ch.refs) {
+        if (m.local.has(id)) visit(file, m.local.get(id));
+        else if (m.named.has(id)) resolve(m.named.get(id).file, m.named.get(id).name);
+        else if (m.spaces.has(id) && ch.nsValue.has(id) && m.spaces.get(id) !== null) whole(m.spaces.get(id));
+      }
+      for (const [x, y] of ch.members) if (m.spaces.has(x) && !m.local.has(x)) resolve(m.spaces.get(x), y);
+    }
+    for (const file of touched) for (const u of load(file).pre) hits.push(`${file}:${u.line} ${u.what}`);
+    if (hits.length) {
+      hits.sort();
+      const what = everything ? 'the whole file' : names.join(', ');
+      add(ex.file, ex.line, 'reach', `${ex.target} (${what}) reaches ${hits.length} use${hits.length === 1 ? '' : 's'} in ${touched.size} file${touched.size === 1 ? '' : 's'} that are not the same bits everywhere (first: ${hits.slice(0, 3).join(', ')}); import by name only the functions that stay exact, or fix it upstream (D-ccn)`);
+    }
   }
 
   // ----- import cycles (cc-solid files): report every import that is part of a cycle

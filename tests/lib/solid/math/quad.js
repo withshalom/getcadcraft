@@ -9,7 +9,7 @@
  * typed in: Newton's method on the Legendre polynomial P_n, evaluated by its three-term recurrence, from the classical
  * starting values cos(π (i − ¼) / (n + ½)); then w = 2 / ((1 − x²) P_n′(x)²). Every engine computes the same tables.
  *
- *   MAX_ORDER                       64
+ *   MAX_ORDER                       64            MAX_PIECES   100000 (the most maxPieces may be)
  *   rule(n) → frozen { n, x, w }    nodes ascending in (−1, 1), symmetric to the last bit, and their weights; n from 1 to 64
  *                                   (else solid.err.bad_input { name: 'n', why: 'out_of_range' }); computed once, then kept
  *   fixed(f, a, b, n = 10)          the n-point rule on [a, b]: (b − a)/2 · Σ w f(midpoint + half-width · x)
@@ -20,7 +20,8 @@
  *       √x at 0 costs a handful of halvings there and none elsewhere, and the same input gives the same pieces every time.
  *       A piece that would need more than maxDepth halvings, or more than maxPieces pieces in all (a jump, a wild
  *       oscillation, a broken f), → solid.err.no_convergence { what: 'integral', iterations } (the halvings done), so it
- *       always ends; each halving also counts one step of the budget (solid.err.limit when it runs out).
+ *       always ends; each halving also counts one step of the budget (solid.err.limit when it runs out). The worst piece
+ *       comes from a heap, so the cost grows as pieces · log(pieces).
  * f must return finite numbers (anything else: solid.err.bad_input { name: 'f', why: 'not_finite' }); a > b integrates
  * backwards (the sign flips).
  */
@@ -30,6 +31,7 @@ import { cos, PI } from '../core/trig.js';
 import { resolveBudget } from '../core/limits.js';
 
 export const MAX_ORDER = 64;
+export const MAX_PIECES = 100000;
 const RULES = new Map();
 
 function legendre(n, x) {                              // → [P_n(x), P_n′(x)]
@@ -93,7 +95,7 @@ export function adaptive(f, a, b, { eps, order = 10, maxDepth = 40, maxPieces = 
   needFn(f); needEnds(a, b);
   if (typeof eps !== 'number' || !(eps > 0) || eps === Infinity) fail('solid.err.bad_input', { name: 'eps', why: 'not_a_tolerance' });
   if (!Number.isInteger(maxDepth) || maxDepth < 1 || maxDepth > 200) fail('solid.err.bad_input', { name: 'maxDepth', why: 'out_of_range' });
-  if (!Number.isInteger(maxPieces) || maxPieces < 1 || maxPieces > 1000000) fail('solid.err.bad_input', { name: 'maxPieces', why: 'out_of_range' });
+  if (!Number.isInteger(maxPieces) || maxPieces < 1 || maxPieces > MAX_PIECES) fail('solid.err.bad_input', { name: 'maxPieces', why: 'out_of_range' });
   const r = rule(order), bud = resolveBudget(budget);
   if (a === b) return Object.freeze({ value: 0, error: 0, intervals: 0, evaluations: 0 });
   const sgn = a < b ? 1 : -1, lo = Math.min(a, b), hi = Math.max(a, b);
@@ -105,22 +107,49 @@ export function adaptive(f, a, b, { eps, order = 10, maxDepth = 40, maxPieces = 
     evaluations += 2 * r.n;
     return { p, q, m, depth, left, right, value: left + right, err: Math.abs(left + right - whole) };
   };
-  const pieces = [piece(lo, hi, 0)];                   // kept in order along [lo, hi]
+  // The pieces live in a heap with the worst on top (largest error; of equals, the leftmost: the same choice every time),
+  // so a split costs log(pieces), not a pass over all of them. The running totals drift by rounding, so they only say when
+  // to look: every decision to stop or to refuse is taken on totals summed afresh, left to right along [lo, hi].
+  const worse = (x, y) => x.err > y.err || (x.err === y.err && x.p < y.p);
+  const heap = [piece(lo, hi, 0)];
+  const down = (i) => {
+    const x = heap[i];
+    for (;;) {
+      let c = 2 * i + 1;
+      if (c >= heap.length) break;
+      if (c + 1 < heap.length && worse(heap[c + 1], heap[c])) c++;
+      if (!worse(heap[c], x)) break;
+      heap[i] = heap[c]; i = c;
+    }
+    heap[i] = x;
+  };
+  const up = (i) => {
+    const x = heap[i];
+    while (i > 0) { const q = (i - 1) >> 1; if (!worse(x, heap[q])) break; heap[i] = heap[q]; i = q; }
+    heap[i] = x;
+  };
+  let total = heap[0].err, sum = heap[0].value, exactAt = 1;
+  const recount = () => {
+    total = 0; sum = 0;
+    for (const pc of heap.slice().sort((x, y) => x.p - y.p)) { total += pc.err; sum += pc.value; }
+    exactAt = heap.length;
+  };
+  const met = () => total <= eps || total <= 4 * EPS * Math.abs(sum);
   for (;;) {
-    let total = 0, sum = 0, worst = 0;
-    for (let i = 0; i < pieces.length; i++) {
-      total += pieces[i].err; sum += pieces[i].value;
-      if (pieces[i].err > pieces[worst].err) worst = i;   // the first of equals: the same choice every time
+    if (met() || heap.length >= 2 * exactAt) {
+      recount();
+      if (met()) return Object.freeze({ value: sgn * sum, error: total, intervals: heap.length, evaluations });
     }
-    if (total <= eps || total <= 4 * EPS * Math.abs(sum)) {
-      let value = 0;
-      for (const pc of pieces) value += pc.value;      // left to right
-      return Object.freeze({ value: sgn * value, error: total, intervals: pieces.length, evaluations });
+    const w = heap[0];
+    if (w.depth + 1 > maxDepth || heap.length >= maxPieces) {
+      if (exactAt !== heap.length) { recount(); if (met()) return Object.freeze({ value: sgn * sum, error: total, intervals: heap.length, evaluations }); }
+      fail('solid.err.no_convergence', { what: 'integral', iterations: splits });
     }
-    const w = pieces[worst];
-    if (w.depth + 1 > maxDepth || pieces.length >= maxPieces) fail('solid.err.no_convergence', { what: 'integral', iterations: splits });
     bud.step();
     splits++;
-    pieces.splice(worst, 1, piece(w.p, w.m, w.depth + 1, w.left), piece(w.m, w.q, w.depth + 1, w.right));
+    const l = piece(w.p, w.m, w.depth + 1, w.left), r = piece(w.m, w.q, w.depth + 1, w.right);
+    total += (l.err + r.err) - w.err; sum += (l.value + r.value) - w.value;
+    heap[0] = l; down(0);
+    heap.push(r); up(heap.length - 1);
   }
 }

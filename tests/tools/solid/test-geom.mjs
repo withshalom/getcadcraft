@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as R from './bigref.mjs';
-import { checkPins, PINS_FILE } from './sync-nurbs.mjs';
+import { checkPins, syncFrom, PINS_FILE } from './sync-nurbs.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UR = 2 ** -53;                       // the unit roundoff
@@ -129,7 +129,11 @@ export async function register({ section, ok, refuses, same, appUrl }) {
 
   // ============================================================================================== pins
   section('pins', 'cc-nurbs beside the engine is the canonical copy, unedited (D8, D-ccn2)', () => {
-    if (!fs.existsSync(PINS_FILE)) { ok(true, 'no pins.json: this host checks its copies with its own sync script'); return; }
+    if (!fs.existsSync(PINS_FILE)) {
+      // only a host that holds the canonical cc-nurbs may run without pins, and it has to say so
+      ok(process.env.SOLID_NO_PINS === '1', 'tools/solid/pins.json is missing: restore it, or set SOLID_NO_PINS=1 on a host whose lib/nurbs is the canonical copy');
+      return;
+    }
     const r = checkPins(APP);
     ok(r.ok, `lib/nurbs matches pins.json (${Object.keys(r.pins.folders.nurbs.files).length} files; ${r.pins.folders.nurbs.source})` + (r.problems.length ? '\n       ' + r.problems.join('\n       ') : ''));
     const tmp = fs.mkdtempSync(path.join(HERE, '.pins-'));
@@ -140,6 +144,26 @@ export async function register({ section, ok, refuses, same, appUrl }) {
       fs.rmSync(path.join(tmp, 'nurbs/vec.js'));
       const bad = checkPins(tmp).problems.join(' | ');
       ok(/basis\.js differs/.test(bad) && /extra\.js is not pinned/.test(bad) && /vec\.js is missing/.test(bad), 'an edited, an added and a removed file are each reported');
+      // the sync command must never leave lib/nurbs empty or pin nothing
+      const lib = path.join(tmp, 'lib'), pf = path.join(tmp, 'pins.json'), src = path.join(tmp, 'src'), none = path.join(tmp, 'none');
+      fs.mkdirSync(none); fs.mkdirSync(path.join(lib, 'nurbs'), { recursive: true });
+      fs.cpSync(path.join(APP, 'nurbs'), src, { recursive: true });
+      const first = syncFrom(src, 'test', { libDir: lib, pinsFile: pf });
+      const count = fs.readdirSync(src).filter((n) => n.endsWith('.js')).length;
+      ok(first.ok && first.files === count && checkPins(lib, pf).ok, `sync copies the ${count} files and pins them`);
+      const tries = [
+        ['the copy itself', path.join(lib, 'nurbs')], ['a folder with no .js files', none], ['a folder that is not there', path.join(tmp, 'absent')],
+        ['a folder inside the copy', path.join(lib, 'nurbs', 'sub')], ['the folder that holds the copy', lib],
+      ];
+      fs.mkdirSync(path.join(lib, 'nurbs', 'sub')); fs.writeFileSync(path.join(lib, 'nurbs', 'sub', 'x.js'), '');
+      const leaks = tries.filter(([, from]) => { let r; try { r = syncFrom(from, 'test', { libDir: lib, pinsFile: pf }); } catch (e) { return true; } return r.ok || !checkPins(lib, pf).ok || fs.readdirSync(path.join(lib, 'nurbs')).filter((n) => n.endsWith('.js')).length !== count; }).map(([name]) => name);
+      ok(leaks.length === 0, 'sync refuses, and changes nothing, when the source is ' + tries.map(([n]) => n).join(', ') + (leaks.length ? ' (not refused: ' + leaks.join('; ') + ')' : ''));
+      let blank = false; try { blank = !syncFrom(src, '  ', { libDir: lib, pinsFile: pf }).ok; } catch (e) { blank = false; }
+      ok(blank, 'sync refuses a blank --source');
+      fs.writeFileSync(pf, JSON.stringify({ folders: { nurbs: { files: {} } } }));
+      for (const n of fs.readdirSync(path.join(lib, 'nurbs'))) fs.rmSync(path.join(lib, 'nurbs', n), { recursive: true });
+      const hollow = checkPins(lib, pf), noFolders = (() => { fs.writeFileSync(pf, JSON.stringify({ folders: {} })); return checkPins(lib, pf); })();
+      ok(!hollow.ok && !noFolders.ok, 'a pin set that pins no files is a problem, not a pass');
     } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   });
 

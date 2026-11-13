@@ -26,6 +26,11 @@
  *                                           Work and memory O(n · kl · (kl + ku)) and O(n · (2 kl + ku)).
  *   qr(A) → frozen { m, n, r, v, beta }     Householder QR, m ≥ n: r is the n × n upper triangle, v and beta the reflectors
  *   lstsq(A, b) → frozen { x, residual }    x minimising ‖A x − b‖₂ (residual is that minimum), from qr
+ *   LIMITS                                  frozen { columns: 1024, rows: 65536, work: 2^31 }. These loops are cubic and take
+ *                                           no budget, so the size is capped instead: more columns (or a wider band, or more
+ *                                           right-hand sides) than `columns`, more rows than `rows`, or more multiply-adds
+ *                                           than `work` (rows · columns² dense; n · (kl + 1) · (kl + ku + 1) banded) →
+ *                                           solid.err.limit { what: 'size' | 'work', limit, used }, before any work is done.
  * Malformed arguments are solid.err.bad_input { name: 'matrix' | 'b' | 'band' | 'bandwidth', why: 'not_a_matrix' | 'shape' |
  * 'not_square' | 'not_finite' | 'out_of_range' }.
  */
@@ -34,9 +39,17 @@ import { EPS } from '../core/float.js';
 
 const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 
+export const LIMITS = Object.freeze({ columns: 1024, rows: 65536, work: 2147483648 });
+function checkSize(rows, columns, work) {
+  if (columns > LIMITS.columns) fail('solid.err.limit', { what: 'size', limit: LIMITS.columns, used: columns });
+  if (rows > LIMITS.rows) fail('solid.err.limit', { what: 'size', limit: LIMITS.rows, used: rows });
+  if (work > LIMITS.work) fail('solid.err.limit', { what: 'work', limit: LIMITS.work, used: work });
+}
+
 function checkMatrix(A, square = true) {
   if (!Array.isArray(A) || A.length === 0 || !Array.isArray(A[0]) || A[0].length === 0) fail('solid.err.bad_input', { name: 'matrix', why: 'not_a_matrix' });
   const m = A.length, n = A[0].length;
+  checkSize(m, n, m * n * n);                            // before any pass over the entries
   for (const row of A) {
     if (!Array.isArray(row) || row.length !== n) fail('solid.err.bad_input', { name: 'matrix', why: 'shape' });
     if (!row.every(isNum)) fail('solid.err.bad_input', { name: 'matrix', why: 'not_finite' });
@@ -119,6 +132,7 @@ export function solveMany(A, B) {
   const F = lu(A), n = F.n;
   if (!Array.isArray(B) || B.length !== n) fail('solid.err.bad_input', { name: 'b', why: 'shape' });
   const k = Array.isArray(B[0]) ? B[0].length : -1;
+  checkSize(n, k, n * n * k);
   if (!(k > 0) || !B.every((r) => Array.isArray(r) && r.length === k && r.every(isNum))) fail('solid.err.bad_input', { name: 'b', why: 'shape' });
   const X = Array.from({ length: n }, () => new Array(k));
   for (let j = 0; j < k; j++) {
@@ -187,6 +201,7 @@ export function bandSolve(band, kl, ku, b) {
   if (!Number.isInteger(kl) || kl < 0 || !Number.isInteger(ku) || ku < 0) fail('solid.err.bad_input', { name: 'bandwidth', why: 'out_of_range' });
   if (!Array.isArray(band) || band.length === 0) fail('solid.err.bad_input', { name: 'band', why: 'not_a_matrix' });
   const n = band.length, w = kl + ku + 1, W = 2 * kl + ku + 1;
+  checkSize(n, Math.max(kl, ku), n * (kl + 1) * w);
   for (const row of band) {
     if (!Array.isArray(row) || row.length !== w) fail('solid.err.bad_input', { name: 'band', why: 'shape' });
     if (!row.every(isNum)) fail('solid.err.bad_input', { name: 'band', why: 'not_finite' });

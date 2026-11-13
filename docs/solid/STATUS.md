@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.4 · **Last session:** S4 (2026-11-12)
+**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.5 · **Last session:** S4 bug review and fixes (2026-11-13)
 
 > **Moved, 2026-11-12 (D-home, D-name):** S0 and S1 were built in the PartCraft fork (`withshalom/getpartcraft`, branch `partcore`, commit 34a1df2a) under the name PartCore. They now live here as engine.solid. Paths below are the new ones; S1's results were measured there, and are measured again here under "After the move".
 
@@ -134,7 +134,7 @@ D-ccn2 was settled the way the plan proposed (synced copies), so S4 could start.
 | `lib/solid/geom/basis.js` | the first `geom/` file:<br>• `knots` (checks a knot vector once and returns a frozen record);<br>• `span`, `basis`, `ders`, `one`, `oneDers`, `clampedUniform`;<br>• unchecked `findSpan`, `basisFuns`, `dersBasisFuns` for hot loops.<br>The arithmetic is cc-nurbs' A2.2 and A2.3, called unchanged. |
 | `tools/solid/check-boundaries.mjs` | rule 16, **`reach`** (below) |
 | `tools/solid/test-geom.mjs` | sections `pins` and `basis` |
-| `lib/solid/index.js` | VERSION 0.0.4; `basis` namespace |
+| `lib/solid/index.js` | VERSION 0.0.4 (0.0.5 after the bug review below); `basis` namespace |
 
 What engine.solid adds to cc-nurbs' basis:
 - **Every input is checked once,** and a bad one gets a typed refusal instead of NaN.
@@ -160,15 +160,42 @@ Measured:
 - **Mutation check:** 16 of 16 caught. A fault of only 16 ulps (2^-49) in one value fails the γ(6p) check on its own.
 - **Speed, p = 3:** `basis` 187 ns (raw cc-nurbs 163 ns); `span` 111 ns; `ders` with d = 2 is 1.6 µs, mostly allocation in A2.3 (S43); `knots()` on 1,004 knots takes 120 µs, once per vector.
 - **Same bits:** 4,000 seeded evaluations hash to 0x98fda410.
-- **The whole suite:** 286 checks in about 30 s.
+- **The whole suite:** 286 checks in about 30 s (317 after the bug review below).
 
 ### The `reach` rule, and what it found
 - **What the rule does:** a file in `nurbs/` or `step/` that `solid/` imports, and every file it imports in turn, must use only exactly specified arithmetic. That means no `**`, no approximated `Math` function, no `Math.random`, no `Date`, no `import()`.
 - **What it found:** of cc-nurbs' 20 files, only `basis.js` passes. Across `curve.js`, `surface.js` and `fit.js` there are just 8 such uses, in two places: `vec.angle()` (`Math.atan2`, `**`) and `curve.arc()` (`Math.cos`, `sin`, `tan`; `circle()` calls it). `surface.js` and `fit.js` are clean themselves and fail only because they import those files. No evaluation, derivative or knot function calls either place, and nothing in curve, surface or fit calls `vec.angle()` at all.
 - **Why it matters:** S5 (curves) and S6 (surfaces) cannot import cc-nurbs' curve and surface code without breaking engine.solid's same-bits promise.
-- **The owner decides** (D-det, `HANDOFF.md` §17.2). An import line may say `solid-allow: reach`, with the functions used and why they stay exact; the rule then accepts it.
+- **The owner decided (b)** (D-det, `HANDOFF.md` §17.3). Since the bug review below, the rule judges function by function and there is no `solid-allow: reach` waiver.
+
+### Bug review of S1–S4, and the fixes (2026-11-13, version 0.0.5)
+The owner asked for a review of everything built so far, then for every finding to be fixed. Each fix began with a test that failed.
+
+| # | Fault | Fix |
+|---|---|---|
+| 1 | `intervals.div` returned NaN bounds when both intervals had an unbounded end (∞ / ∞), so `contains` and `intersect` answered wrongly | a corner that is no bound is left out; every operation now returns an interval for every interval (checked on 77 × 77 extreme pairs) |
+| 2 | `sin`, `cos` and `tan` were wrong past about 2^45, out of [−1, 1] past 2^55, and NaN past 1e40 | past 2^19 π the reduction is exact: \|x\| · 2/π in whole-number (BigInt) arithmetic with 1216 bits of 2/π, checked against Machin's formula. Within 1 ulp (tan 2) out to the largest double |
+| 3 | `quad.adaptive` rescanned every piece on every split: 65,000 pieces took 20 s, and the cap allowed 1,000,000 | the worst piece comes from a heap: the same 65,000 pieces in 0.3 s, the same pieces and bits as the plain search. `maxPieces` is at most 100,000 |
+| 4 | `sync-nurbs.mjs --from` emptied `lib/nurbs` and wrote an empty pin set when the source was the copy itself or held no `.js` files; `--check` then passed | everything is checked and read before anything is deleted; a pin set that pins nothing is a problem |
+| 5 | `brent` and `newton` could not find a root at 0 with the default `eps = 0` (a tolerance relative to x alone) | no answer is asked to be finer than EPS² of the bracket's size; defaults 500 and 400 iterations |
+| 6 | NaN passed silently: `intervals.scale(a, NaN)`, `iv(−∞, −∞)`, `aabb.extend` with a bad point, `aabb.center` of an unbounded box | each is refused or defined: `iv` and `box` refuse a side wholly at infinity, `scale` and `extend` check their argument, `center` returns a point inside |
+| 7 | `prng.range(lo, hi)` returned `lo` every time when `hi − lo` overflowed | the ends are blended instead; the usual case keeps its bits |
+
+Gaps closed with them:
+- **`reach` is the D-det (b) guard now.** It reads each cc-nurbs file's top-level declarations and follows what the imported names mention, across files. On the real cc-nurbs: `curve.js` has 36 exact exports and 2 that are not (`arc`, `circle`); `vec.js` 13 and 1 (`angle`); all 29 of `surface.js` are exact. `revolve`, `sweep1` and the solid primitives are kept out because they are built on `arc`. The `solid-allow: reach` waiver is gone. The scan also sees `Math` used as a value, `Math[…]` and `globalThis.Math`.
+- **`linalg` has limits:** 1024 columns, 65,536 rows, 2^31 multiply-adds (`solid.err.limit { what: 'size' | 'work' }`). Its loops are cubic and take no budget.
+- **The `pins` test fails when `pins.json` is missing,** unless the host says it holds the canonical copy (`SOLID_NO_PINS=1`).
+- **Docs:** HANDOFF named `maxFaces` and `check()`; the code has `maxEntities`, `step()` and `checkTime()`.
+
+Results:
+- **317 checks pass.** Both golden hashes are unchanged (trig 0x1cb4c414, basis 0x98fda410), so nothing that was right before changed its bits.
+- **Mutation check:** 32 of 32 caught.
+- **Checked and found sound:** `float.js`, `limits.js`, `errors.js`, `tol.js`, `vec3`, `mat4`, `frame`, `linalg`'s arithmetic, `basis.js`, and `predicates.js` (8,000 exactly degenerate cases at the bottom of its domain, all 0).
+- **Not reviewed:** browser runs (Chromium, Firefox, Safari) are still to do before the pull request.
 
 ## Learned
+- **Bug review: a passing suite says only what it was asked.** All seven faults sat in code with passing tests; each lived just outside the inputs the tests drew (unbounded intervals, huge angles, a root at exactly 0, an overflowing width, many pieces). The fixes' tests draw from those edges on purpose.
+- **Bug review: a waiver comment is not a guard.** `solid-allow: reach` accepted a whole import line, so it could not keep three functions out of a file. Reading the file function by function can, and needs no comment to trust.
 - **The checker found a real fault on its first run.** `core/limits.js` named a local variable `self`, which is a worker global. It was renamed to `budget`. The rules hold engine.solid's own code to account, not just the fixtures.
 - **PartCraft's worker loader reads raw text, comments included** (`exact-client.js` `blobModules()`). A usage line such as `import … from './x.js'` in a comment would be fetched as a module, or reported as an import cycle. Hence the `bundler` rule, and why `index.js` documents its usage without a quoted path.
 - **That loader only follows certain specifiers:** single-quoted, relative, lower-case `[a-z0-9-]` names ending in `.js`. Hence the `specifier` rule, which matters for S24b, where engine.solid runs in that worker.
@@ -202,8 +229,9 @@ Measured:
 - **S5 — curves** (HANDOFF §14: B-spline and NURBS evaluation, derivatives, knot insertion and refinement).
   - **D-det decided: (b)** (owner, 2026-11-12). Import only the exact cc-nurbs functions; the checker guards `arc`, `circle` and `angle`. This is a compromise, and option (a) is noted for later investigation. The choices, for the record:
     - **(a)** fix it upstream, in the site's `lib/nurbs/`: deterministic trig and products in place of `Math.*` and `**`. This changes cc-nurbs' bits for every app.
-    - **(b)** import it under `solid-allow: reach`, listing the evaluation functions used, after checking that each one calls only + − × ÷.
+    - **(b)** import only the functions that call nothing but + − × ÷ and √. The `reach` rule now checks this itself, function by function (see the bug review above).
     - **(c)** write engine.solid's own evaluators. This goes against D8.
   - Recommended: (b) now, and (a) upstream when the owner agrees.
+  - The guard for (b) is built (the `reach` rule), so S5 can start.
 - **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc (D-det decided: (b), see HANDOFF §17.3). D-ccn2 was taken as proposed at S4 (synced, pinned copies). D3, D-tr, D-name and D-home were settled on 2026-11-12.
 - **The pull request** to the library repo's `main` waits until engine.solid is finished (D-home).

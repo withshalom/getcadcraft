@@ -504,7 +504,7 @@ New command family, same schema/capability machinery as the existing 42:
 | `body.tessellate` | `doc.read` | returns transferable buffers |
 | `body.importStep`, `body.exportStep` | `io.import` / `io.export` | |
 
-**Budgets:** JavaScript cannot preempt a running function, so every kernel entry point accepts a `budget` (`maxMs`, `maxFaces`, `maxIterations`) checked cooperatively in loops via `core/limits.js`, throwing `LIMIT`. In a Worker the host can additionally terminate a runaway job. This is what makes it safe to expose the kernel to KAD2's AI/cloud capability sessions.
+**Budgets:** JavaScript cannot preempt a running function, so every kernel entry point accepts a `budget` (`maxMs`, `maxEntities`, `maxIterations`) checked cooperatively in loops via `core/limits.js`, throwing `LIMIT`. In a Worker the host can additionally terminate a runaway job. This is what makes it safe to expose the kernel to KAD2's AI/cloud capability sessions.
 
 ### 13.4 KUBIC
 **v1.1, what the code is today** (review §3): extrude-only prisms. S36's KUBIC target is concrete:
@@ -858,7 +858,7 @@ Append entries as `YYYY-MM-DD · ID · decision · reason · who`.
 lib/solid/index.js              the single public entry
 lib/solid/core/errors.js        SolidError (code = 'solid.err.*' i18n key, details), fail(), and envelope() for the KAD2 adapter
 lib/solid/core/tol.js           Tolerance factory + defaults (§5.2)
-lib/solid/core/limits.js        budgets: deadline / iterations / entities, cooperative check()
+lib/solid/core/limits.js        budgets: deadline / iterations / entities, cooperative step() and checkTime()
 tools/solid/test.mjs      the engine.solid test runner (plain node, like tests/tools/nurbs/test.mjs)
 tools/solid/check-boundaries.mjs   layer rules + forbidden globals + epsilon lint over lib/solid/
 tools/solid/fixtures/     deliberately violating files for the checker's own tests

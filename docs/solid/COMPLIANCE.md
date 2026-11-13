@@ -63,7 +63,7 @@ Source: getcadcraft.com › Build an add-on › Upload and review.
 | No `eval` or `Function` | — | checker rule `eval` | enforced |
 | Tolerances in one place | `core/tol.js` only | checker rule `epsilon` | enforced |
 | Geometric decisions never take a wrong sign | exact predicates; outside their domain they refuse | `predicates` tests (BigInt, 1.56e6 cases); mutation run | enforced |
-| Every long loop is bounded | budgets; iteration caps; the integrator's `maxDepth` and `maxPieces` | `limits`, `quad` and `roots` tests (refusals and limits) | enforced |
+| Every long loop is bounded | budgets; iteration caps; the integrator's `maxDepth` and `maxPieces` (its cost grows as pieces · log pieces); size and work limits in `linalg` | `limits`, `quad`, `roots` and `linalg` tests (refusals and limits) | enforced |
 | No quiet wrong answers | typed refusals; no NaN results from solvers | each refusal has a test that throws it | enforced |
 | Nothing leaks out of an error | `toEnvelope` strips messages and stacks from unknown errors | `errors` test | enforced |
 
@@ -95,7 +95,7 @@ Source: `HANDOFF.md` §15; the owner's direction (D5, D6).
 
 - **The sync script with `--check`.** It comes with the first host copy (PartCraft).
 - **cc-step beside the engine.** Its copies have drifted; settle which is canonical first. cc-nurbs is here (S4).
-- **D-det (decided (b)).** cc-nurbs' `arc`, `circle` and `angle` are not same-bits; S5 imports only the exact functions and a guard keeps those out. Option (a), deterministic trig upstream, is open for later investigation.
+- **D-det (decided (b)).** cc-nurbs' `arc`, `circle` and `angle` are not same-bits; S5 imports only the exact functions, and the checker's `reach` rule keeps those three out, function by function (built and tested on the real cc-nurbs, 2026-11-13). Option (a), deterministic trig upstream, is open for later investigation.
 - **Language-table keys for `solid.err.*`.** Due at S24b.
 - **The catalogue entry.** Drafted in `ENGINE.md`; the owner publishes it.
 - **A browser run of the golden hash.** Node is checked today; Chromium, Firefox and Safari come before the pull request.

@@ -13,17 +13,17 @@
  *   sin(x) · cos(x) · sincos(x) → [sin, cos] · tan(x)
  *   atan(x) · atan2(y, x) · asin(x) · acos(x)
  *   exp(x) · log(x) · cbrt(x)
- *   ULPS                 { name: n } — each function is within n ulps of the exact value (for sin and cos: |x| ≤ 1.6e6).
- *                        Measured by tests/tools/solid against an exact BigInt reference, on random and on hard arguments.
- *                        intervals.js widens by these. Beyond 1.6e6 sin and cos are still the same bits everywhere, but
- *                        their error grows with |x| (an angle that large has no meaning in a model).
+ *   ULPS                 { name: n } — each function is within n ulps of the exact value, for every finite argument (sin,
+ *                        cos and tan out to the largest double). Measured by tools/solid against an exact BigInt
+ *                        reference, on random and on hard arguments. intervals.js widens by these.
  * Special values follow ECMAScript: sin(±0) = ±0, atan2's signed zeros and quadrants, exp(−Infinity) = 0, log(0) = −Infinity,
  * log of a negative number and asin/acos outside [−1, 1] are NaN.
  *
  * Methods (textbook, written from the mathematics; the constants are exact bit patterns, checked by the tests against π and
  * ln 2 computed from Machin's formula and the atanh series in BigInt):
  *   sin, cos   Cody–Waite reduction by π/2 in four parts (three of 33 bits, so n · part is exact for n < 2^20), carried as a
- *              double-double; Taylor polynomials on [−π/4, π/4] with the low part's first-order term.
+ *              double-double; Taylor polynomials on [−π/4, π/4] with the low part's first-order term. Past 2^19 π the
+ *              reduction is exact instead: |x| · 2/π in whole-number (BigInt) arithmetic with 1216 bits of 2/π.
  *   atan       reduction at 7/16, 11/16, 19/16 and 39/16 to |t| ≤ 7/16 around atan ½, π/4, atan 3/2 and π/2 (each a
  *              double-double), then the Taylor series of atan.
  *   asin, acos through atan2 with an accurately formed 1 − x²; exp by k·ln 2 + r and Taylor; log by 2 atanh((m−1)/(m+1));
@@ -86,15 +86,35 @@ function reduce(x) {
     RH = s2 + lo; RL = sumErr(s2, lo, RH);
     return n;
   }
-  // past FAST_LIMIT the products are no longer exact: carry their errors too (still + − × ÷ only)
-  let p = n * PIO2_1;
-  const t = x - p;
-  let lo = -prodErr(n, PIO2_1, p);
-  p = n * PIO2_2; s1 = t - p; e1 = sumErr(t, -p, s1); lo += e1 - prodErr(n, PIO2_2, p);
-  p = n * PIO2_3; s2 = s1 - p; e2 = sumErr(s1, -p, s2); lo += e2 - prodErr(n, PIO2_3, p);
-  lo -= n * PIO2_4;
-  RH = s2 + lo; RL = sumErr(s2, lo, RH);
-  return n;
+  return reduceBig(x);
+}
+
+// 2/π · 2^1216, cut off: enough bits to reduce the largest double (2^1024) and still keep 190 behind the binary point,
+// when no double lies closer than about 2^-62 (relative) to a multiple of π/2.
+export const TWO_OVER_PI_1216 = 0xa2f9836e4e441529fc2757d1f534ddc0db6295993c439041fe5163abdebbc561b7246e3a424dd2e006492eea09d1921cfe1deb1cb129a73ee88235f52ebb4484e99c7026b45f7e413991d639835339f49c845f8bbdf9283b1ff897ffde05980fef2f118b5a0a6d1f6d367ecf27cb09b74f463f669e5fea2d7527bac7ebe5f17b3d0739f78a5292ea6bfb5fb11f8d5d0856033046fc7b6babn;
+const BIG_ONE = 1n << 1216n, BIG_HALF = 1n << 1215n, BIG_FRAC = BIG_ONE - 1n, BIG_53 = (1n << 53n) - 1n;
+
+/**
+ * Past FAST_LIMIT (Payne and Hanek's idea, in whole numbers): |x| = m · 2^e with m a whole number below 2^53, so
+ * m · (2/π · 2^1216) is an exact integer, and |x| · 2/π is that integer in units of 2^(e − 1216). Its two bits above the
+ * binary point are the quadrant; the 106 leading bits of its fraction, times π/2 as a double-double, are the reduced
+ * argument. Integer arithmetic is exact, so this too is the same bits everywhere.
+ */
+function reduceBig(x) {
+  const ax = Math.abs(x), e = exponent(ax) - 52;
+  let t = BigInt(ax * pow2(-e)) * TWO_OVER_PI_1216;    // ax · 2^-e is the whole number m, exactly
+  t = e >= 0 ? t << BigInt(e) : t >> BigInt(-e);
+  let n = Number((t >> 1216n) & 3n);
+  let f = t & BIG_FRAC, flip = x < 0;
+  if (f >= BIG_HALF) { n = (n + 1) & 3; f = BIG_ONE - f; flip = !flip; }   // the nearest multiple is the next one up
+  const drop = Math.max(0, f.toString(2).length - 106);
+  const v = f >> BigInt(drop);                          // the fraction is v · 2^(drop − 1216), v below 2^106
+  const fh = Number(v >> 53n) * pow2(drop - 1163), fl = Number(v & BIG_53) * pow2(drop - 1216);   // both exact
+  const p = fh * HALF_PI;
+  const lo = prodErr(fh, HALF_PI, p) + (fh * PIO2_LO + fl * HALF_PI);
+  const h = p + lo, l = sumErr(p, lo, h);
+  if (flip) { RH = -h; RL = -l; } else { RH = h; RL = l; }
+  return x < 0 ? (4 - n) & 3 : n;
 }
 
 function sinK(h, l) {

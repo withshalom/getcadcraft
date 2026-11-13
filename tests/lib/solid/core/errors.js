@@ -32,7 +32,8 @@
  *   solid.err.bad_tolerance   a tolerance value cannot be used — { name, why, value?, min?, max? }
  *   solid.err.internal        cc-solid's own bug — { reason? } (the details stay out of the envelope)
  *   solid.err.limit           a budget ran out — { what: 'iterations' | 'entities' | 'time', limit, used }; (S4) or
- *                             a representation limit was passed — { what: 'degree' | 'knots', limit, used }
+ *                             a representation limit was passed — { what: 'degree' | 'knots', limit, used }; or a
+ *                             matrix is too large to factor — { what: 'size' | 'work', limit, used }
  *   solid.err.no_bracket      (S2) a root finder was given ends where f has the same sign — { fa, fb } (finite values only)
  *   solid.err.no_convergence  (S2) an iteration stopped before it met its tolerance — { what, iterations }
  *   solid.err.singular        (S2) a matrix cannot be solved — { why: 'pivot' | 'rank' | 'matrix', size?, column?, rcond? }

@@ -98,6 +98,32 @@ function sincosFix(X) {
     default: return [-c, s];
   }
 }
+// sin and cos of ANY finite double, however large. sincosFix reduces with π to F bits, which is too few past about 2^200;
+// this one reduces exactly with π to 1500 bits (Machin again), then uses the same series.
+const GB = 1500n;
+let PIO2_BIG = null;
+function atanInvBig(q) {     // atan(1/q) to GB bits
+  let t = (1n << GB) / q, s = 0n, k = 0n;
+  const q2 = q * q;
+  while (t !== 0n) { const u = t / (2n * k + 1n); s += k % 2n === 0n ? u : -u; t /= q2; k++; }
+  return s;
+}
+export function piBig() { return 16n * atanInvBig(5n) - 4n * atanInvBig(239n); }   // π · 2^1500, to a few units
+export const PI_BIG_BITS = GB;
+export function sincosRefAny(x) {
+  if (PIO2_BIG === null) PIO2_BIG = piBig() >> 1n;
+  const { m, e } = decompose(x);
+  const X = m << (BigInt(e) + GB);                       // exact: e ≥ −1074
+  const n = fdiv(2n * X + PIO2_BIG, 2n * PIO2_BIG);
+  const r = (X - n * PIO2_BIG) >> (GB - F);
+  const s = sinTaylor(r), c = cosTaylor(r);
+  switch (Number(((n % 4n) + 4n) % 4n)) {
+    case 0: return [s, c];
+    case 1: return [c, -s];
+    case 2: return [-s, -c];
+    default: return [-c, s];
+  }
+}
 export const sinRef = (x) => sincosFix(fix(x))[0];
 export const cosRef = (x) => sincosFix(fix(x))[1];
 export const atanRef = (x) => atanFix(fix(x));

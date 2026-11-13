@@ -16,7 +16,8 @@
  *   makePrng(seed) → Prng      seed: a whole number from 0 to 2^32 − 1, else solid.err.bad_input { name: 'seed', why }
  *   prng.u32()                 a whole number in [0, 2^32)
  *   prng.float()               a double in [0, 1) with 53 random bits
- *   prng.range(lo, hi)         lo + (hi − lo) · float(), in [lo, hi) for finite lo < hi (bad_input otherwise)
+ *   prng.range(lo, hi)         lo + (hi − lo) · float(), in [lo, hi) for finite lo < hi (bad_input otherwise); where hi − lo
+ *                              overflows, lo · (1 − t) + hi · t instead, so the whole of [lo, hi) is still reached
  *   prng.int(n)                a whole number in [0, n), unbiased (rejection), for a whole n from 1 to 2^32
  *   prng.normal()              a standard normal deviate (Marsaglia's polar method, with trig.js's log)
  *   prng.unit3()               a direction uniform on the unit sphere, [x, y, z] (rejection from the cube; no trigonometry)
@@ -56,8 +57,9 @@ function create(s0, s1, s2, s3) {
   const float = () => ((u32() >>> 5) * 67108864 + (u32() >>> 6)) / TWO53;
   function range(lo, hi) {
     if (typeof lo !== 'number' || typeof hi !== 'number' || !Number.isFinite(lo) || !Number.isFinite(hi) || !(lo < hi)) fail('solid.err.bad_input', { name: 'range', why: 'not_an_interval' });
-    const x = lo + (hi - lo) * float();
-    return x < hi ? x : lo;                            // rounding can reach hi; [lo, hi) is the promise
+    const w = hi - lo, t = float();
+    const x = w === Infinity ? lo * (1 - t) + hi * t : lo + w * t;   // a width past the largest double: blend the ends instead
+    return x >= lo && x < hi ? x : lo;                 // rounding can reach hi; [lo, hi) is the promise
   }
   function int(n) {
     if (!Number.isInteger(n) || n < 1 || n > TWO32) fail('solid.err.bad_input', { name: 'n', why: 'out_of_range' });

@@ -80,6 +80,16 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     ok([0, 1, 2].every(() => big.int(4294967296) === ref.u32()) && P.makePrng(5).int(1) === 0, 'int(2^32) is u32() itself; int(1) is 0');
     ok([-1, 4294967296, 1.5, '1', NaN, undefined].every((s) => refuses(() => P.makePrng(s), bad, { name: 'seed', why: 'not_a_seed' })), 'makePrng refuses seeds that are not whole numbers in [0, 2^32)');
     ok(refuses(() => P.restorePrng([0, 0, 0, 0]), bad, { why: 'all_zero' }) && refuses(() => P.restorePrng([1, 2, 3]), bad, { why: 'not_a_state' }), 'restorePrng refuses the all-zero state and malformed states');
+    const wide = P.makePrng(5), M = Number.MAX_VALUE;
+    let wideOk = true, lowHalf = 0;
+    const seenWide = new Set();
+    for (let i = 0; i < 1e4; i++) {
+      const x = wide.range(-1e308, 1e308), y = wide.range(-M, M), z = wide.range(-M, 1);
+      if (!(x >= -1e308 && x < 1e308 && y >= -M && y < M && z >= -M && z < 1)) wideOk = false;
+      if (y < 0) lowHalf++;
+      seenWide.add(x);
+    }
+    ok(wideOk && seenWide.size > 9990 && lowHalf > 4700 && lowHalf < 5300, `range over a width that overflows (−1e308 to 1e308, −MAX to MAX) still spreads over [lo, hi) (${seenWide.size} distinct of 1e4; ${lowHalf} below 0)`);
     ok(refuses(() => g.int(0), bad, { name: 'n' }) && refuses(() => g.int(2.5), bad) && refuses(() => g.range(1, 1), bad, { why: 'not_an_interval' }) && refuses(() => g.range(0, Infinity), bad), 'int and range refuse bad arguments');
     ok(P.isPrng(g) && P.isPrng(c) && !P.isPrng({ ...g }) && Object.isFrozen(g) && Object.isFrozen(g.state()), 'generators are frozen and branded (a copy is not one)');
   });
@@ -199,6 +209,29 @@ export async function register({ section, ok, refuses, same, appUrl }) {
       for (const x of [x0, F.nextUp(x0), F.nextDown(x0)]) hard = Math.max(hard, R.ulpsOff(T.sin(x), R.sinRef(x)), R.ulpsOff(T.cos(x), R.cosRef(x)));
     }
     ok(hard <= 1, `sin and cos next to 2000 multiples of π/2 up to 2^20 (where reduction loses the most): largest error ${hard.toFixed(2)} ulps`);
+    // every finite argument, not only the ones a model uses: the reduction must stay exact out to the largest double
+    const TWO_OVER_PI_BITS = (2n << (R.PI_BIG_BITS + 1216n)) / R.piBig();
+    ok(T.TWO_OVER_PI_1216 === TWO_OVER_PI_BITS, 'the 1216 bits of 2/π that the large-argument reduction uses are those of 2/π from Machin\'s formula');
+    let far = 0, farTan = 0, inRange = true;
+    const farCheck = (x) => {
+      const [sr, cr] = R.sincosRefAny(x), s = T.sin(x), c = T.cos(x), sc = T.sincos(x);
+      if (!(Math.abs(s) <= 1 && Math.abs(c) <= 1 && Object.is(sc[0], s) && Object.is(sc[1], c))) inRange = false;
+      const u = Math.max(R.ulpsOff(s, sr), R.ulpsOff(c, cr));
+      if (!(u <= far)) far = u;
+      const t = R.ulpsOff(T.tan(x), (sr << R.F) / cr);
+      if (!(t <= farTan)) farTan = t;
+    };
+    for (let i = 0; i < 20000; i++) farCheck(logUniform(g, 20, 1023));
+    for (let i = 0; i < 3000; i++) {                     // next to multiples of π/2 far past 2^20
+      const n = (BigInt(g.u32()) << BigInt(g.int(21))) | 1n, x0 = R.nearestDouble(n * R.PIO2);
+      for (const x of [x0, F.nextUp(x0), F.nextDown(x0), -x0]) farCheck(x);
+    }
+    const famous = [1e22, -1e22, 1e40, 1e300, F.pow2(45), F.pow2(55), F.pow2(120), F.pow2(1023), Number.MAX_VALUE, -Number.MAX_VALUE, 1647099, 1647100, F.nextUp(1647099),
+      6381956970095103 * F.pow2(797), 5.319372648326541e+255, 0.5 * 16367173 * F.pow2(72)];
+    for (const x of famous) farCheck(x);
+    ok(inRange, 'sin and cos stay in [−1, 1] for every finite argument, and sincos is [sin, cos] to the bit');
+    ok(far <= T.ULPS.sin && farTan <= T.ULPS.tan, `sin, cos and tan out to the largest double: 2e4 random arguments from 2^20 to 2^1024, 1.2e4 next to multiples of π/2, the hardest known double (6381956970095103 · 2^797) and ${famous.length - 1} more; largest errors ${far.toFixed(2)} and ${farTan.toFixed(2)} ulps`);
+    ok(T.sin(1e22) === -0.8522008497671888 && T.cos(1e22) === 0.523214785395139, 'sin(1e22) and cos(1e22) are the correctly rounded values');
     let tiny = true;
     for (let i = 0; i < 1e4; i++) { const x = logUniform(g, -1074, -28); if (!(T.sin(x) === x && T.tan(x) === x && T.atan(x) === x && T.cos(x) === 1 && T.asin(x) === x)) tiny = false; }
     ok(tiny, 'below 2^-27: sin, tan, atan and asin give x itself and cos gives 1 (1e4 arguments)');
@@ -275,6 +308,28 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     ok(I.sin([0, Math.PI])[1] === 1 && I.sin([0, Math.PI])[0] <= 0 && I.cos([-0.1, 0.1])[1] === 1 && I.sin([3, 3.5])[1] < 1 && I.cos([Math.PI - 0.1, Math.PI + 0.1])[0] === -1, 'crests inside an interval reach ±1, and only those');
     ok(same(I.sin([0, 7]), [-1, 1]) && same(I.cos([2e6, 2e6 + 1]), [-1, 1]), 'wide or far-out intervals give [-1, 1]');
     ok(same(I.div([1, 2], [-1, 1]), [-Infinity, Infinity]) && same(I.mul([0, 0], [-Infinity, Infinity]), [0, 0]), 'division by an interval holding 0 is unbounded; 0 times an unbounded interval is 0');
+    const inf = Infinity;
+    const unb = [
+      [[0, inf], [1, inf], [0, inf]], [[1, inf], [1, inf], [0, inf]], [[-inf, inf], [1, inf], [-inf, inf]], [[-inf, -1], [2, inf], [-inf, 0]],
+      [[-inf, 0], [-inf, -1], [0, inf]], [[1, 2], [4, inf], [0, 0.5]], [[-inf, inf], [-inf, -2], [-inf, inf]], [[3, inf], [-inf, -1], [-inf, 0]],
+      [[-2, inf], [1, 4], [-2, inf]], [[-inf, 6], [2, 3], [-inf, 3]],
+    ];
+    const unbBad = unb.filter(([a, b, want]) => { const d = I.div(a, b); return !(d[0] === want[0] && d[1] === want[1]); }).map(([a, b]) => `[${a}]/[${b}]`);
+    ok(unbBad.length === 0, `division with unbounded ends: no NaN, and the tightest bounds (${unb.length} cases)` + (unbBad.length ? ' (wrong: ' + unbBad.join(' ') + ')' : ''));
+    ok(I.contains(I.div([0, inf], [1, inf]), 5) && same(I.intersect(I.div([0, inf], [1, inf]), [0, 10]), [0, 10]), 'an unbounded quotient still answers contains and intersect');
+    let unbEnc = true;
+    for (let i = 0; i < 2e4; i++) {
+      const a = randIv(), b = randIv();
+      if (b[0] <= 0 && b[1] >= 0) continue;
+      const k = g.int(4);
+      if (k & 1) { if (g.u32() & 1) a[0] = -inf; else a[1] = inf; }
+      if (k & 2) { if (b[0] > 0) b[1] = inf; else b[0] = -inf; }
+      const D = I.div(a, b), T2 = I.div([Number.isFinite(a[0]) ? a[0] : -1e300, Number.isFinite(a[1]) ? a[1] : 1e300], [Number.isFinite(b[0]) ? b[0] : -1e300, Number.isFinite(b[1]) ? b[1] : 1e300]);
+      if (!(D[0] <= T2[0] && D[1] >= T2[1])) unbEnc = false;      // NaN bounds fail here too
+    }
+    ok(unbEnc, 'division with random unbounded ends encloses the quotient of every bounded part (2e4 cases)');
+    ok([[-inf, -inf], [inf, inf], [inf], [-inf]].every((a) => refuses(() => I.iv(...a), bad, { name: 'interval', why: 'not_an_interval' })), 'iv refuses an interval that is only an infinity: it holds no real number');
+    ok([NaN, inf, -inf, '2', undefined].every((s) => refuses(() => I.scale([1, 2], s), bad, { name: 'scale', why: 'not_finite' })) && same(I.scale([1, 2], -2), [-4, -2]), 'scale refuses a factor that is not a finite number');
     ok(refuses(() => I.sqrt([-2, -1]), bad, { why: 'negative' }) && same(I.sqrt([-1, 4]), [0, 2]), 'sqrt keeps the part ≥ 0 and refuses a wholly negative interval');
     ok(I.sign([1, 2]) === 1 && I.sign([-2, -1]) === -1 && I.sign([0, 0]) === 0 && I.sign([-1, 1]) === null && I.sign([0, 1]) === null, 'sign: certain, zero, or null when it cannot tell');
     ok(same(I.hull([1, 2], [4, 5]), [1, 5]) && same(I.intersect([1, 3], [2, 5]), [2, 3]) && I.intersect([1, 2], [3, 4]) === null && I.contains([1, 2], 2) && !I.contains([1, 2], 3), 'hull, intersect, contains');

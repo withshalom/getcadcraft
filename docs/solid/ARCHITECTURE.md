@@ -19,7 +19,7 @@ add-ons can build on.
 | Host copies | `solid/` in each host app's build folder, byte-identical (a `sync.mjs --check` comes with the first host) |
 | Errors | `SolidError(code, vars)`, codes `solid.err.*` |
 | Licence | Apache-2.0 |
-| Version | `VERSION` in `index.js` (0.0.4 after S4) |
+| Version | `VERSION` in `index.js` (0.0.5 after the S4 bug review) |
 
 **Why an engine, not an app feature.** Every 3D app in the suite (PartCraft, ModelCraft, CadCraft's 3D tab, BimCraft,
 SuperCad) needs exact solids. None has them today: they use mesh kernels and manifold booleans. Built once as an engine,
@@ -108,6 +108,9 @@ thresholds that are not geometric tolerances are written as multiples of `float.
   iterations, entities, and optionally time.
 - When a budget runs out, the loop throws `solid.err.limit`. A child budget can never outlive its parent.
 - Counts are exact, so the same input stops at the same place. Time is the one exception, and it is off by default.
+- A budget has no limits unless the caller sets them. So each loop also has a cap of its own: iteration caps in the
+  root finders, `maxDepth` and `maxPieces` in the integrator, and size and work limits in `math/linalg.js`, whose cubic
+  loops take no budget.
 
 ## 5. Determinism — the same bits everywhere
 
@@ -118,10 +121,12 @@ decisions and build different solids from the same file. So:
   - Only operations ECMAScript specifies exactly: + − × ÷ (IEEE 754, round to nearest), and `Math.sqrt` (fully
     specified since ES2025).
   - Exact helpers: `floor`, `abs`, `min`, `max`, `fround`, `imul` and `clz32`.
+  - Whole-number (BigInt) arithmetic, which is exact by definition. One use: reducing a huge angle in `core/trig.js`.
 - **Elementary functions** are computed in `core/trig.js` from those operations (D-tr). Not `Math.sin` or `**`: those are
   "implementation-approximated" and may differ between engines. The `trig` rule refuses them everywhere in the engine.
   cc-field took the same route (`detmath.js`); cc-solid adds:
   - Cody–Waite reduction in four parts, carried as a double-double;
+  - past 2^19 π, an exact reduction with 1216 bits of 2/π, so sin and cos hold their 1 ulp out to the largest double;
   - constants computed from π in BigInt and checked there;
   - measured error bounds (`ULPS`).
 - **No `Math.random`, no `Date`.** Randomness comes from `core/prng.js` (xoshiro128**, seeded), and clocks only from a
@@ -159,9 +164,10 @@ price of identical results in every browser. Tuning comes in S43.
     changes only through `tools/solid/sync-nurbs.mjs --from <canonical>` (D-ccn2, D-ccn).
   - **cc-step** comes later; its copies have drifted.
   - Hosts already carry cc-nurbs, so engine.solid's own package stays `solid/`.
-- **Same bits across the boundary:** the checker's `reach` rule applies engine.solid's exactness rules to every cc-nurbs or
-  cc-step file an import loads, followed to the end. Only cc-nurbs' `basis.js` passes today; D-det decides how S5 and S6
-  use `curve.js` and `surface.js`.
+- **Same bits across the boundary:** the checker's `reach` rule applies engine.solid's exactness rules to whatever an
+  import takes from cc-nurbs or cc-step, function by function, followed to the end. So D-det (b) is enforced, not
+  promised: the exact functions of `curve.js`, `surface.js` and `vec.js` can be imported by name, and `arc`, `circle`,
+  `angle` and anything built on them cannot. There is no waiver comment.
 - **Size today:** 17 files, about 126 KB (cc-nurbs beside it: 20 files, about 410 KB), well within the add-on package
   limit of 200 files and 5 MB.
 

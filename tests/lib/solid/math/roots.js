@@ -14,10 +14,12 @@
  *       Kahan's method ("To solve a real cubic equation", 1986): one real root by a Newton iteration that cannot overshoot,
  *       started outside the roots from the inflection point; then the deflated quadratic, by quadratic() above; then each
  *       root polished by Newton steps on the cubic itself, kept only where they lower the residual.
- *   brent(f, lo, hi, { eps = 0, maxIterations = 200, budget }) → frozen { x, fx, iterations }
+ *   brent(f, lo, hi, { eps = 0, maxIterations = 500, budget }) → frozen { x, fx, iterations }
  *       Brent's method ("Algorithms for Minimization without Derivatives", 1973, ch. 4): bisection, secant and inverse
- *       quadratic steps, never leaving the bracket. x is within eps + 4·EPS·|x| of a root of f (or f(x) = 0 exactly).
- *   newton(f, df, lo, hi, { x0, eps = 0, maxIterations = 100, budget }) → frozen { x, fx, iterations }
+ *       quadratic steps, never leaving the bracket. x is within eps + 4·EPS·|x| + 2·EPS²·max(|lo|, |hi|) of a root of f
+ *       (or f(x) = 0 exactly). The last term is what lets a root at 0 be found with eps = 0: relative to x alone, no
+ *       tolerance could ever be met there. It is far below one ulp of anything near the bracket's ends.
+ *   newton(f, df, lo, hi, { x0, eps = 0, maxIterations = 400, budget }) → frozen { x, fx, iterations }
  *       Newton's method kept inside the bracket: a step that would leave it, or that does not halve the error fast enough,
  *       is replaced by bisection, so it converges whenever brent would, and quadratically near a simple root.
  * Both refuse: f(lo) and f(hi) of the same sign → solid.err.no_bracket { fa, fb }; no answer in maxIterations →
@@ -117,6 +119,7 @@ function polish(a, b, c, d, r) {
   return x;
 }
 
+const BRENT_ITERATIONS = 500, NEWTON_ITERATIONS = 400;   // enough for a quintuple root at 0 (linear convergence) with eps = 0
 function needFn(f, name) { if (typeof f !== 'function') fail('solid.err.bad_input', { name, why: 'not_a_function' }); }
 function value(f, x, name = 'f') {
   const v = f(x);
@@ -128,10 +131,13 @@ function checkOpts(lo, hi, eps, maxIterations) {
   if (!isNum(eps) || eps < 0) fail('solid.err.bad_input', { name: 'eps', why: 'not_a_tolerance' });
   if (!Number.isInteger(maxIterations) || maxIterations < 1 || maxIterations > 100000) fail('solid.err.bad_input', { name: 'maxIterations', why: 'out_of_range' });
 }
+// A tolerance relative to x alone can never be met at a root at 0. So no answer is asked to be finer than EPS² of the
+// bracket's size: far below any double near the bracket's ends, and enough to end the search at 0.
+const finest = (lo, hi) => EPS * EPS * Math.max(Math.abs(lo), Math.abs(hi));
 const done = (x, fx, iterations) => Object.freeze({ x, fx, iterations });
 const noBracket = (fa, fb) => fail('solid.err.no_bracket', { fa, fb });
 
-export function brent(f, lo, hi, { eps = 0, maxIterations = 200, budget } = {}) {
+export function brent(f, lo, hi, { eps = 0, maxIterations = BRENT_ITERATIONS, budget } = {}) {
   needFn(f, 'f'); checkOpts(lo, hi, eps, maxIterations);
   const bud = resolveBudget(budget);
   let a = lo, b = hi, fa = value(f, a), fb = value(f, b);
@@ -140,10 +146,11 @@ export function brent(f, lo, hi, { eps = 0, maxIterations = 200, budget } = {}) 
   if (fb === 0) return done(b, 0, 0);
   if ((fa > 0) === (fb > 0)) noBracket(fa, fb);
   let c = a, fc = fa, d = b - a, e = d;
+  const floor = finest(lo, hi);
   for (let it = 1; it <= maxIterations; it++) {
     if ((fb > 0) === (fc > 0)) { c = a; fc = fa; d = b - a; e = d; }      // keep the root between b and c
     if (Math.abs(fc) < Math.abs(fb)) { a = b; b = c; c = a; fa = fb; fb = fc; fc = fa; }   // b is the best so far
-    const tol = 2 * EPS * Math.abs(b) + 0.5 * eps;
+    const tol = 2 * EPS * Math.abs(b) + 0.5 * eps + floor;
     const m = 0.5 * (c - b);
     if (Math.abs(m) <= tol || fb === 0) return done(b, fb, it);
     if (Math.abs(e) < tol || Math.abs(fa) <= Math.abs(fb)) { d = m; e = m; }   // bisection
@@ -168,7 +175,7 @@ export function brent(f, lo, hi, { eps = 0, maxIterations = 200, budget } = {}) 
   return fail('solid.err.no_convergence', { what: 'brent', iterations: maxIterations });
 }
 
-export function newton(f, df, lo, hi, { x0, eps = 0, maxIterations = 100, budget } = {}) {
+export function newton(f, df, lo, hi, { x0, eps = 0, maxIterations = NEWTON_ITERATIONS, budget } = {}) {
   needFn(f, 'f'); needFn(df, 'df'); checkOpts(lo, hi, eps, maxIterations);
   const bud = resolveBudget(budget);
   const fl = value(f, lo), fh = value(f, hi);
@@ -183,13 +190,14 @@ export function newton(f, df, lo, hi, { x0, eps = 0, maxIterations = 100, budget
   bud.step();
   if (fx === 0) return done(x, 0, 0);
   let step = Math.abs(hi - lo), last = step;
+  const floor = finest(lo, hi);
   for (let it = 1; it <= maxIterations; it++) {
     const leaves = ((x - xh) * dfx - fx) * ((x - xl) * dfx - fx) > 0;          // the Newton step lands outside [xl, xh]
     const slow = Math.abs(2 * fx) > Math.abs(last * dfx);                         // or would not halve the last step
     last = step;
     if (leaves || slow) { step = 0.5 * (xh - xl); x = xl + step; }
     else { step = fx / dfx; x -= step; }
-    if (Math.abs(step) <= 0.5 * eps + 2 * EPS * Math.abs(x)) return done(x, value(f, x), it);
+    if (Math.abs(step) <= 0.5 * eps + 2 * EPS * Math.abs(x) + floor) return done(x, value(f, x), it);
     fx = value(f, x); dfx = value(df, x, 'df');
     bud.step();
     if (fx === 0) return done(x, 0, it);

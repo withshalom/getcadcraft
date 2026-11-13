@@ -327,6 +327,31 @@ section('boundaries', 'the architecture rules (check-boundaries.mjs)', () => {
   ok(cli(APP) === 0 && cli(path.join(HERE, 'fixtures/clean/lib')) === 0, 'command line: exit 0 on the app and the clean fixture');
   ok(cli(badDir) === 1, 'command line: exit 1 on the bad fixture');
 
+  // D-det (b) on the real cc-nurbs: the exact functions may be imported, arc, circle and angle may not
+  if (fs.existsSync(path.join(APP, 'nurbs/curve.js')) && fs.existsSync(path.join(APP, 'nurbs/surface.js'))) {
+    const tmp = fs.mkdtempSync(path.join(HERE, '.reach-'));
+    try {
+      fs.cpSync(path.join(APP, 'nurbs'), path.join(tmp, 'nurbs'), { recursive: true });
+      fs.mkdirSync(path.join(tmp, 'solid/geom'), { recursive: true });
+      const head = '/* SPDX-License-Identifier: Apache-2.0 */\n';
+      fs.writeFileSync(path.join(tmp, 'solid/index.js'), head + "export * from './geom/g.js';\n");
+      const tryImport = (line, use) => { fs.writeFileSync(path.join(tmp, 'solid/geom/g.js'), head + line + '\nexport const g = ' + use + ';\n'); return B.checkTree(tmp).problems.map((p) => p.rule); };
+      const fine = [
+        ["import { point, derivs, insertKnot, split, elevate, closestParam, arcLength, tessellate, line } from '../../nurbs/curve.js';", '[point, derivs, insertKnot, split, elevate, closestParam, arcLength, tessellate, line]'],
+        ["import * as C from '../../nurbs/curve.js';", '[C.point, C.derivs, C.bbox]'],
+        ["import * as S from '../../nurbs/surface.js';", '[S.cleanSurface, S.insertKnot, S.split]'],
+        ["import { dot, cross, norm, len } from '../../nurbs/vec.js';", '[dot, cross, norm, len]'],
+      ].filter(([l, u]) => tryImport(l, u).length !== 0).map(([l]) => l);
+      const kept = [
+        ["import { arc } from '../../nurbs/curve.js';", 'arc'], ["import { circle } from '../../nurbs/curve.js';", 'circle'], ["import { angle } from '../../nurbs/vec.js';", 'angle'],
+        ["import * as C from '../../nurbs/curve.js';", 'C.arc'], ["import * as C from '../../nurbs/curve.js';", 'C'], ["import * as V from '../../nurbs/vec.js';", 'V.angle'],
+        ["import { point, arc } from '../../nurbs/curve.js';", '[point, arc]'], ["import { revolve } from '../../nurbs/construct.js';", 'revolve'],
+      ].filter(([l, u]) => !same(tryImport(l, u), ['reach'])).map(([l, u]) => l + ' ' + u);
+      ok(fine.length === 0, 'reach on the real cc-nurbs: the exact curve, surface and vector functions can be imported' + (fine.length ? '\n       refused: ' + fine.join('\n       refused: ') : ''));
+      ok(kept.length === 0, 'reach on the real cc-nurbs: arc, circle, angle and what is built on them (revolve) are kept out, by name or through a namespace (D-det (b))' + (kept.length ? '\n       let in: ' + kept.join('\n       let in: ') : ''));
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  }
+
   // the tokenizer on its own
   const kinds = (src) => B.tokenize(src).tokens.map((t) => t.t).join(' ');
   ok(kinds('a / b / c') === 'id p id p id', 'tokenizer: a / b / c is two divisions');

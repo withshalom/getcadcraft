@@ -22,7 +22,7 @@ node tools/solid/check-boundaries.mjs   # the architecture rules alone
 
 ## What runs
 
-1. **The boundary checker:** 16 rules, read from tokens, so comments, strings, templates and regular expressions don't
+1. **The boundary checker:** 16 rules (`reach` judges cc-nurbs function by function), read from tokens, so comments, strings, templates and regular expressions don't
    fool it.
    - Layers and the one-way import rule; the auditor never imports what it judges.
    - Only cc-nurbs and cc-step from outside, and only from `geom/` up.
