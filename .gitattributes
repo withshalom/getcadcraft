@@ -1,0 +1,7 @@
+# Library sources are copied byte for byte between lib/ and each host app (tools/*/sync.mjs --check),
+# so they must be LF in the repository and in every checkout. Without this, Git for Windows converts
+# them to CRLF (core.autocrlf=true) and every byte-identity check fails.
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
