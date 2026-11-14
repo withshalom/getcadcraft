@@ -24,10 +24,12 @@
  *                                            (on cc-nurbs' A2.1–A2.3, which sits beside the engine as nurbs/)
  *   nurbsCurve                               S5: NURBS curves as checked records: evaluation, derivatives, curvature,
  *                                            knot insertion and removal, elevation, reduction, split, join, deviation
+ *   nurbsSurface                             S6: NURBS surfaces as checked records: evaluation, derivatives, normals
+ *                                            (poles by their limit), curvature, iso-curves, the operations per direction
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.9';
+export const VERSION = '0.0.10';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -47,6 +49,7 @@ export * as linalg from './math/linalg.js';
 export * as predicates from './math/predicates.js';
 export * as basis from './geom/basis.js';
 export * as nurbsCurve from './geom/nurbs-curve.js';
+export * as nurbsSurface from './geom/nurbs-surface.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';

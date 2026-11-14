@@ -558,7 +558,7 @@ Legend: ☐ not started, ☑ done. Each session ends with passing tests, updated
 | S3 | **done** (2026-11-12) | `math/predicates.js`: orient2d, orient3d, incircle, insphere; 0 disagreements with BigInt on 1.56e6 cases; see `STATUS.md` |
 | S4 | **done** (2026-11-12) | `geom/basis.js` on cc-nurbs' `basis.js`; exact Cox–de Boor tests; the unclamped-end fix; see `STATUS.md` |
 | S5 | **done** (2026-11-14) | `geom/nurbs-curve.js` on cc-nurbs' `curve.js` (exact functions only, D-det (b)): checked records, exact evaluation tests, shape preservation to 1e-12, proved `deviation` for reduction; see `STATUS.md` |
-| S6 | **exists** (`surface.js`) | engine.solid-side property tests against cc-nurbs; wrappers only, as S5. All 29 exports of `surface.js` are exact (D-det (b)) |
+| S6 | **done** (2026-11-14) | `geom/nurbs-surface.js` on cc-nurbs' `surface.js`: checked records, exact evaluation tests, the operations per direction to 1e-12, normals with the true limit at poles, curvature in an orthonormal frame; see `STATUS.md` |
 | S7 | new | analytic classes plus exact conversions. cc-step `geom.js` and cc-acis `geom.js` evaluate the analytic forms and are the reference |
 | S8 | **exists** (`fit.js`) | adapters only: KAD SPLINE (fit or control form) and KUBIC / PartCraft sketch curves |
 | S9 | **exists** (`construct.js`) | engine.solid-side tests |
@@ -596,7 +596,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 |---|---|---|---|
 | ☑ | **S4** | Knot vectors, span search, basis functions and derivatives | partition of unity, non-negativity, derivatives vs high-order finite differences, Bézier case equals Bernstein |
 | ☑ | **S5** | `NurbsCurve`: eval/derivs/tangent/curvature, knot insertion/refinement/removal, degree elevation/reduction, split, Bézier decomposition, reverse, join | every shape-preserving op reproduces the curve to ≤ 1e-12 on random curves |
-| ☐ | **S6** | `NurbsSurface`: eval/partials/normal, iso-curves, same shape ops in U and V, swap UV, split | same shape-preservation tests; normal orthogonality |
+| ☑ | **S6** | `NurbsSurface`: eval/partials/normal, iso-curves, same shape ops in U and V, swap UV, split | same shape-preservation tests; normal orthogonality |
 | ☐ | **S7** | Analytic classes and exact conversions: `Line`, `Circle`, `Ellipse`, `Plane`, `Cylinder`, `Cone`, `Sphere`, `Torus`, revolution/extrusion surfaces ↔ NURBS | converted radius/axis error < 1e-12; area of sphere/torus patches vs closed form < 1e-9 relative |
 | ☐ | **S8** | Fitting I: global interpolation (chord/centripetal), end conditions, least-squares approximation to tolerance; KAD SPLINE `fit`→control-point path | interpolation passes through data to 1e-10; approximation error ≤ requested `fit` on a test corpus |
 | ☐ | **S9** | Construction: ruled, skinning with compatibility, Coons/bilinear patches, surface interpolation | skinned surface passes through sections; compatibility refusals typed |

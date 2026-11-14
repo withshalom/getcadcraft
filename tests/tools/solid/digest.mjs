@@ -81,6 +81,21 @@ export function genCurveData(g, { rational = g.int(2) === 1, maxDeg = 7, spans =
   const cvs = Array.from({ length: n }, () => [g.range(-S, S), g.range(-S, S), g.range(-S, S)]);
   return { deg: p, knots: U, cvs, w: rational ? Array.from({ length: n }, () => g.range(0.125, 8)) : null };
 }
+/** A seeded NURBS surface as plain data (S6): two knot vectors made as genCurveData's, a net of one size, weights in [1/8, 8]. */
+export function genSurfaceData(g, { rational = g.int(2) === 1, maxDeg = 5, spans = 1 + g.int(4) } = {}) {
+  const dir = () => {
+    const p = 1 + g.int(maxDeg), sc = 2 ** (g.int(41) - 20), a = (g.int(2001) - 1000) * sc, U = new Array(p + 1).fill(a);
+    let x = a;
+    for (let s = 1; s < spans; s++) { x += (1 + g.int(1000)) * sc; const m = 1 + g.int(p); for (let i = 0; i < m; i++) U.push(x); }
+    x += (1 + g.int(1000)) * sc;
+    for (let i = 0; i <= p; i++) U.push(x);
+    return { p, U };
+  };
+  const du = dir(), dv = dir(), nu = du.U.length - du.p - 1, nv = dv.U.length - dv.p - 1, S = 2 ** (g.int(21) - 10);
+  const cvs = Array.from({ length: nu }, () => Array.from({ length: nv }, () => [g.range(-S, S), g.range(-S, S), g.range(-S, S)]));
+  const w = rational ? Array.from({ length: nu }, () => Array.from({ length: nv }, () => g.range(0.125, 8))) : null;
+  return { degU: du.p, degV: dv.p, knotsU: du.U, knotsV: dv.U, cvs, w };
+}
 /** A parameter of the curve's domain [a, b]: a knot, an end, or any double between. */
 export function genParam(g, U, p) { return genU(g, U, p); }
 
@@ -254,6 +269,18 @@ const AREAS = {
       mix(got(() => C.insertKnot(c, m, 1).cvs)); mix(got(() => C.split(c, m)[1].cvs)); mix(C.reverse(c).knots); mix(C.elevate(c, 1 + h.int(2)).cvs);
       mix(C.decompose(c).map((d) => d.cvs)); mix(got(() => C.removeKnot(C.insertKnot(c, m, 1), m).curve.knots));
       if (!c.w) { mix(got(() => C.deviation(c, C.elevate(c, 1)))); mix(got(() => { const r = C.reduce(C.elevate(c, 1), { fit: 1e-3 }); return [r.error, r.curve.cvs]; })); }
+    }
+  },
+  surface(P, { mix }) {                                  // S6: NURBS surfaces (nurbs-surface.js)
+    const S = P.nurbsSurface, h = P.makePrng(111);
+    for (let i = 0; i < 150; i++) {
+      const s = S.make(genSurfaceData(h)), [ua, ub] = S.domainU(s), [va, vb] = S.domainV(s);
+      const u = genParam(h, s.knotsU, s.degU), v = genParam(h, s.knotsV, s.degV), mu = ua + (ub - ua) * h.float(), mv = va + (vb - va) * h.float();
+      mix(S.point(s, u, v)); mix(S.derivs(s, u, v, 2)); mix(got(() => S.normal(s, u, v))); mix(got(() => S.curvature(s, mu, mv)));
+      mix(S.isoCurve(s, 'u', u).cvs); mix(S.isoCurve(s, 'v', v).cvs); mix(S.edgeCurve(s, 'v1').cvs);
+      mix(got(() => S.insertKnot(s, 'u', mu).cvs)); mix(got(() => S.split(s, 'v', mv)[0].cvs)); mix(S.elevate(s, h.int(2) ? 'u' : 'v', 1).cvs);
+      mix(S.reverse(s, 'u').knotsU); mix(S.swap(s).cvs);
+      if (!s.w) mix(got(() => S.deviation(s, S.elevate(s, 'v', 1))));
     }
   },
   prng(P, { mix }) {

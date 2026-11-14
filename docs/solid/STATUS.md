@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.9 · **Last session:** S5, curves (2026-11-14); before it, the relocation to the site repo (2026-11-13)
+**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.10 · **Last session:** S6, surfaces (2026-11-14); before it S5, curves, and the relocation to the site repo (2026-11-13)
 
 > **Relocation, 2026-11-13 (D-home superseded):** the engine moved from the library repo (`withshalom/getlibrarycraft`, branch `engine/solid`, kept as it was) to the site repo, beside cc-nurbs.
 > - **What moved:** `lib/solid/`, `tools/solid/`, `bin/test-solid.mjs` and `docs/solid/`. In a clone of the site repo they sit under `tests/` (`tests/lib/solid/`, `tests/tools/solid/`, `tests/bin/test-solid.mjs`); `docs/solid/` stays at the top. All 13 commits were replayed with their authors, dates and messages; the files matched the library branch byte for byte before anything was changed.
@@ -283,7 +283,37 @@ Measured (Node 24, this Windows machine): a degree-3 point 505 ns (2.0 M/s; HAND
 - **The whole suite:** 426 checks in about 60 s.
 - **Browsers:** the digest's new `curve` area is recorded for Node (`digests.json`, 0.0.9). Playwright is not installed on this machine, so Chromium, Firefox and WebKit have not run it yet: `node tools/solid/browser-run.mjs` before the pull request.
 
+### S6 — surfaces (2026-11-14, version 0.0.10)
+Built: `geom/nurbs-surface.js` — tensor-product NURBS surfaces as checked, frozen records `{ type: 'nurbs', degU, degV, knotsU, knotsV, cvs, w }` (cc-nurbs' plain data): `make` / `isSurface` / `toData` / `fromData`; `domainU`, `domainV`, `bbox`, `point`, `derivs` (SKL, k + l ≤ d), `normal`, `curvature` { K, H, k1, k2, d1, d2 }, `normalCurvature`; `isoCurve`, `edgeCurve` (curve records of S5); `insertKnot`, `refine`, `elevate`, `split`, `reverse`, `swap`, `reparam`, `transform` per direction; `deviation`. `index.js`: VERSION 0.0.10, the `nurbsSurface` namespace. Tools: `test-surface.mjs` (section `surface`); `digest.mjs` gains `genSurfaceData` and a `surface` area (15 areas).
+
+What engine.solid adds to cc-nurbs' `surface.js` (A4.3, A3.6/A4.4, the row-by-row operations of § 5.2 and § 5.5):
+- **The S5 checks, in two directions:** clamped knots per direction, named `knotsU` / `knotsV` in refusals; a rectangular net; at most 2^20 control points.
+- **Polynomial partials directly (A3.6 on cc-nurbs' A2.3)**, so every row above a degree is exactly 0.
+- **Iso-curves blended directly** (no division by a weight that is 1 to rounding for a polynomial surface); edge curves are the boundary rows themselves.
+- **Elevation keeps one knot vector.** Each row is elevated, then the knots elevation added are removed only as far as every row allows (each row is asked first), within 2^-40 of the size. cc-nurbs removes per row and, when the rows disagree, keeps all the knots.
+- **Normals that never guess.** Su × Sv after scaling by powers of two. On an edge collapsed to a point (a pole) the normal is the limit from inside the domain, Suv × Sv or Su × Suv with the sign of the inside. Anywhere else, partials that vanish or are parallel within `tol.ang` are refused (`degenerate`); cc-nurbs falls back to `[0, 0, 1]`.
+- **A pole is judged as a length, not a ratio:** `|Su| · (b − a)`, the reach of a partial across its domain, against `tol.lin`. The first version compared `|Su|` with `|Sv|` and called an ordinary point of a surface whose u-domain was 1e9 wide (and v-domain 0.02) a pole; the random normal test found it.
+- **Curvature in an orthonormal frame of the tangent plane:** the principal curvatures are the eigenvalues of a symmetric 2 × 2, (a + c)/2 ± √(((a − c)/2)² + b²), with no H² − K cancellation (a sphere, umbilic everywhere, keeps k1 = k2 = 1/r to 1e-14). Refused at a pole (it needs a limit not taken here).
+
+Acceptance (HANDOFF §14, S6):
+
+| Criterion | Result | Test |
+|---|---|---|
+| Same shape-preservation tests as S5 | **pass**, in u and in v, on 120 random surfaces, rational and not, compared on grids with every knot pair, to 1e-12 of the size. Worst: insertKnot 6.5e-16, refine 8.6e-16, elevate 9.3e-16 (3.3e-15 raised by up to 3 in both directions on 60 more), split 9.1e-16, swap 5.3e-16, transform 4.6e-16, reverse 3.8e-15, reparam 2.7e-14 | `surface` |
+| Normal orthogonality | **pass:** n · Su, n · Sv and |n| − 1 within 8 u (worst 5.6e-16) on random surfaces, on the side of Su × Sv | `surface` |
+
+Also checked: points within (16(p + q) + 16) u of the exact value in BigInt rationals (worst 0.059 of the bound); polynomial partials against exact ones (worst 4.4e-4 of a 1e-12 relative bound), rational ones against A4.4 done exactly (1.1e-6 of 1e-9); a sphere octant (radius, K, H, k1, k2, the normal at the centre to 7.4e-15; the pole's limit normal (0, 0, −1) for every v), a cylinder and the saddle z = xy against closed forms, Euler's formula for normal curvature; iso-curves against the surface (4.1e-16); deviation against a known perturbation and against sampling; every refusal.
+
+Measured (this machine): a bicubic point 1.37 µs (cc-nurbs 1.31 µs); `derivs` d = 2 12 µs, `normal` 11 µs, `curvature` 14 µs — allocation-bound, S43; elevating a 12 × 12 bicubic net 2.4 ms.
+
+- **Mutation check:** 23 faults; 21 caught at first. The two survivors were missing tests: `reverse` on knots that round (decimals), and a loose removal tolerance in `elevate`, which only shows on a surface where removing an added knot would move a row by more than rounding. A search over 4000 random surfaces found two such surfaces (seed 9); they are now fixtures. **23 of 23 caught.**
+- **The whole suite:** 461 checks.
+- **Browsers:** the `surface` area is recorded for Node (`digests.json`, 0.0.10); the browser run is pending with the `curve` area.
+
 ## Learned
+- **S6: a ratio of partial derivatives is not geometry.** Whether |Su| is small beside |Sv| depends on how each direction is parameterised; whether |Su| · (b − a) is below tol.lin does not. Random domains of very different widths (1e9 beside 0.02) are what showed it.
+- **S6: rounding noise looks like a direction once it is scaled.** On a rational sphere, Sv at the pole is about 1e-16, not 0; scaled to unit size before a cross product it gave a normal at right angles to the true one. Magnitudes are judged before anything is normalised.
+- **S6: search for the inputs a mutation needs.** A guard that matters on one input in a hundred survives random tests; a seeded search over thousands of inputs found two surfaces that exercise it, and they became fixtures.
 - **S5: an estimate is not a bound.** cc-nurbs' degree reduction estimates the error of the reduced pieces, then removes knots with whatever tolerance is left; the two add up past the tolerance (a fixture in `curve`: asked for 0.1489, estimated 0.0496, moved 0.167). A bound that can be proved (`deviation`: control points of one degree on one knot vector) costs one elevation and a refinement and settles it.
 - **S5: the mutation run tests the tests.** Four of 22 faults survived the first run, and each one pointed at an input the tests never drew: a removal that must be declined, a join across a real gap, knots where a + b − b is not a, a reduction that is wrong upstream. Random inputs built from whole numbers and powers of two are exact by design, so they hide rounding; the fixes draw decimals on purpose.
 - **S5: two readings of "the same knot" must agree.** cc-nurbs compares knots with a tolerance, engine.solid exactly. Rather than change either, the curve record refuses knots that only one of them would merge, and a parameter that close to a knot is snapped to it.
@@ -314,7 +344,8 @@ Measured (Node 24, this Windows machine): a degree-3 point 505 ns (2.0 M/s; HAND
 - **Splines and conics across the suite (owner, 2026-11-12: "This later").** Check how each app draws and stores splines and conics. Conics are exact as rational quadratic NURBS (ellipse, parabola, hyperbola); CadCraft should have them. S7 (analytic curves) is the natural place.
 - **cc-nurbs' `reduce` misses its tolerance (S5).** It checks the reduced pieces against the tolerance, then removes knots with the rest of it, and the two together can exceed it (fixture in `curve`). engine.solid proves its own bound and refuses; the fix belongs in the site's `lib/nurbs/` (D-ccn): check the result as a whole, or give the removal only what the reduction left after a proved bound.
 - **Unclamped curves.** engine.solid's curves are clamped (cc-nurbs' functions assume it). A converter from an unclamped or periodic knot vector to a clamped one is S6/S13 work, where periodic surfaces need it.
-- **Derivative speed (S43).** `derivs` with d = 2 takes about 5 µs, mostly A2.3's allocations; curvature 6 µs. Fine for now, slow for meshing.
+- **Derivative speed (S43).** Curves: `derivs` with d = 2 about 5 µs, curvature 6 µs. Surfaces: `derivs` d = 2 12 µs, `normal` 11 µs, `curvature` 14 µs. Mostly A2.3's allocations and the record checks; fine for now, slow for meshing (S15–S17 will feel it).
+- **Curvature at a pole (S6).** `curvature` refuses at a collapsed edge; the limit (from the second-order expansion at the pole) is S13's, with the other pole and seam cases.
 - **The sync script** (`tools/solid/sync.mjs`, built at the move) has only been run against temporary hosts; the first real run is when PartCraft takes a copy.
 - **The catalogue entry** for `engine.solid` is drafted in `ENGINE.md`; publishing it is the owner's step.
 - **Language-table keys:** the `solid.err.*` codes need keys in `app/lang/*.json` (English first) before the app shows them. That belongs to the first UI-facing session (S24b); `CODES` lists what is needed.
@@ -325,6 +356,6 @@ Measured (Node 24, this Windows machine): a degree-3 point 505 ns (2.0 M/s; HAND
 - **The KAD repositories' headers still say AGPL.** The sweep belongs in those repositories (`reference/kad/README.md`).
 
 ## Next
-- **S6 — surfaces** (HANDOFF §14: NURBS surface evaluation, partials and normal, iso-curves, the shape operations in U and V, swap, split; shape preservation and normal orthogonality). The same pattern as S5, on cc-nurbs' `surface.js` (all 29 of its exports are exact, D-det (b)).
+- **S7 — analytic classes and exact conversions** (HANDOFF §14: Line, Circle, Ellipse, Plane, Cylinder, Cone, Sphere, Torus, revolution and extrusion surfaces ↔ NURBS; converted radius and axis error < 1e-12, sphere and torus patch areas within 1e-9 of their closed forms). The circles are engine.solid's own (A7.1 on `core/trig.js`), since cc-nurbs' `arc` and `circle` are not same-bits (D-det (b)).
 - **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc. Settled: D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; D-home superseded by the move.
 - **The pull request** to the site repo's `main` waits for the owner's go (D-home).

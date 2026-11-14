@@ -8,7 +8,7 @@ For the add-on catalogue at getcadcraft.com › Build an add-on › Engines. The
 | **Id** | `engine.solid` |
 | **Name** | Solid kernel (proposed, after "Field kernel"; the owner's choice) |
 | **What it computes** | Exact solids: NURBS and analytic B-rep, STEP. |
-| **Status** | Planned. Today the numerical ground and NURBS curves are built (S1–S5 of 44, `STATUS.md`). It becomes "Built · in the lab" when PartCraft's rebuild runs through it (S24b). |
+| **Status** | Planned. Today the numerical ground, NURBS curves and NURBS surfaces are built (S1–S6 of 44, `STATUS.md`). It becomes "Built · in the lab" when PartCraft's rebuild runs through it (S24b). |
 | **Maker** | CadCraft |
 | **Licence** | Apache-2.0 |
 | **Hosts** | PartCraft first; then ModelCraft, CadCraft (its 3D tab), BimCraft and SuperCad Studio, each carrying its own copy |
