@@ -246,7 +246,7 @@ A single `Tolerance` object travels with every operation. Defaults (to be tuned 
 | Name | Default | Meaning |
 |---|---|---|
 | `lin` | 1e-6 mm | two points are the same / a point lies on a curve or surface |
-| `ang` | 1e-9 rad | two directions are parallel |
+| `ang` | 1e-12 rad (lin / size) | two directions are parallel |
 | `fit` | 1e-4 mm | max deviation allowed when an operation must approximate (interpolation, offset, STEP import fit-up) |
 | `mesh.chord` | 0.01 mm | tessellation chord deviation |
 | `mesh.angle` | 0.5° | tessellation normal deviation |
