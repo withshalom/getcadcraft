@@ -4,7 +4,8 @@
 somewhere the engine's own code cannot reach.
 
 ```sh
-node bin/test-solid.mjs                 # everything: plain Node, no install, no network (about 17 s)
+# run these from tests/ in a clone of the site repo (the repo root holds lib/, tools/, bin/ in the real layout)
+node bin/test-solid.mjs                 # everything: plain Node, no install, no network (about 1 minute)
 node bin/test-solid.mjs --only trig     # one section
 node bin/test-solid.mjs --verbose       # every check by name
 node tools/solid/check-boundaries.mjs   # the architecture rules alone

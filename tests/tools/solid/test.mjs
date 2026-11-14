@@ -3,7 +3,7 @@
 /**
  * test.mjs — cc-solid (lib/solid/, the engine engine.solid): its tests. Plain Node, no packages, no network.
  *
- *   node tools/solid/test.mjs [--verbose] [--only <section>]      from the repository root (bin/test-solid.mjs runs it too)
+ *   node tools/solid/test.mjs [--verbose] [--only <section>]      from tests/ (bin/test-solid.mjs runs it too)
  *   SOLID_LIB=<folder holding solid/> overrides where the engine is (default: lib/ in this checkout).
  *
  * Sections, in order (S1: errors, tol, limits, entry, boundaries, worker; S2: test-core.mjs and test-math.mjs):
@@ -17,7 +17,8 @@
  *   prng · float · trig · intervals                       (test-core.mjs) the S2 core, exact checks in BigInt (bigref.mjs)
  *   vec3 · mat4 · frame · aabb · quad · roots · linalg    (test-math.mjs) the S2 math layer
  *   predicates                                           (test-math.mjs) S3: exact signs against BigInt
- *   pins · basis                                         (test-geom.mjs) S4: the cc-nurbs copy is unedited; basis
+ *   sync · basis                                         (test-geom.mjs) the engine and cc-nurbs are canonical in lib/ and
+ *                                                        copied byte for byte to each host (sync.mjs); S4: basis
  *                                                        functions against exact Cox–de Boor in BigInt rationals
  * Exit 1 when anything fails.
  */

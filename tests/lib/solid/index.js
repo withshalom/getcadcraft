@@ -5,11 +5,11 @@
  * (docs/solid/HANDOFF.md § 4). DOM-free, no network, no timers, no third-party code: the same results, to the bit, in a
  * page, a Worker and Node.
  *
- * The edited copy is lib/solid/ in the library repo (withshalom/getlibrarycraft, branch engine/solid). Each app that hosts the
- * engine carries a byte-identical copy as solid/ in its build folder; a sync script with --check keeps them in step once the
- * first host takes one. Add-ons name engine.solid in their manifest's needs and import it through the app (the engine:solid/
- * form of the add-on loader), so the app's own copy answers. Callers import this file as a namespace, never a file behind
- * it, so the layers can change. docs/solid/STATUS.md says what is built.
+ * The canonical copy is lib/solid/, beside lib/nurbs/. Each app that hosts the engine carries a byte-identical copy as
+ * dev/solid/, beside its dev/nurbs/; tools/solid/sync.mjs (with --check) keeps them in step. Add-ons name engine.solid in
+ * their manifest's needs and import it through the app (the engine:solid/ form of the add-on loader), so the app's own copy
+ * answers. Callers import this file as a namespace, never a file behind it, so the layers can change.
+ * docs/solid/STATUS.md says what is built.
  *
  *   VERSION
  *   errors · tol · limits                    S1: typed refusals, the tolerance policy, budgets

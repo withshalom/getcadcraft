@@ -2,10 +2,10 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /**
  * test-solid.mjs — engine.solid (cc-solid, lib/solid/; docs/solid/HANDOFF.md): runs tools/solid/test.mjs on lib/solid/, the
- * edited copy. Plain Node: no packages, no network, no browser. Same name and place as the site's bin/test-<name>.mjs, so the
- * engine can move into the site's lib/ with its tests unchanged.
+ * canonical copy. Plain Node: no packages, no network, no browser. The engine lives here, beside lib/nurbs/, and
+ * tools/solid/sync.mjs copies it byte for byte into each host app's dev/solid/.
  *
- *   node bin/test-solid.mjs [--verbose] [--only <section>]
+ *   node bin/test-solid.mjs [--verbose] [--only <section>]      from tests/
  */
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';

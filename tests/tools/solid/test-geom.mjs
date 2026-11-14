@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /**
- * test-geom.mjs — engine.solid's geometry-layer tests, registered by test.mjs: pins (S4: the cc-nurbs copy beside the
- * engine is unedited, decision D8) and basis (S4: knot vectors, spans, basis functions and derivatives).
+ * test-geom.mjs — engine.solid's geometry-layer tests, registered by test.mjs: sync (the engine and cc-nurbs are canonical
+ * here and are copied byte for byte into each host) and basis (S4: knot vectors, spans, basis functions and derivatives).
  *
  * The reference is exact. Every knot and every u is a double, so every basis value and derivative is a rational number,
  * and the Cox–de Boor recursion computes it exactly in BigInt fractions. Values are compared against it with a proved
@@ -10,10 +10,12 @@
  * to a recorded bound (DERS_C), the way trig.js's ULPS table is.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as R from './bigref.mjs';
-import { checkPins, syncFrom, PINS_FILE } from './sync-nurbs.mjs';
+import { TARGETS, filesOf, syncTo } from './sync.mjs';
+import { TARGETS as NURBS_TARGETS } from '../nurbs/sync.mjs';
 import { genKnots, genU, degree, digest } from './digest.mjs';   // the generators live there so a browser can run them too
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -94,43 +96,62 @@ export async function register({ section, ok, refuses, same, appUrl }) {
   const NB = await import(appUrl('nurbs/basis.js'));
   const APP = path.dirname(path.dirname(fileURLToPath(appUrl('solid/index.js'))));
 
-  // ============================================================================================== pins
-  section('pins', 'cc-nurbs beside the engine is the canonical copy, unedited (D8, D-ccn2)', () => {
-    if (!fs.existsSync(PINS_FILE)) {
-      // only a host that holds the canonical cc-nurbs may run without pins, and it has to say so
-      ok(process.env.SOLID_NO_PINS === '1', 'tools/solid/pins.json is missing: restore it, or set SOLID_NO_PINS=1 on a host whose lib/nurbs is the canonical copy');
-      return;
+  // ============================================================================================== sync
+  section('sync', 'lib/solid and lib/nurbs are canonical here; each host carries byte-identical copies (tools/solid/sync.mjs)', () => {
+    const solidDir = path.join(APP, 'solid'), nurbsDir = path.join(APP, 'nurbs');   // APP is lib/: it holds solid/ and nurbs/
+    ok(fs.existsSync(solidDir) && fs.existsSync(nurbsDir), 'the engine and cc-nurbs sit side by side in lib/ (the engine imports ../nurbs/)');
+
+    // line endings: a copy that was checked out with CRLF is not byte-identical to its canonical file
+    const withCR = [];
+    for (const [dir, label] of [[solidDir, 'solid'], [nurbsDir, 'nurbs']]) {
+      for (const n of filesOf(dir)) if (fs.readFileSync(path.join(dir, n)).includes(13)) withCR.push(label + '/' + n);
     }
-    const r = checkPins(APP);
-    ok(r.ok, `lib/nurbs matches pins.json (${Object.keys(r.pins.folders.nurbs.files).length} files; ${r.pins.folders.nurbs.source})` + (r.problems.length ? '\n       ' + r.problems.join('\n       ') : ''));
-    const tmp = fs.mkdtempSync(path.join(HERE, '.pins-'));
+    ok(withCR.length === 0, 'every file of lib/solid and lib/nurbs uses LF only (a CRLF checkout breaks byte-identity: set core.autocrlf=false or keep .gitattributes)' + (withCR.length ? ' — CR in: ' + withCR.slice(0, 5).join(', ') + (withCR.length > 5 ? ' …' : '') : ''));
+
+    // every host the engine syncs to is a host that gets cc-nurbs, and the engine is never copied somewhere it cannot import it from
+    const nurbsHosts = Object.keys(NURBS_TARGETS);
+    const orphans = Object.keys(TARGETS).filter((t) => !nurbsHosts.includes(t));
+    ok(Object.keys(TARGETS).length > 0 && orphans.length === 0, 'every solid target is also a cc-nurbs target' + (orphans.length ? ' (not: ' + orphans.join(', ') + ')' : ''));
+    ok(Object.keys(TARGETS).every((t) => path.basename(TARGETS[t]) === 'solid' && path.basename(path.dirname(TARGETS[t])) === 'dev' && path.dirname(TARGETS[t]) === path.dirname(NURBS_TARGETS[t].dir)), 'each target is <app>/dev/solid, next to the same app\'s dev/nurbs');
+
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-solid-sync-'));
     try {
-      fs.cpSync(path.join(APP, 'nurbs'), path.join(tmp, 'nurbs'), { recursive: true });
-      fs.appendFileSync(path.join(tmp, 'nurbs/basis.js'), '\n');
-      fs.writeFileSync(path.join(tmp, 'nurbs/extra.js'), '');
-      fs.rmSync(path.join(tmp, 'nurbs/vec.js'));
-      const bad = checkPins(tmp).problems.join(' | ');
-      ok(/basis\.js differs/.test(bad) && /extra\.js is not pinned/.test(bad) && /vec\.js is missing/.test(bad), 'an edited, an added and a removed file are each reported');
-      // the sync command must never leave lib/nurbs empty or pin nothing
-      const lib = path.join(tmp, 'lib'), pf = path.join(tmp, 'pins.json'), src = path.join(tmp, 'src'), none = path.join(tmp, 'none');
-      fs.mkdirSync(none); fs.mkdirSync(path.join(lib, 'nurbs'), { recursive: true });
-      fs.cpSync(path.join(APP, 'nurbs'), src, { recursive: true });
-      const first = syncFrom(src, 'test', { libDir: lib, pinsFile: pf });
-      const count = fs.readdirSync(src).filter((n) => n.endsWith('.js')).length;
-      ok(first.ok && first.files === count && checkPins(lib, pf).ok, `sync copies the ${count} files and pins them`);
-      const tries = [
-        ['the copy itself', path.join(lib, 'nurbs')], ['a folder with no .js files', none], ['a folder that is not there', path.join(tmp, 'absent')],
-        ['a folder inside the copy', path.join(lib, 'nurbs', 'sub')], ['the folder that holds the copy', lib],
-      ];
-      fs.mkdirSync(path.join(lib, 'nurbs', 'sub')); fs.writeFileSync(path.join(lib, 'nurbs', 'sub', 'x.js'), '');
-      const leaks = tries.filter(([, from]) => { let r; try { r = syncFrom(from, 'test', { libDir: lib, pinsFile: pf }); } catch (e) { return true; } return r.ok || !checkPins(lib, pf).ok || fs.readdirSync(path.join(lib, 'nurbs')).filter((n) => n.endsWith('.js')).length !== count; }).map(([name]) => name);
-      ok(leaks.length === 0, 'sync refuses, and changes nothing, when the source is ' + tries.map(([n]) => n).join(', ') + (leaks.length ? ' (not refused: ' + leaks.join('; ') + ')' : ''));
-      let blank = false; try { blank = !syncFrom(src, '  ', { libDir: lib, pinsFile: pf }).ok; } catch (e) { blank = false; }
-      ok(blank, 'sync refuses a blank --source');
-      fs.writeFileSync(pf, JSON.stringify({ folders: { nurbs: { files: {} } } }));
-      for (const n of fs.readdirSync(path.join(lib, 'nurbs'))) fs.rmSync(path.join(lib, 'nurbs', n), { recursive: true });
-      const hollow = checkPins(lib, pf), noFolders = (() => { fs.writeFileSync(pf, JSON.stringify({ folders: {} })); return checkPins(lib, pf); })();
-      ok(!hollow.ok && !noFolders.ok, 'a pin set that pins no files is a problem, not a pass');
+      const dev = path.join(tmp, 'dev'), host = path.join(dev, 'solid');
+      fs.mkdirSync(path.join(dev, 'nurbs'), { recursive: true });
+      const want = filesOf(solidDir);
+      ok(want.length > 0 && want.every((n) => !n.startsWith('/') && !n.includes('\\')) && want.some((n) => n.includes('/')), 'the file list is recursive, relative, with "/" separators (' + want.length + ' files)');
+
+      const dry = syncTo(host, { check: true });
+      ok(dry.changed.length === want.length && dry.stale.length === 0 && !fs.existsSync(host), 'check on a host without solid/ lists every file and creates nothing');
+      const first = syncTo(host);
+      const copied = filesOf(host);
+      ok(first.files === want.length && JSON.stringify(copied) === JSON.stringify(want) && want.every((n) => Buffer.compare(fs.readFileSync(path.join(solidDir, n)), fs.readFileSync(path.join(host, n))) === 0), 'sync copies every file, byte for byte, sub-folders included');
+      const again = syncTo(host, { check: true });
+      ok(again.changed.length === 0 && again.stale.length === 0, 'a second check finds nothing to do');
+
+      // drift: an edited file, a deleted file, an extra file and an extra folder
+      const victim = want.find((n) => n.endsWith('index.js')) || want[0], gone = want.find((n) => n !== victim && n.includes('/'));
+      fs.appendFileSync(path.join(host, victim), '\n');
+      fs.rmSync(path.join(host, gone));
+      fs.mkdirSync(path.join(host, 'extra'), { recursive: true });
+      fs.writeFileSync(path.join(host, 'extra', 'x.js'), '');
+      const before = filesOf(host);
+      const drift = syncTo(host, { check: true });
+      ok(drift.changed.includes(victim) && drift.changed.includes(gone) && drift.stale.includes('extra/x.js') && JSON.stringify(filesOf(host)) === JSON.stringify(before), 'check reports an edited, a deleted and an extra file, and changes nothing');
+      const fix = syncTo(host);
+      ok(fix.changed.length === 2 && fix.stale.length === 1 && JSON.stringify(filesOf(host)) === JSON.stringify(want) && !fs.existsSync(path.join(host, 'extra')), 'sync repairs all three and removes the emptied folder');
+
+      // refusals leave everything as it was
+      const lone = path.join(tmp, 'lone', 'solid');
+      fs.mkdirSync(path.dirname(lone), { recursive: true });
+      const noNurbs = syncTo(lone);
+      ok(/nurbs/.test(noNurbs.problem || '') && !fs.existsSync(lone), 'a host with no nurbs/ beside it is refused, and nothing is created');
+      const inside = syncTo(path.join(solidDir, 'nested'), { lib: solidDir });
+      const self = syncTo(solidDir, { lib: solidDir });
+      ok(inside.problem && self.problem && !fs.existsSync(path.join(solidDir, 'nested')), 'the engine is never synced into itself');
+      const empty = path.join(tmp, 'empty');
+      fs.mkdirSync(empty);
+      ok(syncTo(host, { lib: empty }).problem && syncTo(host, { lib: path.join(tmp, 'absent') }).problem && JSON.stringify(filesOf(host)) === JSON.stringify(want), 'an empty or missing source is refused, and the host keeps its files');
     } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   });
 

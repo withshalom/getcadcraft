@@ -8,10 +8,11 @@ For the add-on catalogue at getcadcraft.com › Build an add-on › Engines. The
 | **Id** | `engine.solid` |
 | **Name** | Solid kernel (proposed, after "Field kernel"; the owner's choice) |
 | **What it computes** | Exact solids: NURBS and analytic B-rep, STEP. |
-| **Status** | Planned. Today the numerical ground is built (S1–S2 of 44, `STATUS.md`). It becomes "Built · in the lab" when PartCraft's rebuild runs through it (S24b). |
+| **Status** | Planned. Today the numerical ground is built (S1–S4 of 44, `STATUS.md`). It becomes "Built · in the lab" when PartCraft's rebuild runs through it (S24b). |
 | **Maker** | CadCraft |
 | **Licence** | Apache-2.0 |
 | **Hosts** | PartCraft first; then ModelCraft, CadCraft (its 3D tab), BimCraft and SuperCad Studio, each carrying its own copy |
+| **Delivery** | canonical in the site repo's `lib/solid/`, beside `lib/nurbs/`; `tools/solid/sync.mjs` copies it byte for byte into each host's `dev/solid/` (run the cc-nurbs sync first). The owner authorizes each app |
 | **Download** | none needed while every host carries a copy; a package size is given once there is one |
 | **Built on it** | No add-on yet. |
 

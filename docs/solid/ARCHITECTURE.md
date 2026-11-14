@@ -15,8 +15,8 @@ add-ons can build on.
 |---|---|
 | Id | `engine.solid` |
 | Library | cc-solid (compare cc-nurbs → engine.nurbs, cc-field → engine.field) |
-| Edited copy | `lib/solid/` in `withshalom/getlibrarycraft`, branch `engine/solid` |
-| Host copies | `solid/` in each host app's build folder, byte-identical (a `sync.mjs --check` comes with the first host) |
+| Canonical copy | `lib/solid/` in the site repo, beside `lib/nurbs/`, branch `engine/solid` (first built in `withshalom/getlibrarycraft`; history carried over) |
+| Host copies | `dev/solid/` in each host app, beside its `dev/nurbs/`, byte-identical; `tools/solid/sync.mjs [--check]` copies and checks them (run `tools/nurbs/sync.mjs` first) |
 | Errors | `SolidError(code, vars)`, codes `solid.err.*` |
 | Licence | Apache-2.0 |
 | Version | `VERSION` in `index.js` (0.0.8 after the two reviews, the browser runs and D-size / D-wire) |
@@ -159,13 +159,14 @@ price of identical results in every browser. Tuning comes in S43.
 - **One edited copy, many byte-identical copies.** This is the suite's library model: canonical `lib/<name>/`, copied
   by `tools/<name>/sync.mjs` into each app, with `--check` failing on drift. It applies to cc-nurbs, shapes and
   entourage today. engine.solid follows it, so a fix lands once and every host gets the same bits.
-- **Layout:** `lib/solid/` (the engine), `tools/solid/` (checker, tests, references) and `bin/test-solid.mjs`. That is
-  the site's own pattern (`lib/<name>`, `tools/<name>`, `bin/test-<name>.mjs`), so the engine can move into the site's
-  monorepo without changing a path.
+- **Layout:** `lib/solid/` (the engine), `tools/solid/` (checker, tests, references) and `bin/test-solid.mjs`, the
+  site's own pattern (`lib/<name>`, `tools/<name>`, `bin/test-<name>.mjs`). In a clone of the site repo these sit
+  under `tests/`.
 - **Imports outside the engine:** cc-nurbs and cc-step only (D8), and only from `geom/` up.
-  - **cc-nurbs (S4):** an unedited copy of the site's canonical `lib/nurbs/` sits beside the engine in `lib/nurbs/`.
-    `tools/solid/pins.json` holds the SHA-256 of each file, and the `pins` test fails on any edit in place. The copy
-    changes only through `tools/solid/sync-nurbs.mjs --from <canonical>` (D-ccn2, D-ccn).
+  - **cc-nurbs:** canonical in `lib/nurbs/`, beside the engine; hosts get both in `dev/` (D-ccn2 settled by moving the
+    engine here, 2026-11-13). The engine imports it read-only. The `sync` test checks that both libraries are LF-only
+    (a CRLF checkout breaks byte-identity) and that every solid target is also a cc-nurbs target; changes to cc-nurbs
+    are made in `lib/nurbs/` with its own tests (D-ccn). The old SHA-256 pins are gone.
   - **cc-step** comes later; its copies have drifted.
   - Hosts already carry cc-nurbs, so engine.solid's own package stays `solid/`.
 - **Same bits across the boundary:** the checker's `reach` rule applies engine.solid's exactness rules to whatever an
@@ -184,10 +185,10 @@ price of identical results in every browser. Tuning comes in S43.
 | D3 | Booleans in scope, not dominant; feature construction first, exact booleans in M9 | both routes are needed, or splines and conics are out of reach; booleans are the hardest part, so they come last |
 | D6 | Other kernels only as black-box oracles | clean copyright; the owner holds all rights |
 | D8 | Build on cc-nurbs and cc-step, never edit them in place | they already do most of the spline work; fixes go upstream |
-| D-ccn2 | cc-nurbs beside the engine as a pinned, unedited copy (S4) | the suite's synced-copy model, with drift caught by hashes |
+| D-ccn2 | ~~cc-nurbs beside the engine as a pinned, unedited copy (S4)~~ settled by moving the engine next to the canonical `lib/nurbs/` (2026-11-13) | one copy of each library, synced into hosts; no pins needed |
 | D-det | (b): S5–S6 import only the exact cc-nurbs functions; a checker guard keeps `arc`, `circle` and `angle` out. A compromise: option (a), deterministic trig upstream, is open for later investigation. Originally: how S5–S6 use cc-nurbs' curve and surface code, which is not same-bits | determinism (§5) and D8 meet here; the owner decides |
 | D-name | `engine.solid` / cc-solid / `solid/` / `solid.err.*` / `SolidError` | the suite's engine naming |
-| D-home | Built in the library repo, branch `engine/solid`; pull request when finished | the owner authorizes it for each app from one place |
+| D-home | ~~Built in the library repo, branch `engine/solid`~~ superseded 2026-11-13: lives in the site repo's `lib/solid/`; pull request when the owner says go | the engine belongs beside cc-nurbs, where hosts get their copies; the owner authorizes each app |
 | D-eng | Follow the engine conventions and catalogue format | the documented pattern for shared libraries |
 | D-tr | Own elementary functions, bit-exact | determinism of topology decisions (§5) |
 | D-mat | Row-major matrices, converters at the boundary | cc-nurbs' convention; one convention inside |

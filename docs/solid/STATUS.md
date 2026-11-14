@@ -2,7 +2,13 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.8 · **Last session:** D-size and D-wire built (2026-11-13)
+**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.8 · **Last session:** relocation to the site repo (2026-11-13); before it, D-size and D-wire built
+
+> **Relocation, 2026-11-13 (D-home superseded):** the engine moved from the library repo (`withshalom/getlibrarycraft`, branch `engine/solid`, kept as it was) to the site repo, beside cc-nurbs.
+> - **What moved:** `lib/solid/`, `tools/solid/`, `bin/test-solid.mjs` and `docs/solid/`. In a clone of the site repo they sit under `tests/` (`tests/lib/solid/`, `tests/tools/solid/`, `tests/bin/test-solid.mjs`); `docs/solid/` stays at the top. All 13 commits were replayed with their authors, dates and messages; the files matched the library branch byte for byte before anything was changed.
+> - **What changed:** cc-nurbs is canonical beside the engine, so `pins.json`, `sync-nurbs.mjs` and the `pins` test section are gone. A new `tools/solid/sync.mjs` copies `lib/solid/` into each host's `dev/solid/` (partcraft, modelcraft, supercadcraft) and refuses a host with no `nurbs/` beside it. A new `sync` section tests it against temporary folders and checks that both libraries are LF-only. A `.gitattributes` keeps `*.js`, `*.mjs`, `*.json` and `*.md` LF, because Git for Windows otherwise converts them and breaks byte-identity.
+> - **Result:** `node bin/test-solid.mjs` from `tests/`: **372 passed, 0 failed** (365 before; the pin checks gave way to the sync checks). The boundary checker reports 0 problems (18 files, 61 imports), and the digest section holds the recorded hashes. Version unchanged at 0.0.8.
+> - **Not done:** the browser run (`tools/solid/browser-run.mjs`, needs Playwright) was not rerun from the new place, and the real-Safari check is still the owner's. No sync was run against a real host (the clone has none); the real sync needs the full getcadcraft.com layout. Nothing is pushed and there is no pull request.
 
 > **Moved, 2026-11-12 (D-home, D-name):** S0 and S1 were built in the PartCraft fork (`withshalom/getpartcraft`, branch `partcore`, commit 34a1df2a) under the name PartCore. They now live here as engine.solid. Paths below are the new ones; S1's results were measured there, and are measured again here under "After the move".
 

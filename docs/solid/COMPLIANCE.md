@@ -27,7 +27,7 @@ Source: getcadcraft.com › Build an add-on › Upload and review.
 |---|---|---|---|
 | Loads nothing from outside its own folder | static imports only, all relative, and only into `solid/`, `nurbs/` or `step/` | checker rules `dynamic`, `external`, `specifier`, `missing` | enforced |
 | What it loads from cc-nurbs or cc-step is same-bits too | every file reached through an import, to the end | checker rule `reach` (S4) | enforced |
-| cc-nurbs is never edited in place (D8) | an unedited, pinned copy of the canonical `lib/nurbs/` | `pins` section; `tools/solid/sync-nurbs.mjs --check` | enforced |
+| engine.solid never edits cc-nurbs (D8) | the engine only imports it, and the `reach` rule judges every function it takes. Since the move (2026-11-13) cc-nurbs is canonical beside the engine, so the old hash pins are gone and an edit to `lib/nurbs/` is no longer caught by this suite: it is a convention, and host copies are kept equal by `tools/nurbs/sync.mjs --check` | checker rule `reach`; `sync` section (LF-only, same hosts) | checked |
 | Talks to no server | no `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, workers or `importScripts` | checker rule `global` | enforced |
 | A licence the suite can sign | Apache-2.0 | rule `spdx` | enforced |
 | Package size: at most 200 files, 5 MB unpacked | 17 files, about 126 KB (S4); cc-nurbs, which hosts already carry, sits beside it | measured at each session close | checked |
@@ -86,7 +86,7 @@ Source: `HANDOFF.md` §15; the owner's direction (D5, D6).
 | Rule | Status |
 |---|---|
 | Work on branch `engine/solid`; `main` untouched | checked: `main` is at a02421e |
-| No pull request until the owner says engine.solid is finished (D-home) | owner |
+| No pull request until the owner says engine.solid is finished (D-home, now the site repo) | owner |
 | One complete, tested build per session; `STATUS.md`, `PROVENANCE.md` and `HANDOFF.md` updated at the close | checked each session |
 | A mutation run at each close (deliberate faults must fail the suite) | checked: S2 caught 19 of 20, and the survivor is equivalent in practice; S3 caught 9 of 9; S4 caught 16 of 16 |
 | Commits name their session and carry the attribution lines | checked |
