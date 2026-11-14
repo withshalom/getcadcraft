@@ -150,3 +150,17 @@ export function resolveBudget(b) {
   if (isBudget(b)) return b;
   return makeBudget(b);
 }
+
+// ---- plain data, for a worker boundary (decision D-wire). What crosses is what is left: the limits less what was used.
+// A clock is a function and cannot cross, so the receiver gives its own; `null` stands for "no limit" (JSON has no Infinity).
+export function toData(b) {
+  if (!isBudget(b)) fail('solid.err.bad_input', { name: 'budget', why: 'not_a_budget' });
+  const u = b.used(), left = (max, used) => (max === Infinity ? null : Math.max(0, max - used));
+  const ms = left(b.limits.maxMs, u.ms);
+  return { maxIterations: left(b.limits.maxIterations, u.iterations), maxEntities: left(b.limits.maxEntities, u.entities), maxMs: ms === 0 ? Number.MIN_VALUE : ms };
+}
+export function fromData(d, { clock, checkEvery } = {}) {
+  if (!isPlainObject(d)) fail('solid.err.bad_input', { name: 'budget', why: 'not_a_budget' });
+  const v = (x) => (x === null ? undefined : x);
+  return makeBudget({ maxIterations: v(d.maxIterations), maxEntities: v(d.maxEntities), maxMs: v(d.maxMs), clock, checkEvery });
+}

@@ -25,7 +25,7 @@
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.7';
+export const VERSION = '0.0.8';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';

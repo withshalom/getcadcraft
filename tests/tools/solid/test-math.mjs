@@ -151,6 +151,10 @@ export async function register({ section, ok, refuses, same, appUrl }) {
     ok(same(f.x, [1, 0, 0]) && same(f.y, [0, 1, 0]) && same(f.z, [0, 0, 1]), 'frameFromXY keeps x and squares y up');
     const back = Fr.frameFromMatrix(Fr.toMatrix(f));
     ok(same(back.x, f.x) && same(back.y, f.y) && same(back.o, f.o), 'frameFromMatrix(toMatrix(f)) is f');
+    const fr0 = Fr.frameFromZX([3, -2, 7], [1, 2, 3], [0, 1, 1]), frBack = Fr.fromData(structuredClone(Fr.toData(fr0))), frJson = Fr.fromData(JSON.parse(JSON.stringify(Fr.toData(fr0))));
+    ok(!Fr.isFrame(structuredClone(fr0)) && Fr.isFrame(frBack) && same(frBack, fr0) && same(frJson, fr0) && Object.isFrozen(frBack.x), 'toData / fromData: a frame crosses a worker boundary or JSON as plain data and comes back the same frame, bit for bit');
+    ok(refuses(() => Fr.fromData({ ...Fr.toData(fr0), x: [1, 0, 0] }), bad, { name: 'frame', why: 'not_orthonormal' }) && refuses(() => Fr.fromData({ o: [0, 0, 0], x: [1, 0, 0], y: [0, 0, 1], z: [0, 1, 0] }), bad, { why: 'not_orthonormal' }) && refuses(() => Fr.fromData({ o: [0, 0, 0] }), bad, { name: 'frame', why: 'not_a_frame' }) && refuses(() => Fr.fromData(null), bad, { why: 'not_a_frame' }) && refuses(() => Fr.toData({ ...fr0 }), bad, { why: 'not_a_frame' }),
+      'fromData checks what arrives (three unit axes, perpendicular, right-handed); toData takes only a frame');
     ok(refuses(() => Fr.frameFromZX([0, 0, 0], [0, 0, 1], [0, 0, -3]), bad, { name: 'x', why: 'parallel' }) && refuses(() => Fr.frameFromZX([0, 0, 0], [0, 0, 1], [1e-12, 0, 1]), bad, { why: 'parallel' }) && refuses(() => Fr.frameFromXY([0, 0, 0], [1, 0, 0], [2, 0, 0]), bad, { name: 'y' }), 'an x (or y) direction parallel to z (or x), within tol.ang, is refused');
     ok(refuses(() => Fr.frameFromMatrix(M.scaling(2)), bad, { why: 'not_rigid' }) && refuses(() => Fr.frameFromZ([0, 0], [0, 0, 1]), bad, { why: 'not_a_vector' }), 'non-rigid matrices and malformed points are refused');
     ok(Fr.isFrame(Fr.WORLD) && Fr.isFrame(f) && !Fr.isFrame({ ...f }) && Object.isFrozen(f) && Object.isFrozen(f.x), 'frames are frozen and branded');

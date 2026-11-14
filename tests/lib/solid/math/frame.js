@@ -70,3 +70,15 @@ export const dirToWorld = (f, v) => madd(madd(scale(f.x, v[0]), v[1], f.y), v[2]
 export const toWorld = (f, p) => madd(dirToWorld(f, p), 1, f.o);
 export const dirToLocal = (f, v) => [dot(v, f.x), dot(v, f.y), dot(v, f.z)];
 export const toLocal = (f, p) => dirToLocal(f, sub(p, f.o));
+
+// ---- plain data, for a worker boundary or a file (decision D-wire: a copy made by postMessage is not a frame)
+export function toData(f) {
+  if (!isFrame(f)) fail('solid.err.bad_input', { name: 'frame', why: 'not_a_frame' });
+  return { o: f.o.slice(), x: f.x.slice(), y: f.y.slice(), z: f.z.slice() };
+}
+/** The way back. The axes are kept bit for bit, so they must already be what a frame holds: unit, perpendicular, right-handed. */
+export function fromData(d, tol) {
+  if (d === null || typeof d !== 'object' || ![d.o, d.x, d.y, d.z].every(isVec3)) fail('solid.err.bad_input', { name: 'frame', why: 'not_a_frame' });
+  if (!isRigid(fromBasis(d.o, d.x, d.y, d.z), tol)) fail('solid.err.bad_input', { name: 'frame', why: 'not_orthonormal' });
+  return make(d.o, d.x.slice(), d.y.slice(), d.z.slice());
+}

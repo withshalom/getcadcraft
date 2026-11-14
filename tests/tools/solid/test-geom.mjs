@@ -266,6 +266,9 @@ export async function register({ section, ok, refuses, same, appUrl }) {
       && bi(() => B.knots([0, 0, '1', 1], 1), 'knots', 'not_a_number') && bi(() => B.knots([0, 0, 2 ** 501, 2 ** 502], 1), 'knots', 'out_of_range') && bi(() => B.knots([0, 1e-200, 1, 1], 1), 'knots', 'out_of_range')
       && bi(() => B.knots([0, 1, 0.5, 2], 1), 'knots', 'decreasing') && bi(() => B.knots([0, 1, 1, 2], 1), 'knots', 'empty_domain') && bi(() => B.knots([0, 0, 0, 1, 1, 1, 2, 2], 1), 'knots', 'multiplicity'),
     'refused: not an array, too short, not a number, out of range (huge or subnormal-near), decreasing, an empty domain, a knot repeated more than p + 1 times');
+    const Kd = B.fromData(structuredClone(B.toData(Kc))), Kj = B.fromData(JSON.parse(JSON.stringify(B.toData(Kc))));
+    ok(!B.isKnots(structuredClone(Kc)) && B.isKnots(Kd) && same(Kd, Kc) && same(Kj, Kc) && same(Object.keys(B.toData(Kc)), ['U', 'p']) && bi(() => B.fromData({ U: [0, 1, 0, 1], p: 1 }), 'knots', 'decreasing') && bi(() => B.fromData(5), 'knots', 'not_knots') && bi(() => B.toData({ ...Kc }), 'knots', 'not_knots'),
+      'toData / fromData: a knot vector crosses a worker boundary or JSON as { U, p } and is checked again on arrival');
     ok(bi(() => B.span({ ...Kc }, 1), 'knots', 'not_knots') && bi(() => B.span(Kc, NaN), 'u', 'not_a_number') && bi(() => B.basis(Kc, -1e-9), 'u', 'out_of_domain') && bi(() => B.basis(Kc, 2 + 1e-9), 'u', 'out_of_domain')
       && bi(() => B.basis(Kc, 1e-300), 'u', 'out_of_range') && bi(() => B.ders(Kc, 1, 1.5), 'order', 'not_a_count') && bi(() => B.ders(Kc, 1, 33), 'order', 'out_of_range')
       && bi(() => B.one(Kc, 4, 1), 'index', 'out_of_range') && bi(() => B.oneDers(Kc, -1, 1, 1), 'index', 'not_a_count'),

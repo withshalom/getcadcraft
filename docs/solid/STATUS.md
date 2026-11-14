@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.7 · **Last session:** second review and fixes (2026-11-13)
+**Repo:** `withshalom/getlibrarycraft` · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.8 · **Last session:** D-size and D-wire built (2026-11-13)
 
 > **Moved, 2026-11-12 (D-home, D-name):** S0 and S1 were built in the PartCraft fork (`withshalom/getpartcraft`, branch `partcore`, commit 34a1df2a) under the name PartCore. They now live here as engine.solid. Paths below are the new ones; S1's results were measured there, and are measured again here under "After the move".
 
@@ -232,7 +232,10 @@ Results:
 - **Cost:** a cubic takes 2.4 µs (9 µs when two roots are close), a quadratic 0.5 µs, a rounded product and quotient 51 ns together.
 - **What held without change:** addition's bounds, the elementary functions (all inside their stated ulps on hard families; acos worst at 2.32 of 3), interval sin and cos (480,000 exact values enclosed), the linear solvers, box transforms, the predicates, immutability of every returned record, and determinism (no hidden clock, randomness, locale or key order).
 
-Two findings are design decisions, not faults, and wait for the owner (`HANDOFF.md` §17.2: D-size, D-wire).
+Two findings were design decisions, not faults. The owner took option A on both the same day, and 0.0.8 builds them:
+- **D-size.** A Tolerance now carries `size`, the side of the box the model must fit in (default 1e6 mm, 1 km). `ang` defaults to `lin` / `size` (1e-12) and may not exceed it; `lin` must be at least `size` · 1e-13. `inBox(p, tol)` tests a point. The limit belongs to the tolerance: a larger model declares a larger box with a matching tolerance, and other engines are not bound by it.
+- **D-wire.** `toData` / `fromData` on `tol`, `limits`, `frame` and `basis`, and `fromEnvelope` on `errors`: plain, JSON-safe data out, every check again on the way in. Tested through `structuredClone` and JSON.
+- **365 checks pass;** the digest hashes are unchanged.
 
 ## Learned
 - **Bug review: a passing suite says only what it was asked.** All seven faults sat in code with passing tests; each lived just outside the inputs the tests drew (unbounded intervals, huge angles, a root at exactly 0, an overflowing width, many pieces). The fixes' tests draw from those edges on purpose.
@@ -277,5 +280,5 @@ Two findings are design decisions, not faults, and wait for the owner (`HANDOFF.
     - **(c)** write engine.solid's own evaluators. This goes against D8.
   - Recommended: (b) now, and (a) upstream when the owner agrees.
   - The guard for (b) is built (the `reach` rule), so S5 can start.
-- **Owner decisions still open** (`HANDOFF.md` §17.2): D-size and D-wire (both before S5 fixes record shapes), D-ccn, D-kad / D-kbc (D-det decided: (b), see HANDOFF §17.3). D-ccn2 was taken as proposed at S4 (synced, pinned copies). D3, D-tr, D-name and D-home were settled on 2026-11-12.
+- **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc (D-size and D-wire decided and built, 2026-11-13) (D-det decided: (b), see HANDOFF §17.3). D-ccn2 was taken as proposed at S4 (synced, pinned copies). D3, D-tr, D-name and D-home were settled on 2026-11-12.
 - **The pull request** to the library repo's `main` waits until engine.solid is finished (D-home).

@@ -122,12 +122,25 @@ section('errors', 'typed refusals: codes, vars, the envelope', () => {
   const leak = JSON.stringify(E.toEnvelope(secret));
   ok(leak === JSON.stringify({ code: 'solid.err.internal', vars: {} }) && !leak.includes('secret'), 'any other error → solid.err.internal with no message, stack or detail');
   ok([null, undefined, 'x', 3, { code: 'other.err.x' }].every((x) => E.toEnvelope(x).code === 'solid.err.internal'), 'null, undefined, strings, numbers and foreign codes → solid.err.internal');
+  const sent = (() => { try { E.fail('solid.err.limit', { what: 'degree', limit: 15, used: 16 }); } catch (e) { return E.fromEnvelope(structuredClone(E.toEnvelope(e))); } })();
+  ok(sent instanceof E.SolidError && sent.code === 'solid.err.limit' && same(sent.vars, { what: 'degree', limit: 15, used: 16 }) && E.isSolidError(sent), 'fromEnvelope: a refusal sent across a worker boundary is a SolidError again, with its code and vars');
+  const up = E.fromEnvelope({ code: 'nurbs.err.bad_knots', vars: { n: 3, f() {} } });
+  ok(up instanceof Error && !(up instanceof E.SolidError) && up.code === 'nurbs.err.bad_knots' && same(up.vars, { n: 3 }) && same(E.toEnvelope(up), { code: 'nurbs.err.bad_knots', vars: { n: 3 } }), 'fromEnvelope: a cc-nurbs or cc-step code keeps its code, with cleaned vars');
+  ok([null, 5, {}, { code: 'other.err.x' }, { code: 'solid.err.nope', vars: {} }, { code: 7 }].every((x) => E.fromEnvelope(x).code === 'solid.err.internal'), 'fromEnvelope: anything else is solid.err.internal');
 });
 
 // ================================================================================================== tol
 section('tol', 'the tolerance policy', () => {
-  const D = T.DEFAULT_TOL;
-  ok(D.lin === 1e-6 && D.ang === 1e-9 && D.fit === 1e-4 && D.maxEdgeTol === 1e-4, 'defaults: lin 1e-6 mm, ang 1e-9 rad, fit 1e-4 mm, maxEdgeTol 1e-4 mm (HANDOFF § 5.2)');
+  const D = T.DEFAULT_TOL, t0 = T.makeTol({ lin: 1e-5, fit: 1e-3, mesh: { chord: 0.05 } });
+  ok(D.lin === 1e-6 && D.ang === 1e-12 && D.size === 1e6 && D.fit === 1e-4 && D.maxEdgeTol === 1e-4, 'defaults: lin 1e-6 mm, ang 1e-12 rad, size 1e6 mm (a 1 km box), fit 1e-4 mm, maxEdgeTol 1e-4 mm (HANDOFF § 5.2, D-size)');
+  ok(D.ang * D.size === D.lin, 'the defaults agree: directions parallel within ang drift apart by exactly lin across the whole box');
+  ok(T.makeTol({ lin: 1e-5 }).ang === 1e-5 / 1e6 && T.makeTol({ size: 1e3 }).ang === 1e-6 / 1e3 && T.makeTol({ lin: 1e-5, ang: 1e-13 }).ang === 1e-13 && T.makeTol({ lin: 0.1, size: 1, fit: 10, maxEdgeTol: 1, mesh: { chord: 100 } }).ang === T.RANGES.ang[1], 'ang follows from lin and size when it is not given (lin / size, at most its range); a tighter one may be given');
+  ok(refuses(() => T.makeTol({ ang: 1e-9 }), 'solid.err.bad_tolerance', { name: 'ang', why: 'above_lin_over_size', value: 1e-9, max: 1e-12 }) && refuses(() => T.makeTol({ size: 1e7 , ang: 1e-12 }), 'solid.err.bad_tolerance', { name: 'ang', why: 'above_lin_over_size' }), 'refused: an ang that lets parallel directions drift apart by more than lin inside the box');
+  ok(refuses(() => T.makeTol({ size: 1e9 }), 'solid.err.bad_tolerance', { name: 'lin', why: 'below_resolution', value: 1e-6, min: 1e9 * 1e-13 }) && T.makeTol({ size: 1e7 }).size === 1e7, 'refused: a box so large that lin is within a few thousand doubles of its far corner (lin ≥ size · 1e-13)');
+  ok(T.inBox([5e5, -5e5, 0]) && !T.inBox([5e5 + 1, 0, 0]) && !T.inBox([0, NaN, 0]) && !T.inBox([0, 0]) && !T.inBox([0, 0, Infinity]) && T.inBox([400, 0, 0], T.makeTol({ size: 1e3 })) && !T.inBox([600, 0, 0], T.makeTol({ size: 1e3 })), 'inBox: a point is inside when every coordinate is within size / 2 of the origin');
+  const viaClone = T.fromData(structuredClone(T.toData(t0))), viaJson = T.fromData(JSON.parse(JSON.stringify(T.toData(t0))));
+  ok(!T.isTol(structuredClone(t0)) && T.isTol(viaClone) && same(viaClone, t0) && same(viaJson, t0) && !T.isTol(T.toData(t0)) && Object.getPrototypeOf(T.toData(t0)) === Object.prototype, 'toData / fromData: a Tolerance crosses a worker boundary (structuredClone) or JSON as plain data and is checked again on arrival; the clone itself is not a Tolerance');
+  ok(refuses(() => T.fromData({ ...T.toData(t0), lin: -1 }), 'solid.err.bad_tolerance', { name: 'lin' }) && refuses(() => T.toData({ ...t0 }), 'solid.err.bad_input', { name: 'tolerance', why: 'not_a_tolerance' }), 'fromData checks what arrives; toData takes only a Tolerance');
   ok(D.mesh.chord === 0.01 && D.mesh.angle === 0.5 * Math.PI / 180, 'defaults: mesh.chord 0.01 mm, mesh.angle 0.5° in radians');
   ok(deepFrozen(D) && T.isTol(D), 'DEFAULT_TOL is deeply frozen and is a Tolerance');
   ok(!T.isTol({ ...D, mesh: { ...D.mesh } }) && !T.isTol(null) && !T.isTol(undefined) && !T.isTol(1) && !T.isTol('x'), 'a copy is not a Tolerance (isTol cannot be fooled), nor are other values');
@@ -156,11 +169,12 @@ section('tol', 'the tolerance policy', () => {
   ok(Object.keys(T.RANGES).every((k) => val(D, k) >= T.RANGES[k][0] && val(D, k) <= T.RANGES[k][1]), 'every default sits inside its range');
   // one value at an end of its range, the others moved only as far as the relations (lin ≤ fit, maxEdgeTol, chord) need
   const atEdge = (k, v) => {
-    if (k === 'lin') return { lin: v, fit: 10, maxEdgeTol: 1, mesh: { chord: 100 } };
-    if (k === 'ang') return { ang: v };
+    if (k === 'lin') return { lin: v, size: 1, fit: 10, maxEdgeTol: 1, mesh: { chord: 100 } };
+    if (k === 'ang') return { ang: v, size: 1, lin: 0.1, fit: 10, maxEdgeTol: 1, mesh: { chord: 100 } };
+    if (k === 'size') return { size: v, lin: 0.1, fit: 10, maxEdgeTol: 1, mesh: { chord: 100 } };
     if (k === 'mesh.angle') return { mesh: { angle: v } };
     const lin = Math.min(D.lin, v);
-    return k === 'mesh.chord' ? { lin, mesh: { chord: v } } : { lin, [k]: v };
+    return k === 'mesh.chord' ? { lin, size: 1, mesh: { chord: v } } : { lin, size: 1, [k]: v };
   };
   const accepted = (k, v) => { try { return val(T.makeTol(atEdge(k, v)), k) === v; } catch { return false; } };
   ok(Object.keys(T.RANGES).every((k) => accepted(k, T.RANGES[k][0]) && accepted(k, T.RANGES[k][1])), 'both ends of every range are accepted');
@@ -174,6 +188,13 @@ section('tol', 'the tolerance policy', () => {
 
 // ================================================================================================== limits
 section('limits', 'budgets', () => {
+  {
+    const b0 = L.makeBudget({ maxIterations: 100, maxEntities: 50, clock: null }); b0.step(); b0.step(); b0.entities(7);
+    const d0 = L.toData(b0), b1 = L.fromData(JSON.parse(JSON.stringify(d0)), { clock: null }), open = L.toData(L.makeBudget({ clock: null }));
+    ok(same(d0, { maxIterations: 98, maxEntities: 43, maxMs: null }) && L.isBudget(b1) && b1.limits.maxIterations === 98 && b1.limits.maxEntities === 43 && same(open, { maxIterations: null, maxEntities: null, maxMs: null }) && L.fromData(open, { clock: null }).limits.maxIterations === Infinity,
+      'toData / fromData: a budget crosses a worker boundary as what is left of it (null: no limit, which JSON can carry); the clock stays behind and the receiver gives its own');
+    ok(refuses(() => L.toData({}), 'solid.err.bad_input', { name: 'budget', why: 'not_a_budget' }) && refuses(() => L.fromData({ maxIterations: -1 }), 'solid.err.bad_input', { name: 'maxIterations' }) && refuses(() => L.fromData(null), 'solid.err.bad_input', { name: 'budget', why: 'not_a_budget' }), 'fromData checks what arrives; toData takes only a budget');
+  }
   const lim = 'solid.err.limit', bad = 'solid.err.bad_input';
   const free = L.makeBudget();
   for (let i = 0; i < 100000; i++) free.step();

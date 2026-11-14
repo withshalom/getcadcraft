@@ -22,6 +22,9 @@
  *                                  'step.err.*') → its code and cleaned vars; anything else, which can only be a bug,
  *                                  → { code: 'solid.err.internal', vars: {} }, so no message, stack or internals leave
  *                                  the kernel.
+ *   fromEnvelope(env) → Error       the way back, on the other side of a worker boundary: a SolidError for a solid.err.*
+ *                                  code; a plain Error carrying { code, vars } for a cc-nurbs or cc-step code; anything
+ *                                  else → SolidError solid.err.internal
  *   cleanVars(x) → frozen object   x's own enumerable keys (at most 32, names like identifiers, up to 64 characters) whose
  *                                  values are finite numbers, booleans, null, strings (cut to 200 characters) or arrays of
  *                                  at most 16 such values; everything else is left out, and a getter that throws is
@@ -122,4 +125,11 @@ export function toEnvelope(e) {
   if (isSolidError(e)) return Object.freeze({ code: e.code, vars: e instanceof SolidError ? e.vars : cleanVars(e.vars) });
   if (!!e && typeof e === 'object' && typeof e.code === 'string' && UPSTREAM.test(e.code)) return Object.freeze({ code: e.code, vars: cleanVars(e.vars) });
   return Object.freeze({ code: 'solid.err.internal', vars: Object.freeze({}) });
+}
+
+export function fromEnvelope(env) {
+  const code = env && typeof env === 'object' ? env.code : undefined;
+  if (typeof code === 'string' && KNOWN.has(code)) return new SolidError(code, env.vars);
+  if (typeof code === 'string' && UPSTREAM.test(code)) { const e = new Error(code); e.code = code; e.vars = cleanVars(env.vars); return e; }
+  return new SolidError('solid.err.internal', {});
 }

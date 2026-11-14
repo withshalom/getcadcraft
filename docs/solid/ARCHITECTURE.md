@@ -19,7 +19,7 @@ add-ons can build on.
 | Host copies | `solid/` in each host app's build folder, byte-identical (a `sync.mjs --check` comes with the first host) |
 | Errors | `SolidError(code, vars)`, codes `solid.err.*` |
 | Licence | Apache-2.0 |
-| Version | `VERSION` in `index.js` (0.0.7 after the two reviews and the browser runs) |
+| Version | `VERSION` in `index.js` (0.0.8 after the two reviews, the browser runs and D-size / D-wire) |
 
 **Why an engine, not an app feature.** Every 3D app in the suite (PartCraft, ModelCraft, CadCraft's 3D tab, BimCraft,
 SuperCad) needs exact solids. None has them today: they use mesh kernels and manifold booleans. Built once as an engine,
@@ -94,9 +94,13 @@ The engine works in millimetres, radians, right-handed and Z up. Apps convert at
 ### 4.4 One tolerance policy
 `core/tol.js` is the only file that may write a tolerance-sized number; the `epsilon` rule enforces it. Defaults:
 
-| `lin` | `ang` | `fit` | `maxEdgeTol` | `mesh.chord` | `mesh.angle` |
-|---|---|---|---|---|---|
-| 1e-6 mm | 1e-9 rad | 1e-4 mm | 1e-4 mm | 0.01 mm | 0.5° |
+| `lin` | `ang` | `size` | `fit` | `maxEdgeTol` | `mesh.chord` | `mesh.angle` |
+|---|---|---|---|---|---|---|
+| 1e-6 mm | 1e-12 rad | 1e6 mm | 1e-4 mm | 1e-4 mm | 0.01 mm | 0.5° |
+
+`lin`, `ang` and `size` go together (D-size): `ang` ≤ `lin` / `size`, so directions the kernel calls parallel never drift apart by more than it calls coincident inside the box, and `lin` ≥ `size` · 1e-13, so it stays well above the spacing of doubles. The box belongs to the Tolerance, not to the kernel: the default is 1 km at 1e-6 mm; a caller with a larger model declares a larger box with a tolerance to match, and other engines are not bound by it.
+
+**Records cross boundaries as plain data (D-wire).** A Tolerance, a budget, a frame and a knot vector are known by a private registry, so a copy made by `postMessage` is not one. Each has `toData` (plain, JSON-safe) and `fromData` (every check again); errors have `toEnvelope` and `fromEnvelope`; the generator has `state` and `restorePrng`. Every later record type (curves, surfaces, topology) follows the same rule.
 
 Each value is range-checked, and the relations between them (`lin` ≤ `fit` and the like) are checked too. Numerical
 thresholds that are not geometric tolerances are written as multiples of `float.EPS`.

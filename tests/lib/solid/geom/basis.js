@@ -95,6 +95,16 @@ export function knots(U, p) {
 
 export const isKnots = (K) => K !== null && typeof K === 'object' && MADE.has(K);
 
+// ---- plain data, for a worker boundary or a file (decision D-wire: a copy made by postMessage is not a knot record)
+export function toData(K) {
+  if (!isKnots(K)) fail('solid.err.bad_input', { name: 'knots', why: 'not_knots' });
+  return { U: K.U.slice(), p: K.p };
+}
+export function fromData(d) {
+  if (d === null || typeof d !== 'object') fail('solid.err.bad_input', { name: 'knots', why: 'not_knots' });
+  return knots(d.U, d.p);
+}
+
 function checked(K, u) {
   if (!isKnots(K)) fail('solid.err.bad_input', { name: 'knots', why: 'not_knots' });
   if (typeof u !== 'number' || !Number.isFinite(u)) fail('solid.err.bad_input', { name: 'u', why: 'not_a_number' });
