@@ -53,7 +53,7 @@ cannot share a bug with what it judges. Only `geom` and above may import outside
 |---|---|---|
 | `core/` | `errors` (typed refusals) · `tol` (the one tolerance policy) · `limits` (work budgets) · `float` (bits, error-free transformations, directed rounding) · `trig` (deterministic elementary functions) · `prng` (seeded generator) · `intervals` (outward-rounded intervals) · `exact` (exact signs and quotients, whole-number arithmetic) | S1, S2 |
 | `math/` | `vec3` · `mat4` · `frame` · `aabb` · `quad` · `roots` · `linalg` · `predicates` | S2, S3 |
-| `geom/` | curves and surfaces: wraps cc-nurbs, adds analytic classes, exact conversions, interval bounds, intersection rings. Built: `basis` (S4), `nurbs-curve` (S5), `nurbs-surface` (S6), `analytic-curve`, `analytic-surface`, `curve`, `surface`, `diffgeo` (S7) | S4–S10, S25–S27 |
+| `geom/` | curves and surfaces: wraps cc-nurbs, adds analytic classes, exact conversions, interval bounds, intersection rings. Built: `basis` (S4), `nurbs-curve` (S5), `nurbs-surface` (S6), `analytic-curve`, `analytic-surface`, `curve`, `surface`, `diffgeo` (S7), `fit` (S8), `construct` (S9) | S4–S10, S25–S27 |
 | `topo/` | vertices, edges, coedges with pcurves, loops, faces, shells, solids; stable ids; Euler operators | S11–S13 |
 | `ops/` | profile → face, extrude, revolve, sweep, loft, transforms, later offsets, fillets, booleans (M9) | S19–S23, M8, M9 |
 | `mesh/` · `audit/` · `measure/` | watertight tessellation · the independent auditor · mass properties | S14–S17, S24 |
@@ -173,7 +173,7 @@ price of identical results in every browser. Tuning comes in S43.
   import takes from cc-nurbs or cc-step, function by function, followed to the end. So D-det (b) is enforced, not
   promised: the exact functions of `curve.js`, `surface.js` and `vec.js` can be imported by name, and `arc`, `circle`,
   `angle` and anything built on them cannot. There is no waiver comment.
-- **Size today:** 25 files, about 245 KB (S7; cc-nurbs beside it: 20 files, about 410 KB), well within the add-on package
+- **Size today:** 27 files, about 266 KB (S9; cc-nurbs beside it: 20 files, about 410 KB), well within the add-on package
   limit of 200 files and 5 MB.
 
 ## 8. Decisions and their reasons

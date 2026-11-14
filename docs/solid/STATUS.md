@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.11 · **Last session:** S7, analytic classes and exact conversions (2026-11-14); before it S6 and S5 the same day, and the relocation to the site repo (2026-11-13)
+**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.12 · **Last session:** S8 and S9, fitting and construction (2026-11-14); before them S5–S7 the same day, and the relocation to the site repo (2026-11-13)
 
 > **Relocation, 2026-11-13 (D-home superseded):** the engine moved from the library repo (`withshalom/getlibrarycraft`, branch `engine/solid`, kept as it was) to the site repo, beside cc-nurbs.
 > - **What moved:** `lib/solid/`, `tools/solid/`, `bin/test-solid.mjs` and `docs/solid/`. In a clone of the site repo they sit under `tests/` (`tests/lib/solid/`, `tests/tools/solid/`, `tests/bin/test-solid.mjs`); `docs/solid/` stays at the top. All 13 commits were replayed with their authors, dates and messages; the files matched the library branch byte for byte before anything was changed.
@@ -336,7 +336,37 @@ Also checked: points against the textbook formulas evaluated with `Math.sin` / `
 - **The whole suite:** 483 checks.
 - **Browsers:** the `analytic` area is recorded for Node (0.0.11), pending with the `curve` and `surface` areas.
 
+### S8 and S9 — fitting and construction (2026-11-14, version 0.0.12)
+Built together, as two modules with one section each:
+
+| File | What it is |
+|---|---|
+| `geom/fit.js` (S8) | `interpolate` (A9.1 with chord, centripetal or uniform parameters and optional end derivatives), `approximate` (§ 9.4.1, the control-point count raised until every point is within `tol.fit`), `fromSpline` (a KAD / DXF SPLINE: its control form as it is, or its fit points through `interpolate` with the end tangents scaled by the chord length), `params`. On cc-nurbs' `fit.js`; every answer is checked against its data: an interpolation that misses a point by more than `tol.lin` is refused, and an approximation's `error` is the largest distance from each point to the curve's point at its parameter — a bound on its distance to the curve |
+| `geom/construct.js` (S9) | `compatible` (one degree and one knot vector, knots merged by value), `ruled`, `loft` (skinning, § 10.3: the v parameters averaged over the columns, A9.1 per column, rational sections through homogeneous columns), `coons` (bilinearly blended, S = Lc + Ld − B, as one exact NURBS for polynomial curves), `interpolateGrid`, `extrude` and `revolve` (analytic surfaces, exact). Each result is checked against what it was built to pass through, within `tol.lin` |
+| `index.js` | VERSION 0.0.12; namespaces `fit`, `construct` |
+
+Tools: `test-fit.mjs` (sections `fit` and `construct`); `digest.mjs` gains a `fitting` area (17 areas).
+
+Acceptance (HANDOFF §14, S8 and S9):
+
+| Criterion | Result | Test |
+|---|---|---|
+| S8: interpolation passes through data to 1e-10 | **pass:** 5.3e-16 of the size on 60 point sets from known shapes (degrees 1–5, all three parameterisations); end derivatives as given | `fit` |
+| S8: approximation error ≤ requested fit on a test corpus | **pass:** 30 point sets (helix, wave, cubic, ellipse arc, a nearly straight line with small detail) at 0.1, 0.01 and 0.001 mm; fewer control points than points in all 30; every point's true distance to the curve (dense search, then a ternary search) within the reported error | `fit` |
+| S9: skinned surface passes through sections | **pass:** 1.4e-14 on 30 lofts of 2–6 sections, a third rational; the section parameters are the columns' averaged chord parameters | `construct` |
+| S9: compatibility refusals typed | **pass:** `near_knots`, `too_few`, `not_a_curve`, `not_an_array`, `repeated`, `corners`, `rational` each thrown by a test | `construct` |
+
+Also checked: `compatible` leaves every curve unchanged (deviation 0 to rounding) on 40 random sets; ruled surfaces' v-lines are segments (rational included); a Coons patch's edges are its four curves and its interior is Lc + Ld − B (1e-12); grid interpolation passes through the grid (3.6e-15); extrude and revolve stay analytic.
+
+Found by search, now fixtures: **cc-nurbs' interpolation can miss its own points** on ill-conditioned data (11 points spaced 1e-4 to 1e4 apart, degree 10: by 1e-4; as a loft through 11 such sections, by 1e-3). Both are refused (`solid.err.not_within_tolerance`) with the error they would have left.
+
+- **Mutation check:** 18 faults; the first run caught 12, and five survivors were missing tests (an ill-conditioned interpolation and loft, the magnitude of a SPLINE's end tangents, the averaging of the loft parameters, every point of an approximation). With them **17 of 18 caught**; the survivor removes the first of two guards against knots that snap to a neighbour in `compatible`, and the second (the knot vectors must come out equal) refuses the same input.
+- **The whole suite:** 506 checks.
+
 ## Learned
+- **S8: a solver's answer must be checked against the question.** A9.1 is well posed, and its matrix still loses digits on data spaced over eight decades; the residual at the data says so in one evaluation per point.
+- **S8: a test of a bound needs a referee finer than the bound.** A 2000-sample search over a 100 mm curve is 0.05 mm coarse, and it "found" violations of a 0.001 mm bound that were not there.
+- **S9: a test can be too symmetric to see a fault.** Loft columns that all moved by the same amount had the same parameters, so "the first column's" and "the average" agreed; the fixed test moves each column differently.
 - **S7: a refactor must keep the bits.** Moving the differential geometry into `diffgeo.js` first changed one `V3.unit(n)` into `n · (1/|n|)`, and the recorded `surface` hash caught the difference; the division came back, and the hashes held.
 - **S7: a test whose base fails proves nothing.** One mutation run reported 25 of 25 caught while the unmutated section was throwing; every mutant "failed" for the wrong reason. The base run comes first, every time.
 - **S7: an ellipse cannot be reversed by turning its frame.** C(T − s) of an ellipse is an ellipse in the frame (x, −y, −z) at the angle s − T − φ, so the record carries a phase; a circle uses the same rule, with no trig and no rounding of its axes.
@@ -385,7 +415,7 @@ Also checked: points against the textbook formulas evaluated with `Math.sin` / `
 - **The KAD repositories' headers still say AGPL.** The sweep belongs in those repositories (`reference/kad/README.md`).
 
 ## Next
-- **S8 — fitting** (HANDOFF §14: global interpolation with chord-length and centripetal parameters, end conditions, least-squares approximation to `tol.fit`; the KAD SPLINE fit-point path): adapters on cc-nurbs' `fit.js` (A9.1, § 9.4.1), checked as S5 checks curves, with the fit error proved by `deviation` where a reference curve exists, and measured against the data otherwise.
+- **S10 — queries** (HANDOFF §14: closest point / point inversion on curves and surfaces, tight bounding boxes, length and area, a BVH; closest point against brute force on 1e4 random queries, boxes that contain dense samples and are within their slack).
 - **Recognition (NURBS → analytic)** belongs with S7's conversions but is not built: a NURBS curve or surface that is exactly a circle, a cylinder … is not yet told apart. STEP import (S30) needs it; noted for then.
 - **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc. Settled: D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; D-home superseded by the move.
 - **The pull request** to the site repo's `main` waits for the owner's go (D-home).

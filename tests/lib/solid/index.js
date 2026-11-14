@@ -29,10 +29,12 @@
  *   analyticCurve · analyticSurface          S7: lines, circles, ellipses; planes, cylinders, cones, spheres, tori,
  *                                            revolution and extrusion surfaces, with exact conversions to NURBS
  *   curve · surface                          S7: one interface for every curve and every surface, NURBS or analytic
+ *   fit · construct                          S8: interpolation and approximation checked against their data;
+ *                                            S9: compatibility, ruled, loft, Coons, grids, extrude and revolve
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.11';
+export const VERSION = '0.0.12';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -57,6 +59,8 @@ export * as analyticCurve from './geom/analytic-curve.js';
 export * as analyticSurface from './geom/analytic-surface.js';
 export * as curve from './geom/curve.js';
 export * as surface from './geom/surface.js';
+export * as fit from './geom/fit.js';
+export * as construct from './geom/construct.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';

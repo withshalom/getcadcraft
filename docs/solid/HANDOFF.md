@@ -560,8 +560,8 @@ Legend: ☐ not started, ☑ done. Each session ends with passing tests, updated
 | S5 | **done** (2026-11-14) | `geom/nurbs-curve.js` on cc-nurbs' `curve.js` (exact functions only, D-det (b)): checked records, exact evaluation tests, shape preservation to 1e-12, proved `deviation` for reduction; see `STATUS.md` |
 | S6 | **done** (2026-11-14) | `geom/nurbs-surface.js` on cc-nurbs' `surface.js`: checked records, exact evaluation tests, the operations per direction to 1e-12, normals with the true limit at poles, curvature in an orthonormal frame; see `STATUS.md` |
 | S7 | **done** (2026-11-14) | `geom/analytic-curve.js`, `analytic-surface.js` (STEP parameterisations, exact `toNurbs` on own A7.1 arcs), the one interface `curve.js` / `surface.js`, shared `diffgeo.js`; see `STATUS.md`. Recognition (NURBS → analytic) is left for S30 |
-| S8 | **exists** (`fit.js`) | adapters only: KAD SPLINE (fit or control form) and KUBIC / PartCraft sketch curves |
-| S9 | **exists** (`construct.js`) | engine.solid-side tests |
+| S8 | **done** (2026-11-14) | `geom/fit.js`: interpolation and approximation on cc-nurbs' `fit.js`, checked against their data; the KAD / DXF SPLINE forms; see `STATUS.md`. KUBIC / PartCraft sketch curves come with S19's profile adapter |
+| S9 | **done** (2026-11-14) | `geom/construct.js`: exact compatibility, ruled, loft, Coons, grid interpolation, analytic extrude and revolve, each checked against what it passes through; see `STATUS.md`. Sweeps and Gordon networks wait for S22 |
 | S10 | partial | closest point, bounding boxes, length and area exist; interval bounds and a BVH are new |
 | S11–S12 | new | the core: topology model, stable IDs, Euler operators, builders, sewing **by identity** |
 | S13 | new | exact pcurve trims (cc-nurbs' polygon trims stay, for display) |
@@ -598,8 +598,8 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 | ☑ | **S5** | `NurbsCurve`: eval/derivs/tangent/curvature, knot insertion/refinement/removal, degree elevation/reduction, split, Bézier decomposition, reverse, join | every shape-preserving op reproduces the curve to ≤ 1e-12 on random curves |
 | ☑ | **S6** | `NurbsSurface`: eval/partials/normal, iso-curves, same shape ops in U and V, swap UV, split | same shape-preservation tests; normal orthogonality |
 | ☑ | **S7** | Analytic classes and exact conversions: `Line`, `Circle`, `Ellipse`, `Plane`, `Cylinder`, `Cone`, `Sphere`, `Torus`, revolution/extrusion surfaces ↔ NURBS | converted radius/axis error < 1e-12; area of sphere/torus patches vs closed form < 1e-9 relative |
-| ☐ | **S8** | Fitting I: global interpolation (chord/centripetal), end conditions, least-squares approximation to tolerance; KAD SPLINE `fit`→control-point path | interpolation passes through data to 1e-10; approximation error ≤ requested `fit` on a test corpus |
-| ☐ | **S9** | Construction: ruled, skinning with compatibility, Coons/bilinear patches, surface interpolation | skinned surface passes through sections; compatibility refusals typed |
+| ☑ | **S8** | Fitting I: global interpolation (chord/centripetal), end conditions, least-squares approximation to tolerance; KAD SPLINE `fit`→control-point path | interpolation passes through data to 1e-10; approximation error ≤ requested `fit` on a test corpus |
+| ☑ | **S9** | Construction: ruled, skinning with compatibility, Coons/bilinear patches, surface interpolation | skinned surface passes through sections; compatibility refusals typed |
 | ☐ | **S10** | Queries: closest point/inversion (curves, surfaces), tight bboxes, length/area, BVH | closest-point matches brute force on 1e4 random queries; bbox contains dense samples and is within slack |
 
 ### M2 — Topology (S11–S14)

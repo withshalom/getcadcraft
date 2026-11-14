@@ -296,6 +296,20 @@ const AREAS = {
       for (const s of surfs) { const vv = Math.min(S.domainV(s)[1], Math.max(S.domainV(s)[0], v - 1)); mix(S.point(s, u, vv)); mix(S.derivs(s, u, vv, 2)); mix(got(() => S.normal(s, u, vv))); mix(got(() => S.curvature(s, u, vv))); mix(S.toNurbs(s).cvs); mix(S.toNurbs(s).w); }
     }
   },
+  fitting(P, { mix }) {                                  // S8, S9: interpolation, approximation, construction
+    const FI = P.fit, K = P.construct, CV = P.nurbsCurve, NS = P.nurbsSurface, h = P.makePrng(113);
+    for (let i = 0; i < 30; i++) {
+      const n = 4 + h.int(20), Q = Array.from({ length: n }, (_, k) => [k + h.range(-0.3, 0.3), h.range(-2, 2), h.range(-2, 2)]);
+      const r = FI.interpolate(Q, { deg: 1 + h.int(4), param: ['chord', 'centripetal', 'uniform'][h.int(3)] });
+      mix(r.curve.cvs); mix(r.curve.knots); mix(r.params); mix(r.error);
+      const a = got(() => FI.approximate(Q, { tol: { lin: 1e-6, fit: 0.05 } })); mix(typeof a === 'string' ? a : [a.count, a.error, a.curve.cvs]);
+      const c1 = CV.make(genCurveData(h, { rational: h.int(2) === 1, maxDeg: 3 })), c2 = CV.make(genCurveData(h, { rational: false, maxDeg: 3 }));
+      mix(got(() => K.compatible([c1, c2]).map((c) => c.knots))); mix(got(() => NS.point(K.ruled(c1, c2), 0.5, 0.5)));
+      mix(got(() => { const L = K.loft([c1, CV.transform(c1, P.mat4.translation([0, 0, 3])), CV.transform(c1, P.mat4.translation([1, 0, 6]))]); return [L.params, L.surface.cvs]; }));
+      const G = Array.from({ length: 4 + h.int(3) }, (_, k) => Array.from({ length: 3 + h.int(3) }, (_, j) => [k, j, h.range(-1, 1)]));
+      mix(got(() => K.interpolateGrid(G).surface.cvs));
+    }
+  },
   prng(P, { mix }) {
     const g = P.makePrng(108);
     for (let i = 0; i < 5000; i++) { mix(g.u32()); mix(g.float()); mix(g.range(-1e308, 1e308)); mix(g.int(1 + i)); mix(g.normal()); mix(g.unit3()); }
