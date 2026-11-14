@@ -294,14 +294,15 @@ await (await import('./test-math.mjs')).register(api);
 await (await import('./test-geom.mjs')).register(api);
 await (await import('./test-curve.mjs')).register(api);
 await (await import('./test-surface.mjs')).register(api);
+await (await import('./test-analytic.mjs')).register(api);
 
 // ================================================================================================== entry
 section('entry', 'the public entry', async () => {
   ok(/^\d+\.\d+\.\d+$/.test(P.VERSION), 'VERSION is x.y.z (' + P.VERSION + ')');
-  const expected = ['CODES', 'DEFAULT_TOL', 'SolidError', 'VERSION', 'aabb', 'basis', 'errors', 'exact', 'fail', 'float', 'frame', 'intervals', 'isBudget', 'isSolidError', 'isTol', 'limits', 'linalg', 'makeBudget', 'makePrng', 'makeTol', 'mat4', 'nurbsCurve', 'nurbsSurface', 'predicates', 'prng', 'quad', 'resolveBudget', 'resolveTol', 'roots', 'toEnvelope', 'tol', 'trig', 'vec3'];
-  ok(same(Object.keys(P).sort(), [...expected].sort()), 'index.js exports exactly the S1–S6 names (a new export is a deliberate change to this list)');
+  const expected = ['CODES', 'DEFAULT_TOL', 'SolidError', 'VERSION', 'aabb', 'analyticCurve', 'analyticSurface', 'basis', 'curve', 'errors', 'exact', 'fail', 'float', 'frame', 'intervals', 'isBudget', 'isSolidError', 'isTol', 'limits', 'linalg', 'makeBudget', 'makePrng', 'makeTol', 'mat4', 'nurbsCurve', 'nurbsSurface', 'predicates', 'prng', 'quad', 'resolveBudget', 'resolveTol', 'roots', 'surface', 'toEnvelope', 'tol', 'trig', 'vec3'];
+  ok(same(Object.keys(P).sort(), [...expected].sort()), 'index.js exports exactly the S1–S7 names (a new export is a deliberate change to this list)');
   ok(P.errors.SolidError === E.SolidError && P.tol.DEFAULT_TOL === T.DEFAULT_TOL && P.limits.makeBudget === L.makeBudget, 'the namespaces are the core modules themselves');
-  const mods = { float: 'core/float.js', trig: 'core/trig.js', prng: 'core/prng.js', intervals: 'core/intervals.js', exact: 'core/exact.js', vec3: 'math/vec3.js', mat4: 'math/mat4.js', frame: 'math/frame.js', aabb: 'math/aabb.js', quad: 'math/quad.js', roots: 'math/roots.js', linalg: 'math/linalg.js', predicates: 'math/predicates.js', basis: 'geom/basis.js', nurbsCurve: 'geom/nurbs-curve.js', nurbsSurface: 'geom/nurbs-surface.js' };
+  const mods = { float: 'core/float.js', trig: 'core/trig.js', prng: 'core/prng.js', intervals: 'core/intervals.js', exact: 'core/exact.js', vec3: 'math/vec3.js', mat4: 'math/mat4.js', frame: 'math/frame.js', aabb: 'math/aabb.js', quad: 'math/quad.js', roots: 'math/roots.js', linalg: 'math/linalg.js', predicates: 'math/predicates.js', basis: 'geom/basis.js', nurbsCurve: 'geom/nurbs-curve.js', nurbsSurface: 'geom/nurbs-surface.js', analyticCurve: 'geom/analytic-curve.js', analyticSurface: 'geom/analytic-surface.js', curve: 'geom/curve.js', surface: 'geom/surface.js' };
   let nsOk = true;
   for (const [ns, file] of Object.entries(mods)) { const m = await import(appUrl('solid/' + file)); if (!same(Object.keys(P[ns]).sort(), Object.keys(m).sort()) || !Object.keys(m).every((k) => P[ns][k] === m[k])) nsOk = false; }
   ok(nsOk && P.makePrng === P.prng.makePrng, 'the S2–S4 namespaces are their modules, and makePrng is prng.makePrng');

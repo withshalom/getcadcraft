@@ -53,11 +53,12 @@
  */
 import { fail, isSolidError } from '../core/errors.js';
 import { resolveTol } from '../core/tol.js';
-import { pow2, exponent, scalb } from '../core/float.js';
+import { pow2 } from '../core/float.js';
 import * as V3 from '../math/vec3.js';
 import { isAffine } from '../math/mat4.js';
 import * as B from './basis.js';
 import * as CV from './nurbs-curve.js';
+import * as DG from './diffgeo.js';
 import { KTOL } from '../../nurbs/basis.js';
 import * as NC from '../../nurbs/curve.js';
 import * as NS from '../../nurbs/surface.js';
@@ -172,10 +173,7 @@ function direction(dir) {
   if (dir !== 'u' && dir !== 'v') fail(BAD, { name: 'dir', why: 'not_a_direction' });
   return dir;
 }
-function finite(v, name) {
-  for (const x of v) if (!Number.isFinite(x)) fail(BAD, { name, why: 'overflow' });
-  return v;
-}
+const finite = DG.finite;
 
 // ---------------------------------------------------------------------------------------------------- queries
 
@@ -238,102 +236,28 @@ function polyDerivs(s, KU, KV, u, v, d) {
   return S;
 }
 
-/** v scaled by an exact power of two to a largest component in [1, 2); null for the zero vector. */
-function scaled(x) {
-  const m = Math.max(Math.abs(x[0]), Math.abs(x[1]), Math.abs(x[2]));
-  if (m === 0) return null;
-  const k = exponent(m);
-  return [scalb(x[0], -k), scalb(x[1], -k), scalb(x[2], -k)];
-}
-
-/**
- * Whether each partial is, as a length, no more than tol.lin: |Su| · (b − a) is how far the u-line through (u, v) would
- * reach across the whole domain at that rate, in millimetres. A pole has 0 there (or rounding noise: on a rational surface a
- * partial that vanishes in exact arithmetic comes out as noise, which scaled to unit size would look like a direction). The
- * lengths are compared with tol.lin, not with each other: the ratio |Su| / |Sv| depends on how each direction happens to be
- * parameterised, and a domain 1e9 wide beside one 0.02 wide is still an ordinary surface.
- */
-function flat(KU, KV, Su, Sv, T) {
-  return [!(V3.len(Su) * (KU.b - KU.a) > T.lin), !(V3.len(Sv) * (KV.b - KV.a) > T.lin)];
-}
-
-/** Su × Sv made unit after scaling by powers of two, or null when the partials are zero or parallel within tol.ang. */
-function crossUnit(Su, Sv, T) {
-  const su = scaled(Su), sv = scaled(Sv);
-  if (!su || !sv) return null;
-  const n = V3.cross(su, sv), l = V3.len(n);
-  return l > T.ang * V3.len(su) * V3.len(sv) ? V3.scale(n, 1 / l) : null;
-}
-
-/** The unit normal from the partials, or the limit at a pole, or null where there is none. */
-function normalAt(s, KU, KV, u, v, D1, T) {
-  const Su = D1[1][0], Sv = D1[0][1], [flatU, flatV] = flat(KU, KV, Su, Sv, T);
-  if (flatU && flatV) return null;
-  const onPole = (flatU && (v === KV.a || v === KV.b)) || (flatV && (u === KU.a || u === KU.b));
-  // off a collapsed edge the cross product decides, also next to one (where a partial is short but not noise)
-  if (!onPole) return crossUnit(Su, Sv, T);
-  // on an edge collapsed to a point (a pole): the limit from inside the domain
-  const su = scaled(Su), sv = scaled(Sv);
-  const D2 = s.w === null ? polyDerivs(s, KU, KV, u, v, 2) : NS.derivs(s, u, v, 2), Suv = D2[1][1];
-  const suv = scaled(Suv);
-  if (!suv) return null;
-  if (flatU) {
-    // S(u, v0) is one point for all u: near v0 + h, Su ≈ h Suv, so Su × Sv ≈ h (Suv × Sv); h > 0 at v = a, h < 0 at v = b
-    const side = v === KV.a ? 1 : v === KV.b ? -1 : 0;
-    const m = side ? V3.cross(suv, sv) : null;
-    return m && V3.len(m) > T.ang * V3.len(suv) * V3.len(sv) ? V3.scale(m, side / V3.len(m)) : null;
-  }
-  // flatV: S(u0, v) is one point for all v: near u0 + h, Sv ≈ h Suv, so Su × Sv ≈ h (Su × Suv); h > 0 at u = a
-  const side = u === KU.a ? 1 : u === KU.b ? -1 : 0;
-  const m = side ? V3.cross(su, suv) : null;
-  return m && V3.len(m) > T.ang * V3.len(su) * V3.len(suv) ? V3.scale(m, side / V3.len(m)) : null;
-}
+// ---- the differential geometry is diffgeo.js', shared with the analytic surfaces (S7)
+const dom = (KU, KV) => ({ ua: KU.a, ub: KU.b, va: KV.a, vb: KV.b });
 
 export function normal(s, u, v, tol) {
   const { KU, KV } = need(s);
   const T = resolveTol(tol);
-  const D1 = derivs(s, u, v, 1), n = normalAt(s, KU, KV, u, v, D1, T);
+  const second = () => (s.w === null ? polyDerivs(s, KU, KV, u, v, 2) : NS.derivs(s, u, v, 2));
+  const n = DG.normal(derivs(s, u, v, 1), second, dom(KU, KV), u, v, T);
   if (!n) fail(BAD, { name: 'uv', why: 'degenerate' });
   return n;
 }
 
-/** The forms in an orthonormal frame e1, e2 of the tangent plane: { n, e1, e2, a, b, c } with II = [[a, b], [b, c]]. */
 function frameForms(s, u, v, tol) {
   const { KU, KV } = need(s);
-  const T = resolveTol(tol);
-  const D = derivs(s, u, v, 2), Su = D[1][0], Sv = D[0][1], [flatU, flatV] = flat(KU, KV, Su, Sv, T);
-  if (flatU || flatV) fail(BAD, { name: 'uv', why: 'degenerate' });
-  const su = scaled(Su), sv = scaled(Sv), n0 = V3.cross(su, sv);
-  if (!(V3.len(n0) > T.ang * V3.len(su) * V3.len(sv))) fail(BAD, { name: 'uv', why: 'degenerate' });
-  const n = V3.unit(n0);
-  // e1 = α Su, e2 = β Su + γ Sv
-  const lSu = V3.len(Su), e1 = V3.scale(Su, 1 / lSu), proj = V3.dot(Sv, e1), perp = V3.madd(Sv, -proj, e1), lp = V3.len(perp);
-  const e2 = V3.scale(perp, 1 / lp), alpha = 1 / lSu, beta = -proj / (lSu * lp), gamma = 1 / lp;
-  const L = V3.dot(D[2][0], n), M = V3.dot(D[1][1], n), N = V3.dot(D[0][2], n);
-  const a = alpha * alpha * L, b = alpha * (beta * L + gamma * M), c = beta * beta * L + 2 * beta * gamma * M + gamma * gamma * N;
-  finite([a, b, c], 'curvature');
-  return { n, e1, e2, a, b, c };
+  return DG.forms(derivs(s, u, v, 2), dom(KU, KV), resolveTol(tol));
 }
 
-export function curvature(s, u, v, tol) {
-  const { n, e1, e2, a, b, c } = frameForms(s, u, v, tol);
-  const h = (a + c) / 2, q = (a - c) / 2, r = Math.sqrt(q * q + b * b);
-  const k1 = h + r, k2 = h - r;
-  // the eigenvector for k1: (b, k1 − a) or (k1 − c, b), whichever is longer; at an umbilic (r = 0) any direction: e1
-  let x = b, y = k1 - a;
-  const x2 = k1 - c, y2 = b;
-  if (x2 * x2 + y2 * y2 > x * x + y * y) { x = x2; y = y2; }
-  const d1 = r === 0 || (x === 0 && y === 0) ? e1 : V3.unit(V3.madd(V3.scale(e1, x), y, e2));
-  const d2 = V3.cross(n, d1);
-  return Object.freeze({ K: a * c - b * b, H: h, k1, k2, d1, d2 });
-}
+export const curvature = (s, u, v, tol) => DG.principal(frameForms(s, u, v, tol));
 
 export function normalCurvature(s, u, v, t, tol) {
   if (!V3.isVec3(t)) fail(BAD, { name: 'direction', why: 'not_a_vector' });
-  const { e1, e2, a, b, c } = frameForms(s, u, v, tol);
-  const x = V3.dot(t, e1), y = V3.dot(t, e2), l2 = x * x + y * y;
-  if (!(l2 > 0)) fail(BAD, { name: 'direction', why: 'not_tangent' });
-  return (a * x * x + 2 * b * x * y + c * y * y) / l2;
+  return DG.normalCurvature(frameForms(s, u, v, tol), t);
 }
 
 // ---------------------------------------------------------------------------------------------------- iso-curves

@@ -283,6 +283,19 @@ const AREAS = {
       if (!s.w) mix(got(() => S.deviation(s, S.elevate(s, 'v', 1))));
     }
   },
+  analytic(P, { mix }) {                                 // S7: analytic curves and surfaces, their NURBS forms
+    const A = P.analyticCurve, S = P.analyticSurface, Fr = P.frame, h = P.makePrng(112);
+    for (let i = 0; i < 60; i++) {
+      const f = Fr.frameFromZX([h.range(-9, 9), h.range(-9, 9), h.range(-9, 9)], [h.range(-1, 1), h.range(-1, 1), h.range(0.2, 1)], [1, h.range(-1, 1), 0]);
+      const r = h.range(0.5, 9), t0 = h.range(-3, 3), t1 = t0 + h.range(0.3, 6.2), u = t0 + (t1 - t0) * h.float(), v = h.range(0, 4);
+      for (const c of [A.circle({ frame: f, r, range: [t0, t1] }), A.ellipse({ frame: f, a: r, b: r / 2 + 0.1, range: [t0, t1] }), A.line({ o: f.o, d: f.x, range: [t0, t1] })]) {
+        mix(A.point(c, u)); mix(A.derivs(c, u, 3)); mix(got(() => A.curvature(c, u))); mix(A.toNurbs(c).cvs); mix(A.toNurbs(c).knots); mix(A.reverse(c).phase === undefined ? A.reverse(c).o : A.reverse(c).phase);
+      }
+      const surfs = [S.cylinder({ frame: f, r, urange: [t0, t1], vrange: [0, 4] }), S.cone({ frame: f, r, angle: 0.3, urange: [t0, t1], vrange: [0, 4] }),
+        S.sphere({ frame: f, r, urange: [t0, t1], vrange: [-1, 1.5] }), S.torus({ frame: f, R: r + 2, r, urange: [t0, t1], vrange: [0, 4] }), S.plane({ frame: f, urange: [t0, t1], vrange: [0, 4] })];
+      for (const s of surfs) { const vv = Math.min(S.domainV(s)[1], Math.max(S.domainV(s)[0], v - 1)); mix(S.point(s, u, vv)); mix(S.derivs(s, u, vv, 2)); mix(got(() => S.normal(s, u, vv))); mix(got(() => S.curvature(s, u, vv))); mix(S.toNurbs(s).cvs); mix(S.toNurbs(s).w); }
+    }
+  },
   prng(P, { mix }) {
     const g = P.makePrng(108);
     for (let i = 0; i < 5000; i++) { mix(g.u32()); mix(g.float()); mix(g.range(-1e308, 1e308)); mix(g.int(1 + i)); mix(g.normal()); mix(g.unit3()); }

@@ -53,10 +53,11 @@
  */
 import { fail } from '../core/errors.js';
 import { resolveTol } from '../core/tol.js';
-import { pow2, exponent, scalb } from '../core/float.js';
+import { pow2 } from '../core/float.js';
 import * as V3 from '../math/vec3.js';
 import { isAffine } from '../math/mat4.js';
 import * as B from './basis.js';
+import * as DG from './diffgeo.js';
 import { KTOL } from '../../nurbs/basis.js';
 import * as NC from '../../nurbs/curve.js';
 
@@ -151,10 +152,7 @@ function interior(K, u, name = 'u') {
   return s;
 }
 
-function finite(v, name) {
-  for (const x of v) if (!Number.isFinite(x)) fail(BAD, { name, why: 'overflow' });
-  return v;
-}
+const finite = DG.finite;
 
 // ---------------------------------------------------------------------------------------------------- queries
 
@@ -198,44 +196,11 @@ function polyDerivs(K, cvs, u, d) {
   return out;
 }
 
-/** C' brought by an exact power of two to a largest component in [1, 2): C' = t · 2^k. Refuses C' = 0. */
-function scaled(d1) {
-  const m = Math.max(Math.abs(d1[0]), Math.abs(d1[1]), Math.abs(d1[2]));
-  if (m === 0) fail(BAD, { name: 'u', why: 'degenerate' });
-  const k = exponent(m);
-  return { t: [scalb(d1[0], -k), scalb(d1[1], -k), scalb(d1[2], -k)], k };
-}
-
-export function tangent(c, u) {
-  const d1 = derivs(c, u, 1)[1];
-  return V3.unit(scaled(d1).t);
-}
-
-export function curvature(c, u) {
-  const [, d1, d2] = derivs(c, u, 2);
-  const { t, k } = scaled(d1), l = V3.len(t);
-  // |C' × C''| / |C'|³ = |t × C''| / (2^(2k) · |t|³): every factor stays finite, the power of two is applied last
-  const x = V3.len(V3.cross(t, d2)) / (l * l * l);
-  return finite([scalb(x, -2 * k)], 'curvature')[0];
-}
-
-export function curvatureVector(c, u) {
-  const [, d1, d2] = derivs(c, u, 2);
-  const { t, k } = scaled(d1), T = V3.unit(t), l = V3.len(t);
-  // κN = (C'' − (C''·T) T) / |C'|² = (C'' − (C''·T) T) / (|t|² · 2^(2k))
-  const n = V3.scale(V3.madd(d2, -V3.dot(d2, T), T), 1 / (l * l));
-  return finite(n.map((x) => scalb(x, -2 * k)), 'curvatureVector');
-}
-
-export function torsion(c, u) {
-  const [, d1, d2, d3] = derivs(c, u, 3);
-  const { t, k } = scaled(d1);
-  // (C' × C'') · C''' / |C' × C''|² = (t × C'') · C''' / (2^k · |t × C''|²)
-  const x = V3.cross(t, d2), q = V3.len(x);
-  if (q === 0) return 0;
-  const xs = V3.scale(x, 1 / q);
-  return finite([scalb(V3.dot(xs, d3) / q, -k)], 'torsion')[0];
-}
+// the differential geometry is diffgeo.js', shared with the analytic curves (S7): C' scaled by a power of two first
+export const tangent = (c, u) => DG.tangent(derivs(c, u, 1));
+export const curvature = (c, u) => DG.curvature(derivs(c, u, 2));
+export const curvatureVector = (c, u) => DG.curvatureVector(derivs(c, u, 2));
+export const torsion = (c, u) => DG.torsion(derivs(c, u, 3));
 
 export function isClosed(c, tol) {
   const K = need(c), T = resolveTol(tol);

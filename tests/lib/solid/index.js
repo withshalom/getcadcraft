@@ -26,10 +26,13 @@
  *                                            knot insertion and removal, elevation, reduction, split, join, deviation
  *   nurbsSurface                             S6: NURBS surfaces as checked records: evaluation, derivatives, normals
  *                                            (poles by their limit), curvature, iso-curves, the operations per direction
+ *   analyticCurve · analyticSurface          S7: lines, circles, ellipses; planes, cylinders, cones, spheres, tori,
+ *                                            revolution and extrusion surfaces, with exact conversions to NURBS
+ *   curve · surface                          S7: one interface for every curve and every surface, NURBS or analytic
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.10';
+export const VERSION = '0.0.11';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -50,6 +53,10 @@ export * as predicates from './math/predicates.js';
 export * as basis from './geom/basis.js';
 export * as nurbsCurve from './geom/nurbs-curve.js';
 export * as nurbsSurface from './geom/nurbs-surface.js';
+export * as analyticCurve from './geom/analytic-curve.js';
+export * as analyticSurface from './geom/analytic-surface.js';
+export * as curve from './geom/curve.js';
+export * as surface from './geom/surface.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';

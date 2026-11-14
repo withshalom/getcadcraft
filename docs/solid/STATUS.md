@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.10 · **Last session:** S6, surfaces (2026-11-14); before it S5, curves, and the relocation to the site repo (2026-11-13)
+**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.11 · **Last session:** S7, analytic classes and exact conversions (2026-11-14); before it S6 and S5 the same day, and the relocation to the site repo (2026-11-13)
 
 > **Relocation, 2026-11-13 (D-home superseded):** the engine moved from the library repo (`withshalom/getlibrarycraft`, branch `engine/solid`, kept as it was) to the site repo, beside cc-nurbs.
 > - **What moved:** `lib/solid/`, `tools/solid/`, `bin/test-solid.mjs` and `docs/solid/`. In a clone of the site repo they sit under `tests/` (`tests/lib/solid/`, `tests/tools/solid/`, `tests/bin/test-solid.mjs`); `docs/solid/` stays at the top. All 13 commits were replayed with their authors, dates and messages; the files matched the library branch byte for byte before anything was changed.
@@ -310,7 +310,36 @@ Measured (this machine): a bicubic point 1.37 µs (cc-nurbs 1.31 µs); `derivs` 
 - **The whole suite:** 461 checks.
 - **Browsers:** the `surface` area is recorded for Node (`digests.json`, 0.0.10); the browser run is pending with the `curve` area.
 
+### S7 — analytic classes and exact conversions (2026-11-14, version 0.0.11)
+Built (the engine, `lib/solid/geom/`):
+
+| File | What it is |
+|---|---|
+| `analytic-curve.js` | `line`, `lineThrough`, `circle`, `ellipse` as frozen records on `math/frame.js` frames (a circle or an ellipse carries a `phase`, so that a reversed ellipse keeps its axes); closed-form `point` and `derivs` (the derivatives of (cos, sin) are a quarter turn each, `cycle`); `tangent` … `torsion` through `diffgeo.js`; `toNurbs` (exact: A7.1 arcs on `core/trig.js`, pieces of at most a quarter turn, knots at the pieces' angles); `reverse` (same domain); `transform` (rigid: the same type; otherwise the exact NURBS image); `bbox`; `isClosed`; `arcNet`; `toData` / `fromData` |
+| `analytic-surface.js` | `plane`, `cylinder`, `cone`, `sphere`, `torus`, `revolution` (any curve about an axis), `extrusion` (any curve along a direction), in STEP's parameterisations (ISO 10303-42); closed-form SKL; normals and curvature through `diffgeo.js` (poles and the apex by their limits); `toNurbs` (exact tensor products of arcs and lines; revolution by A8.1 on the profile's own net); `transform`; `bbox`; `toData` / `fromData` (a profile travels as its own data) |
+| `curve.js`, `surface.js` | one interface for every curve and every surface (HANDOFF § 6.1, § 6.2): a NURBS record or an analytic one, the same calls |
+| `diffgeo.js` | the differential geometry of S5 and S6 (tangent, curvature, torsion; normal with the pole limit, the fundamental forms, principal curvatures, normal curvature), moved out of `nurbs-curve.js` and `nurbs-surface.js` so the analytic shapes share it. Bit-identical: the recorded S6 hashes did not move |
+| `index.js` | VERSION 0.0.11; namespaces `analyticCurve`, `analyticSurface`, `curve`, `surface` |
+
+Tools: `test-analytic.mjs` (section `analytic`); `digest.mjs` gains an `analytic` area (16 areas).
+
+Acceptance (HANDOFF §14, S7):
+
+| Criterion | Result | Test |
+|---|---|---|
+| Converted radius / axis error < 1e-12 | **pass:** every point of `toNurbs` on circle and ellipse arcs (reversed ones included, which carry a phase) satisfies the analytic equation to 1.7e-14; on planes, cylinders, cones, spheres and tori (radius, distance from the axis, height) to 1.8e-14; revolution of a rational profile keeps the profile's height and distance from the axis to 4.4e-15; the same points as the analytic shape at every knot (8e-16) | `analytic` |
+| Area of sphere / torus patches vs closed form < 1e-9 relative | **pass:** 5.6e-15 (the converted patches, 24-point Gauss–Legendre per knot span, 12 random patches of each) | `analytic` |
+
+Also checked: points against the textbook formulas evaluated with `Math.sin` / `Math.cos` and Rodrigues' rotation (4.6e-16 of the size); derivatives up to C⁗ and Suu, Suv, Svv against fourth-order central differences (5.2e-11); A7.1's pieces (⌈span / (π/2)⌉, none longer than a quarter turn, weights ≥ cos(π/4)); outward normals and principal curvatures of sphere, torus, cylinder, cone and plane against closed forms (1.1e-15); the sphere's poles and the cone's apex by their limits; reverse (once and twice) and rigid / non-rigid transforms; `toData` / `fromData` through `structuredClone` and JSON for every type.
+
+- **Mutation check:** 25 faults across the four modules. The first run caught 20; the five survivors were five missing tests (third and fourth derivatives, the quarter-turn rule, conversions of curves with a phase, reversing twice, revolution surfaces' derivatives). With them, **25 of 25 caught.**
+- **The whole suite:** 483 checks.
+- **Browsers:** the `analytic` area is recorded for Node (0.0.11), pending with the `curve` and `surface` areas.
+
 ## Learned
+- **S7: a refactor must keep the bits.** Moving the differential geometry into `diffgeo.js` first changed one `V3.unit(n)` into `n · (1/|n|)`, and the recorded `surface` hash caught the difference; the division came back, and the hashes held.
+- **S7: a test whose base fails proves nothing.** One mutation run reported 25 of 25 caught while the unmutated section was throwing; every mutant "failed" for the wrong reason. The base run comes first, every time.
+- **S7: an ellipse cannot be reversed by turning its frame.** C(T − s) of an ellipse is an ellipse in the frame (x, −y, −z) at the angle s − T − φ, so the record carries a phase; a circle uses the same rule, with no trig and no rounding of its axes.
 - **S6: a ratio of partial derivatives is not geometry.** Whether |Su| is small beside |Sv| depends on how each direction is parameterised; whether |Su| · (b − a) is below tol.lin does not. Random domains of very different widths (1e9 beside 0.02) are what showed it.
 - **S6: rounding noise looks like a direction once it is scaled.** On a rational sphere, Sv at the pole is about 1e-16, not 0; scaled to unit size before a cross product it gave a normal at right angles to the true one. Magnitudes are judged before anything is normalised.
 - **S6: search for the inputs a mutation needs.** A guard that matters on one input in a hundred survives random tests; a seeded search over thousands of inputs found two surfaces that exercise it, and they became fixtures.
@@ -356,6 +385,7 @@ Measured (this machine): a bicubic point 1.37 µs (cc-nurbs 1.31 µs); `derivs` 
 - **The KAD repositories' headers still say AGPL.** The sweep belongs in those repositories (`reference/kad/README.md`).
 
 ## Next
-- **S7 — analytic classes and exact conversions** (HANDOFF §14: Line, Circle, Ellipse, Plane, Cylinder, Cone, Sphere, Torus, revolution and extrusion surfaces ↔ NURBS; converted radius and axis error < 1e-12, sphere and torus patch areas within 1e-9 of their closed forms). The circles are engine.solid's own (A7.1 on `core/trig.js`), since cc-nurbs' `arc` and `circle` are not same-bits (D-det (b)).
+- **S8 — fitting** (HANDOFF §14: global interpolation with chord-length and centripetal parameters, end conditions, least-squares approximation to `tol.fit`; the KAD SPLINE fit-point path): adapters on cc-nurbs' `fit.js` (A9.1, § 9.4.1), checked as S5 checks curves, with the fit error proved by `deviation` where a reference curve exists, and measured against the data otherwise.
+- **Recognition (NURBS → analytic)** belongs with S7's conversions but is not built: a NURBS curve or surface that is exactly a circle, a cylinder … is not yet told apart. STEP import (S30) needs it; noted for then.
 - **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc. Settled: D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; D-home superseded by the move.
 - **The pull request** to the site repo's `main` waits for the owner's go (D-home).
