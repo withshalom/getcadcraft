@@ -40,6 +40,8 @@
  *                             matrix is too large to factor — { what: 'size' | 'work', limit, used }
  *   solid.err.no_bracket      (S2) a root finder was given ends where f has the same sign — { fa, fb } (finite values only)
  *   solid.err.no_convergence  (S2) an iteration stopped before it met its tolerance — { what, iterations }
+ *   solid.err.not_within_tolerance  (S5) an approximating operation cannot stay within the tolerance it was given —
+ *                             { what (the operation, e.g. 'reduce'), tol, error? (the deviation it would have left) }
  *   solid.err.singular        (S2) a matrix cannot be solved — { why: 'pivot' | 'rank' | 'matrix', size?, column?, rcond? }
  * Later sessions add codes here, each with its KAD2 code, a test that throws it, and its language-table key.
  */
@@ -51,6 +53,7 @@ export const CODES = Object.freeze([
   'solid.err.limit',
   'solid.err.no_bracket',
   'solid.err.no_convergence',
+  'solid.err.not_within_tolerance',
   'solid.err.singular',
 ].sort());
 
@@ -61,6 +64,7 @@ export const KAD2_CODES = Object.freeze({
   'solid.err.limit': 'LIMIT',
   'solid.err.no_bracket': 'REFUSED_NO_BRACKET',
   'solid.err.no_convergence': 'REFUSED_NO_CONVERGENCE',
+  'solid.err.not_within_tolerance': 'REFUSED_TOLERANCE',
   'solid.err.singular': 'REFUSED_SINGULAR',
 });
 

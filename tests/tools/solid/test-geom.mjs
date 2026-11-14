@@ -78,6 +78,9 @@ function exact(U, p, u, d) {
   }));
   return { s, D };
 }
+/** The exact reference, shared with the curve and surface tests: exactBasis(U, p, u, d) → { s, D } as exact() above. */
+export const exactBasis = (U, p, u, d) => exact(U, p, u, d);
+
 /** |x − r| for a double x and a fraction r, as a fraction (not reduced). */
 function diff(x, r) {
   const { m, e } = R.decompose(x);

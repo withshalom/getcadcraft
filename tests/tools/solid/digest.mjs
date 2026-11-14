@@ -65,6 +65,25 @@ export function genU(g, U, p) {
 }
 export const degree = (g) => (g.int(4) === 0 ? g.int(16) : g.int(8));
 
+/**
+ * A seeded NURBS curve as plain data (S5): degree 1 … maxDeg, clamped knots on whole numbers scaled by a power of two,
+ * interior multiplicities 1 … deg, control points of one size (a power of two between 2^-10 and 2^10), and for a rational
+ * curve weights in [1/8, 8]. Only exact operations, so every host builds the same curve.
+ */
+export function genCurveData(g, { rational = g.int(2) === 1, maxDeg = 7, spans = 1 + g.int(6) } = {}) {
+  const p = 1 + g.int(maxDeg), sc = 2 ** (g.int(41) - 20), a = (g.int(2001) - 1000) * sc;
+  const U = new Array(p + 1).fill(a);
+  let x = a;
+  for (let s = 1; s < spans; s++) { x += (1 + g.int(1000)) * sc; const m = 1 + g.int(p); for (let i = 0; i < m; i++) U.push(x); }
+  x += (1 + g.int(1000)) * sc;
+  for (let i = 0; i <= p; i++) U.push(x);
+  const n = U.length - p - 1, S = 2 ** (g.int(21) - 10);
+  const cvs = Array.from({ length: n }, () => [g.range(-S, S), g.range(-S, S), g.range(-S, S)]);
+  return { deg: p, knots: U, cvs, w: rational ? Array.from({ length: n }, () => g.range(0.125, 8)) : null };
+}
+/** A parameter of the curve's domain [a, b]: a knot, an end, or any double between. */
+export function genParam(g, U, p) { return genU(g, U, p); }
+
 // ---------------------------------------------------------------------------------------------------------- the areas
 const AREAS = {
   trig(P, { mix }) {                                     // test-core.mjs's golden hash, call for call
@@ -224,6 +243,17 @@ const AREAS = {
       if (typeof f !== 'string') { mix(Fr.toMatrix(f)); mix(Fr.toWorld(f, c)); mix(Fr.toLocal(f, c)); } else mix(f);
       if (i % 8 === 0 && typeof R !== 'string') { const sc = F.pow2(h.int(2001) - 1000), S = R.map((v, k) => (k < 12 && k % 4 !== 3 ? v * sc : v)); mix(M.det3(S)); mix(got(() => M.invert(S))); mix(got(() => M.applyNormal(S, c))); }
       const box = B.fromPoints([a, b]); mix(B.diagonal(box)); mix(B.size(box)); mix(B.overlaps(box, B.fromPoints([c, v3()])));
+    }
+  },
+  curve(P, { mix }) {                                    // S5: NURBS curves (nurbs-curve.js)
+    const C = P.nurbsCurve, h = P.makePrng(110);
+    for (let i = 0; i < 400; i++) {
+      const c = C.make(genCurveData(h)), [a, b] = C.domain(c), U = c.knots, p = c.deg;
+      const u = genParam(h, U, p), m = a + (b - a) * h.float();
+      mix(C.point(c, u)); mix(C.derivs(c, u, 3)); mix(got(() => C.curvature(c, u))); mix(got(() => C.torsion(c, u))); mix(got(() => C.tangent(c, u)));
+      mix(got(() => C.insertKnot(c, m, 1).cvs)); mix(got(() => C.split(c, m)[1].cvs)); mix(C.reverse(c).knots); mix(C.elevate(c, 1 + h.int(2)).cvs);
+      mix(C.decompose(c).map((d) => d.cvs)); mix(got(() => C.removeKnot(C.insertKnot(c, m, 1), m).curve.knots));
+      if (!c.w) { mix(got(() => C.deviation(c, C.elevate(c, 1)))); mix(got(() => { const r = C.reduce(C.elevate(c, 1), { fit: 1e-3 }); return [r.error, r.curve.cvs]; })); }
     }
   },
   prng(P, { mix }) {

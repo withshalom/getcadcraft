@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.8 · **Last session:** relocation to the site repo (2026-11-13); before it, D-size and D-wire built
+**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.9 · **Last session:** S5, curves (2026-11-14); before it, the relocation to the site repo (2026-11-13)
 
 > **Relocation, 2026-11-13 (D-home superseded):** the engine moved from the library repo (`withshalom/getlibrarycraft`, branch `engine/solid`, kept as it was) to the site repo, beside cc-nurbs.
 > - **What moved:** `lib/solid/`, `tools/solid/`, `bin/test-solid.mjs` and `docs/solid/`. In a clone of the site repo they sit under `tests/` (`tests/lib/solid/`, `tests/tools/solid/`, `tests/bin/test-solid.mjs`); `docs/solid/` stays at the top. All 13 commits were replayed with their authors, dates and messages; the files matched the library branch byte for byte before anything was changed.
@@ -243,7 +243,50 @@ Two findings were design decisions, not faults. The owner took option A on both 
 - **D-wire.** `toData` / `fromData` on `tol`, `limits`, `frame` and `basis`, and `fromEnvelope` on `errors`: plain, JSON-safe data out, every check again on the way in. Tested through `structuredClone` and JSON.
 - **365 checks pass;** the digest hashes are unchanged.
 
+### S5 — curves (2026-11-14, version 0.0.9)
+Built (the engine, `lib/solid/`):
+
+| File | What it is |
+|---|---|
+| `geom/nurbs-curve.js` | NURBS curves as checked, frozen records `{ type: 'nurbs', deg, knots, cvs, w }` — cc-nurbs' plain data, so they pass to cc-nurbs and its STEP and IGES writers as they are. `make` / `isCurve` / `toData` / `fromData` (D-wire); `domain`, `bbox`, `point`, `derivs`, `tangent`, `curvature`, `curvatureVector`, `torsion`, `isClosed`; `insertKnot`, `refine`, `removeKnot`, `decompose`, `elevate`, `reduce`, `split`, `segment`, `reverse`, `reparam`, `transform`, `join`; `deviation` |
+| `core/errors.js` | `solid.err.not_within_tolerance` { what, tol, error? } (KAD2 `REFUSED_TOLERANCE`): an approximating operation that cannot stay within the tolerance it was given |
+| `index.js` | VERSION 0.0.9; the `nurbsCurve` namespace |
+
+Built (the tools, `tools/solid/`): `test-curve.mjs` (section `curve`); `digest.mjs` gains `genCurveData` and a `curve` area (14 areas); `test-geom.mjs` exports its exact Cox–de Boor reference as `exactBasis` for the curve tests.
+
+What engine.solid adds to cc-nurbs' `curve.js` (whose algorithms it calls: A4.1, A3.2/A4.2, A5.1, A5.8, § 5.3, § 5.5, § 5.6):
+- **One check, then trust.** A curve is a record made by `make` only; degree, knots (clamped, interior multiplicity ≤ deg), points, weights and ranges are checked once.
+- **No silent clamping.** cc-nurbs moves a parameter outside the domain onto its end; engine.solid refuses it.
+- **Knots compared exactly, with cc-nurbs' reading kept consistent.** cc-nurbs treats knots within `KTOL · (b − a)` as one knot. A curve whose distinct knots come that close is refused (`near_knots`), and a parameter that close to a knot means that knot, so the two readings never disagree.
+- **Polynomial derivatives directly as Σ N⁽ᵏ⁾ P** (A3.2 on cc-nurbs' A2.3). cc-nurbs runs the rational quotient for every curve; its weight derivatives, zero in exact arithmetic, left rounding noise in the rows above the degree, which are now exactly 0.
+- **Curvature and torsion that cannot overflow or underflow:** C′ is brought to [1, 2) by an exact power of two first, and the power is applied last (`float.scalb`). Where C′ = 0 they are refused (`degenerate`), not reported as 0.
+- **Elevation reproduces the curve.** The knots elevation adds are removed only while the curve moves less than 2^-40 of its size (cc-nurbs allows 1e-10).
+- **Reduction is proved, not estimated.** `deviation(c1, c2)` raises both curves to one degree and refines them to one knot vector; the largest distance between matching control points then bounds the distance between the curves (their difference is a B-spline with those points, and its values are convex combinations of them). `reduce` keeps a result only when that bound is within `tol.fit`, and polynomial curves only (for rational ones no such bound holds).
+
+Acceptance (HANDOFF §14, S5):
+
+| Criterion | Result | Test |
+|---|---|---|
+| Every shape-preserving op reproduces the curve to ≤ 1e-12 on random curves | **pass** on 400 random curves, rational and not, degrees 1–12, compared point by point at every knot and 24 random parameters, relative to the curve's size. Worst: insertKnot 5.6e-16, refine 5.3e-16, decompose 7.1e-16, split 1.0e-15, segment 1.8e-15, transform 3.9e-16, reverse 1.0e-14, join 1.6e-14, reparam 9.2e-14, elevate 5.8e-13 (the knot-removal step, held to 2^-40 ≈ 9.1e-13) | `curve` |
+
+Also checked:
+- **Points against the exact value** (Σ N·w·P / Σ N·w in BigInt rationals): every coordinate within (16p + 8) u of the size of its terms; 7500 coordinates, degrees 1–15; measured worst 0.091 of the bound.
+- **Derivatives:** polynomial curves within 8 p² u of the exact derivative (worst 0.165 of it); rational curves agree with the quotient rule done exactly in BigInt (worst 7e-5 of a 1e-9 relative bound).
+- **Closed forms:** a quarter circle's curvature is 1/r to 8.9e-16 and κN points at the centre; the twisted cubic's curvature and torsion match theirs to 6.7e-16; a straight line has curvature and torsion exactly 0. With the parameter scaled by 2^±400 (2^±300 for torsion) the answers are the same bits, where the textbook formula failed 88 times.
+- **Knot removal keeps its contract:** an inserted knot comes out again with the original knot vector (399 of 400; once, A5.8 declined because rounding near another knot is amplified by 1/α, and the curve came back unchanged); a knot whose removal would move the curve 1e-4 stays at `tol.lin` = 1e-6 and goes at 1e-3.
+- **Elevation:** every interior multiplicity rises by exactly t in 224 of 226 polynomial cases; in the other two one added knot stays (the same curve, one knot more); none ever ends below m + t.
+- **Every refusal** has a test that throws it (`curve`).
+
+Measured (Node 24, this Windows machine): a degree-3 point 505 ns (2.0 M/s; HANDOFF § 16.2 asks for ≥ 2 M/s; raw cc-nurbs 452 ns); `derivs` with d = 2 about 5.3 µs, most of it A2.3's allocations (S43); curvature 6 µs; elevating a 103-point cubic 6.8 ms; insertKnot 62 µs; `make` with every check 110 µs.
+
+- **Mutation check:** 22 faults. The first run caught 18; each survivor showed a missing test (removal of a knot the curve needs, a join across a real gap, reverse on knots that round, a reduction cc-nurbs gets wrong — below). With those four tests, **22 of 22 caught**.
+- **The whole suite:** 426 checks in about 60 s.
+- **Browsers:** the digest's new `curve` area is recorded for Node (`digests.json`, 0.0.9). Playwright is not installed on this machine, so Chromium, Firefox and WebKit have not run it yet: `node tools/solid/browser-run.mjs` before the pull request.
+
 ## Learned
+- **S5: an estimate is not a bound.** cc-nurbs' degree reduction estimates the error of the reduced pieces, then removes knots with whatever tolerance is left; the two add up past the tolerance (a fixture in `curve`: asked for 0.1489, estimated 0.0496, moved 0.167). A bound that can be proved (`deviation`: control points of one degree on one knot vector) costs one elevation and a refinement and settles it.
+- **S5: the mutation run tests the tests.** Four of 22 faults survived the first run, and each one pointed at an input the tests never drew: a removal that must be declined, a join across a real gap, knots where a + b − b is not a, a reduction that is wrong upstream. Random inputs built from whole numbers and powers of two are exact by design, so they hide rounding; the fixes draw decimals on purpose.
+- **S5: two readings of "the same knot" must agree.** cc-nurbs compares knots with a tolerance, engine.solid exactly. Rather than change either, the curve record refuses knots that only one of them would merge, and a parameter that close to a knot is snapped to it.
 - **Bug review: a passing suite says only what it was asked.** All seven faults sat in code with passing tests; each lived just outside the inputs the tests drew (unbounded intervals, huge angles, a root at exactly 0, an overflowing width, many pieces). The fixes' tests draw from those edges on purpose.
 - **Second review: test the claim, not the code.** The suite checked what the code did on the inputs it was written for. The faults were in what the documentation promised beyond them ("always", "with repeats", "exact results kept"). Each promise now has a test that would fail if it were false, or has been narrowed to what is true.
 - **Second review: certify, then trust.** A fast method that is usually right is made rigorous by checking its answer (a sign change within 4 doubles) and falling back to a slow method that cannot miss. The check costs six evaluations.
@@ -269,7 +312,10 @@ Two findings were design decisions, not faults. The owner took option A on both 
 - **cc-nurbs' unclamped end spans.** `findSpan` returns an empty span at a repeated end knot, and the basis is NaN (S4). engine.solid works around it. The fix belongs in the site's `lib/nurbs/` (D-ccn).
 - **Exact bodies for library items.** LibraryCraft's standard parts have `body: null` (a 2D plan only). Once S20–S22 can extrude and revolve, the generators can give them exact solids: a STEP export, and a mesh made from the solid.
 - **Splines and conics across the suite (owner, 2026-11-12: "This later").** Check how each app draws and stores splines and conics. Conics are exact as rational quadratic NURBS (ellipse, parabola, hyperbola); CadCraft should have them. S7 (analytic curves) is the natural place.
-- **A sync script with `--check`** comes with the first host copy (PartCraft's `solid/`), as cc-nurbs' `tools/nurbs/sync.mjs`.
+- **cc-nurbs' `reduce` misses its tolerance (S5).** It checks the reduced pieces against the tolerance, then removes knots with the rest of it, and the two together can exceed it (fixture in `curve`). engine.solid proves its own bound and refuses; the fix belongs in the site's `lib/nurbs/` (D-ccn): check the result as a whole, or give the removal only what the reduction left after a proved bound.
+- **Unclamped curves.** engine.solid's curves are clamped (cc-nurbs' functions assume it). A converter from an unclamped or periodic knot vector to a clamped one is S6/S13 work, where periodic surfaces need it.
+- **Derivative speed (S43).** `derivs` with d = 2 takes about 5 µs, mostly A2.3's allocations; curvature 6 µs. Fine for now, slow for meshing.
+- **The sync script** (`tools/solid/sync.mjs`, built at the move) has only been run against temporary hosts; the first real run is when PartCraft takes a copy.
 - **The catalogue entry** for `engine.solid` is drafted in `ENGINE.md`; publishing it is the owner's step.
 - **Language-table keys:** the `solid.err.*` codes need keys in `app/lang/*.json` (English first) before the app shows them. That belongs to the first UI-facing session (S24b); `CODES` lists what is needed.
 - **`fromEnvelope`** (a worker's reply turned back into an error on the main thread) belongs with the worker protocol (S18 / S24b).
@@ -279,12 +325,6 @@ Two findings were design decisions, not faults. The owner took option A on both 
 - **The KAD repositories' headers still say AGPL.** The sweep belongs in those repositories (`reference/kad/README.md`).
 
 ## Next
-- **S5 — curves** (HANDOFF §14: B-spline and NURBS evaluation, derivatives, knot insertion and refinement).
-  - **D-det decided: (b)** (owner, 2026-11-12). Import only the exact cc-nurbs functions; the checker guards `arc`, `circle` and `angle`. This is a compromise, and option (a) is noted for later investigation. The choices, for the record:
-    - **(a)** fix it upstream, in the site's `lib/nurbs/`: deterministic trig and products in place of `Math.*` and `**`. This changes cc-nurbs' bits for every app.
-    - **(b)** import only the functions that call nothing but + − × ÷ and √. The `reach` rule now checks this itself, function by function (see the bug review above).
-    - **(c)** write engine.solid's own evaluators. This goes against D8.
-  - Recommended: (b) now, and (a) upstream when the owner agrees.
-  - The guard for (b) is built (the `reach` rule), so S5 can start.
-- **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc (D-size and D-wire decided and built, 2026-11-13) (D-det decided: (b), see HANDOFF §17.3). D-ccn2 was taken as proposed at S4 (synced, pinned copies). D3, D-tr, D-name and D-home were settled on 2026-11-12.
-- **The pull request** to the library repo's `main` waits until engine.solid is finished (D-home).
+- **S6 — surfaces** (HANDOFF §14: NURBS surface evaluation, partials and normal, iso-curves, the shape operations in U and V, swap, split; shape preservation and normal orthogonality). The same pattern as S5, on cc-nurbs' `surface.js` (all 29 of its exports are exact, D-det (b)).
+- **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc. Settled: D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; D-home superseded by the move.
+- **The pull request** to the site repo's `main` waits for the owner's go (D-home).

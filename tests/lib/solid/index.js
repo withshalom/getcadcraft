@@ -22,10 +22,12 @@
  *   predicates                               S3: orient2d, orient3d, incircle, insphere with exact signs
  *   basis                                    S4: knot vectors, span search, B-spline basis functions and derivatives
  *                                            (on cc-nurbs' A2.1–A2.3, which sits beside the engine as nurbs/)
+ *   nurbsCurve                               S5: NURBS curves as checked records: evaluation, derivatives, curvature,
+ *                                            knot insertion and removal, elevation, reduction, split, join, deviation
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.8';
+export const VERSION = '0.0.9';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -44,6 +46,7 @@ export * as roots from './math/roots.js';
 export * as linalg from './math/linalg.js';
 export * as predicates from './math/predicates.js';
 export * as basis from './geom/basis.js';
+export * as nurbsCurve from './geom/nurbs-curve.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';
