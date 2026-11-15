@@ -467,8 +467,8 @@ The bullets below keep v1.0's entity lists as the target.
 ### 12.2 Mesh formats
 STL, OBJ, GLB, optional 3MF writers (S17). STL/OBJ readers as mesh-only utilities, no B-rep reconstruction.
 
-### 12.3 ACIS SAT/SAB (optional S33)
-DWG (and DXF `3DSOLID`/`BODY`/`REGION`) embed ACIS data. A pure-JS SAT reader that lifts ACIS analytic surfaces and NURBS into the kernel would let SuperCad display and measure DWG solids with no vendor library. The binary SAB form and the exact record layouts need verification against Spatial's published format documentation before committing to this session; treat it as optional and unscoped until then. Writing SAT is not planned.
+### 12.3 SAT and SAB solids (optional S33)
+DWG (and DXF `3DSOLID`/`BODY`/`REGION`) embed solids in the SAT/SAB format of the ACIS kernel. A pure-JS SAT reader that lifts ACIS analytic surfaces and NURBS into the kernel would let SuperCad display and measure DWG solids with no vendor library. The binary SAB form and the exact record layouts need verification against Spatial's published format documentation before committing to this session; treat it as optional and unscoped until then. Writing SAT is not planned.
 
 **v1.1:** that reader exists. cc-acis (`tests/lib/acis/`, canonical in the monorepo's `lib/acis`) reads SAT and SAB, across versions, into topology and geometry: planes, cones, cylinders, spheres, tori and B-spline surfaces; lines, ellipses and B-spline intcurves. It has its own spec-gap notes. S33 becomes **lifting cc-acis' model into engine.solid topology** instead of triangles. That is much smaller, and it no longer waits on verifying the format.
 
@@ -562,7 +562,7 @@ Legend: ☐ not started, ☑ done. Each session ends with passing tests, updated
 | S7 | **done** (2026-11-14) | `geom/analytic-curve.js`, `analytic-surface.js` (STEP parameterisations, exact `toNurbs` on own A7.1 arcs), the one interface `curve.js` / `surface.js`, shared `diffgeo.js`; see `STATUS.md`. Recognition (NURBS → analytic) is left for S30 |
 | S8 | **done** (2026-11-14) | `geom/fit.js`: interpolation and approximation on cc-nurbs' `fit.js`, checked against their data; the KAD / DXF SPLINE forms; see `STATUS.md`. KUBIC / PartCraft sketch curves come with S19's profile adapter |
 | S9 | **done** (2026-11-14) | `geom/construct.js`: exact compatibility, ruled, loft, Coons, grid interpolation, analytic extrude and revolve, each checked against what it passes through; see `STATUS.md`. Sweeps and Gordon networks wait for S22 |
-| S10 | partial | closest point, bounding boxes, length and area exist; interval bounds and a BVH are new |
+| S10 | **done** (2026-11-14) | `geom/query.js` (global closest points and inversion, tight boxes, length, area) and `math/bvh.js`, written new (cc-nurbs' versions sample fixed rules or stop at local minima); see `STATUS.md`. Interval bounds for intersection come with S25 |
 | S11–S12 | new | the core: topology model, stable IDs, Euler operators, builders, sewing **by identity** |
 | S13 | new | exact pcurve trims (cc-nurbs' polygon trims stay, for display) |
 | S14 | new | auditor plus corpus; cc-nurbs' box / cylinder / sphere are cross-checks |
@@ -600,7 +600,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 | ☑ | **S7** | Analytic classes and exact conversions: `Line`, `Circle`, `Ellipse`, `Plane`, `Cylinder`, `Cone`, `Sphere`, `Torus`, revolution/extrusion surfaces ↔ NURBS | converted radius/axis error < 1e-12; area of sphere/torus patches vs closed form < 1e-9 relative |
 | ☑ | **S8** | Fitting I: global interpolation (chord/centripetal), end conditions, least-squares approximation to tolerance; KAD SPLINE `fit`→control-point path | interpolation passes through data to 1e-10; approximation error ≤ requested `fit` on a test corpus |
 | ☑ | **S9** | Construction: ruled, skinning with compatibility, Coons/bilinear patches, surface interpolation | skinned surface passes through sections; compatibility refusals typed |
-| ☐ | **S10** | Queries: closest point/inversion (curves, surfaces), tight bboxes, length/area, BVH | closest-point matches brute force on 1e4 random queries; bbox contains dense samples and is within slack |
+| ☑ | **S10** | Queries: closest point/inversion (curves, surfaces), tight bboxes, length/area, BVH | closest-point matches brute force on 1e4 random queries; bbox contains dense samples and is within slack |
 
 ### M2 — Topology (S11–S14)
 | ☐ | Session | Build | Accept |

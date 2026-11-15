@@ -310,6 +310,17 @@ const AREAS = {
       mix(got(() => K.interpolateGrid(G).surface.cvs));
     }
   },
+  query(P, { mix }) {                                    // S10: closest points, inversion, length, area, tight boxes, the BVH
+    const Qy = P.query, CV = P.nurbsCurve, NS = P.nurbsSurface, h = P.makePrng(114);
+    for (let i = 0; i < 20; i++) {
+      const c = CV.make(genCurveData(h, { maxDeg: 4, spans: 1 + h.int(4) })), s = NS.make(genSurfaceData(h, { maxDeg: 3, spans: 1 + h.int(2) }));
+      const bc = CV.bbox(c), bs = NS.bbox(s), pc = [0, 1, 2].map((k) => bc.min[k] + (bc.max[k] - bc.min[k]) * h.range(-0.2, 1.2)), ps = [0, 1, 2].map((k) => bs.min[k] + (bs.max[k] - bs.min[k]) * h.range(-0.2, 1.2));
+      mix(Qy.closestOnCurve(c, pc)); mix(Qy.closestOnSurface(s, ps)); mix(Qy.length(c)); mix(Qy.area(s));
+      mix(Qy.curveBox(c)); mix(Qy.surfaceBox(s));
+    }
+    const boxes = Array.from({ length: 64 }, () => { const c = [h.range(-9, 9), h.range(-9, 9), h.range(-9, 9)]; return P.aabb.box([c[0] - 1, c[1] - 1, c[2] - 1], [c[0] + 1, c[1] + 1, c[2] + 1]); }), T = P.bvh.build(boxes);
+    mix(P.bvh.overlapping(T, P.aabb.box([-3, -3, -3], [3, 3, 3]))); mix(P.bvh.nearest(T, [5, 5, 5], (k, p) => P.bvh.boxDistance(boxes[k], p)));
+  },
   prng(P, { mix }) {
     const g = P.makePrng(108);
     for (let i = 0; i < 5000; i++) { mix(g.u32()); mix(g.float()); mix(g.range(-1e308, 1e308)); mix(g.int(1 + i)); mix(g.normal()); mix(g.unit3()); }

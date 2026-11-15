@@ -31,10 +31,12 @@
  *   curve · surface                          S7: one interface for every curve and every surface, NURBS or analytic
  *   fit · construct                          S8: interpolation and approximation checked against their data;
  *                                            S9: compatibility, ruled, loft, Coons, grids, extrude and revolve
+ *   query · bvh                              S10: closest points and inversion (global, by sampling, Newton and branch
+ *                                            and bound), length, area, tight boxes; a bounding-volume hierarchy
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.12';
+export const VERSION = '0.0.13';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -61,6 +63,8 @@ export * as curve from './geom/curve.js';
 export * as surface from './geom/surface.js';
 export * as fit from './geom/fit.js';
 export * as construct from './geom/construct.js';
+export * as query from './geom/query.js';
+export * as bvh from './math/bvh.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';

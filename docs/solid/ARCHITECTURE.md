@@ -52,8 +52,8 @@ cannot share a bug with what it judges. Only `geom` and above may import outside
 | Layer | Holds | Built |
 |---|---|---|
 | `core/` | `errors` (typed refusals) · `tol` (the one tolerance policy) · `limits` (work budgets) · `float` (bits, error-free transformations, directed rounding) · `trig` (deterministic elementary functions) · `prng` (seeded generator) · `intervals` (outward-rounded intervals) · `exact` (exact signs and quotients, whole-number arithmetic) | S1, S2 |
-| `math/` | `vec3` · `mat4` · `frame` · `aabb` · `quad` · `roots` · `linalg` · `predicates` | S2, S3 |
-| `geom/` | curves and surfaces: wraps cc-nurbs, adds analytic classes, exact conversions, interval bounds, intersection rings. Built: `basis` (S4), `nurbs-curve` (S5), `nurbs-surface` (S6), `analytic-curve`, `analytic-surface`, `curve`, `surface`, `diffgeo` (S7), `fit` (S8), `construct` (S9) | S4–S10, S25–S27 |
+| `math/` | `vec3` · `mat4` · `frame` · `aabb` · `quad` · `roots` · `linalg` · `predicates` · `bvh` (S10) | S2, S3, S10 |
+| `geom/` | curves and surfaces: wraps cc-nurbs, adds analytic classes, exact conversions, interval bounds, intersection rings. Built: `basis` (S4), `nurbs-curve` (S5), `nurbs-surface` (S6), `analytic-curve`, `analytic-surface`, `curve`, `surface`, `diffgeo` (S7), `fit` (S8), `construct` (S9), `query` (S10) | S4–S10, S25–S27 |
 | `topo/` | vertices, edges, coedges with pcurves, loops, faces, shells, solids; stable ids; Euler operators | S11–S13 |
 | `ops/` | profile → face, extrude, revolve, sweep, loft, transforms, later offsets, fillets, booleans (M9) | S19–S23, M8, M9 |
 | `mesh/` · `audit/` · `measure/` | watertight tessellation · the independent auditor · mass properties | S14–S17, S24 |

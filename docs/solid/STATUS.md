@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.12 · **Last session:** S8 and S9, fitting and construction (2026-11-14); before them S5–S7 the same day, and the relocation to the site repo (2026-11-13)
+**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.13 · **Last session:** S10, queries (2026-11-14), which closes M1 (splines); before it S5–S9 the same day, and the relocation to the site repo (2026-11-13)
 
 > **Relocation, 2026-11-13 (D-home superseded):** the engine moved from the library repo (`withshalom/getlibrarycraft`, branch `engine/solid`, kept as it was) to the site repo, beside cc-nurbs.
 > - **What moved:** `lib/solid/`, `tools/solid/`, `bin/test-solid.mjs` and `docs/solid/`. In a clone of the site repo they sit under `tests/` (`tests/lib/solid/`, `tests/tools/solid/`, `tests/bin/test-solid.mjs`); `docs/solid/` stays at the top. All 13 commits were replayed with their authors, dates and messages; the files matched the library branch byte for byte before anything was changed.
@@ -363,7 +363,47 @@ Found by search, now fixtures: **cc-nurbs' interpolation can miss its own points
 - **Mutation check:** 18 faults; the first run caught 12, and five survivors were missing tests (an ill-conditioned interpolation and loft, the magnitude of a SPLINE's end tangents, the averaging of the loft parameters, every point of an approximation). With them **17 of 18 caught**; the survivor removes the first of two guards against knots that snap to a neighbour in `compatible`, and the second (the knot vectors must come out equal) refuses the same input.
 - **The whole suite:** 506 checks.
 
+### S10 — queries (2026-11-14, version 0.0.13)
+Built:
+
+| File | What it is |
+|---|---|
+| `geom/query.js` | for every curve and surface (through `curve.js` / `surface.js`): `closestOnCurve`, `invertCurve`, `closestOnSurface`, `invertSurface`, `length`, `area`, `curveBox`, `surfaceBox` |
+| `math/bvh.js` | a bounding-volume hierarchy of boxes: `build` (median splits on the longest side, deterministic), `overlapping`, `nearest` (best-first, pruned by box distance), `boxDistance` |
+| `index.js` | VERSION 0.0.13; namespaces `query`, `bvh` |
+
+How the closest point is found (HANDOFF § 6.4, made global):
+- **Curves:** each knot span (or eighth of a turn) sampled at 4(p + 2) + 1 points; in every sample interval where g′(t) = 2 C′ · (C − p) goes from − to +, Newton kept inside the interval (`math/roots.js`). Inside a span its own derivative is used at its right end (the evaluator gives the next span's at a knot). The best of all of them, and the ends.
+- **Surfaces:** the knot cells sampled at 2(p + 2) × 2(q + 2) points; from the best sample a damped Newton descent, halving a step until the point comes closer; every boundary line and interior knot line searched as a curve; the best polished by alternating whole-line searches, then descended again; and for a NURBS surface, **branch and bound over its Bézier patches**: a patch's net box is a lower bound on its distance (positive weights), patches that cannot beat the best are dropped, the others searched from their middle and cut in four (raw de Casteljau halving, no record checks), up to 3000 patches. (A Gauss–Newton fallback and descents from the twelve best sampled minima came first; the mutation run below showed they no longer did anything.)
+- **Tight boxes:** Bézier hulls, a piece split while its hull reaches more than `slack` beyond the box of points on the shape (its corners); the union of the hulls, widened by 4 ulps of the size. The split direction is the one where the net reaches further (a length), never weighted by the parameter widths.
+- **Length:** adaptive Gauss–Legendre per span (`math/quad.js`). **Area:** 8- and 16-point Gauss products per knot cell, a cell quartered while they differ by more than its share of `eps`.
+
+Acceptance (HANDOFF §14, S10):
+
+| Criterion | Result | Test |
+|---|---|---|
+| Closest-point matches brute force on 1e4 random queries | **pass:** never farther than a brute-force search (400 samples, then refined) on 10,000 queries to 100 NURBS curves and 80 arcs (worst 6.0e-16 of the size above it); on surfaces, 1800 queries to 20 random NURBS surfaces (rational, very uneven parameter widths) and 42 analytic ones (spheres, tori, cylinders, cones either way of the apex, planes, extrusions and revolutions of wavy profiles), against a 61 × 61 grid then refined (1.5e-16) | `query` |
+| bbox contains dense samples and is within slack | **pass:** 86 curves and surfaces hold every sample and every side's local extreme found by search; each box within its slack (1e-3 of the size) of the shape's own box; 48 of 60 curve boxes tighter than the control net's | `query` |
+
+Also checked: inversion (points on the shape come back within 1e-9; a point off it is refused); lengths of circle arcs (analytic and converted) and segments to 4e-16; areas of sphere, torus and cylinder patches to 1.3e-15, and of sphere patches under a Möbius change of parameter (the same surface, its parameter speed varying several hundredfold) to 6.7e-16, each within its reported error; the BVH against brute force on 300 queries over 500 boxes, by the distance to each box's centre and by the box distance.
+
+What the random tests found on the way (each fixed in the engine, not in the tests):
+- the bracket test read a span's derivative from the next span at a knot (degree-1 curves: a sample stood in for the minimum);
+- two minima close together hid each other's brackets when only sampled-distance minima were refined;
+- Newton's step from a seed headed for a saddle, and halving it never helped (a Gauss–Newton fallback, later superseded: see the mutation run);
+- a narrow diagonal valley stalled both the joint step and coordinate searches (the branch and bound);
+- a BVH leaf returned all its items without testing their own boxes;
+- the box split chose its direction by parameter width × length, and on a surface 28 wide in u and 0.013 in v never split in v.
+
+- **Mutation check:** 18 faults, each run checked first on the unmutated section. The first run caught 14. Two survivors were missing tests and now fail: an area whose parameter speed varies (the Möbius test above) and a nearest-box search whose distance is not a multiple of the box distance. Two showed code that no longer did anything: with branch and bound and the line polish in place, the Gauss–Newton fallback and the descents from the eleven next-best sampled minima changed no answer on 1800 queries and cost time (1200 queries: 38.0 s with them, 34.6 s without); both were removed. A fresh run on the final code (the 16 faults that still apply and two new ones on the simplified search) **caught 16 of 18**. The two survivors are the line polish and the first descent from the best sample: on today's 1260 analytic queries each is covered by the other and by the knot-line searches. They stay, because analytic surfaces have no lower bound yet ("Found").
+- **The whole suite:** 518 checks, all passing, on the tree as committed (about 4 minutes on this machine; the `query` section is about 90 s of it).
+
 ## Learned
+- **S10: a survivor can be dead code.** Two faults survived every test added for them: dropping the Gauss–Newton fallback, and descending from one sampled minimum instead of twelve. Each had fixed a real failure before branch and bound and the line polish existed; after them neither changed an answer on 1800 queries, and timing showed both cost time. They were removed, and the file header that described them was rewritten: a mutation run is also how stale code is found.
+- **S10: a test can be blind to the fault it is for.** The BVH test's distance was twice the box distance, which makes pruning at half the best distance exact; a distance to each box's centre, not a multiple of the box distance, catches it. The area test's surfaces were so smooth that one 8-point rule per cell met 1e-9; a Möbius change of parameter (the same surface, its weights times c^i) needs the adaptive rule.
+- **S10: "global" needs a lower bound.** Sampling, Newton, Gauss–Newton and coordinate searches each failed on some random surface; only a bound that can rule regions out (a Bézier patch's net box) makes the search global. The local methods then serve to tighten the best answer quickly, so the bound prunes early.
+- **S10: a referee can be weaker than the claim it judges.** Samples on a wiggly rational surface miss its extremes by more than the slack being tested; the referee's sides had to be pushed out by local search before it could judge a tight box.
+- **S10: keep record checks off inner loops.** Branch and bound through checked surface records (every quarter patch made and validated) ran for more than ten minutes; on raw homogeneous nets with de Casteljau halving the same search takes a fraction of a second.
 - **S8: a solver's answer must be checked against the question.** A9.1 is well posed, and its matrix still loses digits on data spaced over eight decades; the residual at the data says so in one evaluation per point.
 - **S8: a test of a bound needs a referee finer than the bound.** A 2000-sample search over a 100 mm curve is 0.05 mm coarse, and it "found" violations of a 0.001 mm bound that were not there.
 - **S9: a test can be too symmetric to see a fault.** Loft columns that all moved by the same amount had the same parameters, so "the first column's" and "the average" agreed; the fixed test moves each column differently.
@@ -404,6 +444,7 @@ Found by search, now fixtures: **cc-nurbs' interpolation can miss its own points
 - **cc-nurbs' `reduce` misses its tolerance (S5).** It checks the reduced pieces against the tolerance, then removes knots with the rest of it, and the two together can exceed it (fixture in `curve`). engine.solid proves its own bound and refuses; the fix belongs in the site's `lib/nurbs/` (D-ccn): check the result as a whole, or give the removal only what the reduction left after a proved bound.
 - **Unclamped curves.** engine.solid's curves are clamped (cc-nurbs' functions assume it). A converter from an unclamped or periodic knot vector to a clamped one is S6/S13 work, where periodic surfaces need it.
 - **Derivative speed (S43).** Curves: `derivs` with d = 2 about 5 µs, curvature 6 µs. Surfaces: `derivs` d = 2 12 µs, `normal` 11 µs, `curvature` 14 µs. Mostly A2.3's allocations and the record checks; fine for now, slow for meshing (S15–S17 will feel it).
+- **A lower bound for closest points on analytic surfaces (S10).** NURBS surfaces are made global by branch and bound; analytic ones (cylinders, cones, spheres, tori, revolutions, extrusions) still rest on samples, a descent, knot-line searches and a polish along the best point's lines. 1260 random queries found no miss, but there is no bound behind it. Closed forms for the quadrics and the torus, and the profile's own global search for revolutions and extrusions (or branch and bound on the exact NURBS forms, with their parameters mapped back), would make every type global; the polish can go then (S10's mutation run: it changes no answer on today's tests).
 - **Curvature at a pole (S6).** `curvature` refuses at a collapsed edge; the limit (from the second-order expansion at the pole) is S13's, with the other pole and seam cases.
 - **The sync script** (`tools/solid/sync.mjs`, built at the move) has only been run against temporary hosts; the first real run is when PartCraft takes a copy.
 - **The catalogue entry** for `engine.solid` is drafted in `ENGINE.md`; publishing it is the owner's step.
@@ -415,7 +456,7 @@ Found by search, now fixtures: **cc-nurbs' interpolation can miss its own points
 - **The KAD repositories' headers still say AGPL.** The sweep belongs in those repositories (`reference/kad/README.md`).
 
 ## Next
-- **S10 — queries** (HANDOFF §14: closest point / point inversion on curves and surfaces, tight bounding boxes, length and area, a BVH; closest point against brute force on 1e4 random queries, boxes that contain dense samples and are within their slack).
+- **S11 — the topology data model** (HANDOFF §14, M2: vertices, edges, coedges with pcurves, loops, faces, shells, solids; stable IDs; immutable snapshots with an adjacency index; a 1,000-face body × 100 operations benchmark; round-trip clone equality). Release gate v0.1 ("geometry + topology + auditor") comes at S14.
 - **Recognition (NURBS → analytic)** belongs with S7's conversions but is not built: a NURBS curve or surface that is exactly a circle, a cylinder … is not yet told apart. STEP import (S30) needs it; noted for then.
 - **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc. Settled: D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; D-home superseded by the move.
 - **The pull request** to the site repo's `main` waits for the owner's go (D-home).
