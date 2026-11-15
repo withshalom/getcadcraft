@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.13 · **Last session:** S10, queries (2026-11-14), which closes M1 (splines); before it S5–S9 the same day, and the relocation to the site repo (2026-11-13)
+**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.14 · **Last session:** S11, the topology data model (2026-11-15), the first of M2 (topology); before it S10, queries (2026-11-14), which closed M1 (splines), S5–S9 the same day, and the relocation to the site repo (2026-11-13)
 
 > **Relocation, 2026-11-13 (D-home superseded):** the engine moved from the library repo (`withshalom/getlibrarycraft`, branch `engine/solid`, kept as it was) to the site repo, beside cc-nurbs.
 > - **What moved:** `lib/solid/`, `tools/solid/`, `bin/test-solid.mjs` and `docs/solid/`. In a clone of the site repo they sit under `tests/` (`tests/lib/solid/`, `tests/tools/solid/`, `tests/bin/test-solid.mjs`); `docs/solid/` stays at the top. All 13 commits were replayed with their authors, dates and messages; the files matched the library branch byte for byte before anything was changed.
@@ -398,7 +398,34 @@ What the random tests found on the way (each fixed in the engine, not in the tes
 - **Mutation check:** 18 faults, each run checked first on the unmutated section. The first run caught 14. Two survivors were missing tests and now fail: an area whose parameter speed varies (the Möbius test above) and a nearest-box search whose distance is not a multiple of the box distance. Two showed code that no longer did anything: with branch and bound and the line polish in place, the Gauss–Newton fallback and the descents from the eleven next-best sampled minima changed no answer on 1800 queries and cost time (1200 queries: 38.0 s with them, 34.6 s without); both were removed. A fresh run on the final code (the 16 faults that still apply and two new ones on the simplified search) **caught 16 of 18**. The two survivors are the line polish and the first descent from the best sample: on today's 1260 analytic queries each is covered by the other and by the knot-line searches. They stay, because analytic surfaces have no lower bound yet ("Found").
 - **The whole suite:** 518 checks, all passing, on the tree as committed (about 4 minutes on this machine; the `query` section is about 90 s of it).
 
+### S11 — the topology data model (2026-11-15, version 0.0.14)
+Built:
+
+| File | What it is |
+|---|---|
+| `topo/brep.js` | the B-rep as immutable snapshots (§ 8.1, § 8.3): frozen records with stable integer ids in seven tables (vertex, edge, coedge, loop, face, shell, solid). `edit(b, fn)` makes a new snapshot through a draft that adds, changes and removes records, and for the Euler operators (S12) also makes a coedge in no loop yet, builds a loop of existing coedges and relinks a loop; it shares every record it did not touch and checks the structural rules before it returns. `check` (ids, references, back-references, sharing, closed loops, edge ranges, senses, empty solids, orphans); `adjacency` (cached per snapshot); `euler` counts; `toData` / `fromData` (holes and counters kept) |
+| `topo/names.js` | persistent names (§ 8.6): FNV-1a in two 32-bit lanes over (operation, inputs, role), each part closed by a separator no part may hold, 64 bits shown as `n` + 16 hexadecimal digits |
+| `core/errors.js` | `solid.err.bad_topology` { rule, kind, id } (KAD2 `AUDIT_FAILED`) |
+| `index.js` | VERSION 0.0.14; namespaces `brep`, `names` |
+
+Decision **D-store** (§ 8.3, § 17): whole-table copies per edit. Measured: a 1,000-face sheet (V 1066, E 2065, built in 26 ms) takes 100 edits at 3.9 ms each, every edit copying the seven tables and checking every rule — far inside "no visible lag". Chunked tables only if a later benchmark asks for them.
+
+Acceptance (HANDOFF §14, S11):
+
+| Criterion | Result | Test |
+|---|---|---|
+| 1,000-face body × 100 ops benchmark recorded | **pass:** 3.9 ms per edit (copy and full check) | `topo` |
+| round-trip clone equality | **pass:** a cube, and a cube with a face removed, through `structuredClone` and JSON: the same tables, holes and counters | `topo` |
+
+Also checked: a cube's tables, Euler–Poincaré and adjacency (two faces an edge, three edges a vertex, every edge once each way, outward faces); copy-on-write (untouched records are the same objects in both snapshots); ids never reused; every structural rule fires on a cube broken on purpose; the draft's refusals; coedges made, moved and relinked; an edge used twice by one face counted once; a counter behind its table refused; names: the same recipe gives the same name, 20,000 inputs give 20,000 names, and three recorded names hold (a change to the hash would rename everything in every saved model).
+
+Found by its own tests: a coedge listed by two loops was reported as a broken back-reference and never as `shared`, so the more exact rule could not fire; sharing is checked first now. The name hash also hashed the number of inputs, which the separators already make redundant; it went before any name was recorded.
+
+- **Mutation check:** 23 faults in `brep.js` and `names.js` (each rule of `check`, the copy, the freeze, ids, the cache, the counts, the draft's calls, the name hash), the section checked first on the unmutated code: **23 of 23 caught** — 19 by the check written for them, and four because the fault breaks every edit and the section throws.
+- **The whole suite:** 542 checks, all passing, on the tree as committed.
+
 ## Learned
+- **S11: the order of checks decides which rule can fire.** A coedge listed by two loops broke two rules at once, and the one checked first (back-reference) always won, so `shared` could never be seen; a test that breaks one rule on purpose is how that shows.
 - **S10: a survivor can be dead code.** Two faults survived every test added for them: dropping the Gauss–Newton fallback, and descending from one sampled minimum instead of twelve. Each had fixed a real failure before branch and bound and the line polish existed; after them neither changed an answer on 1800 queries, and timing showed both cost time. They were removed, and the file header that described them was rewritten: a mutation run is also how stale code is found.
 - **S10: a test can be blind to the fault it is for.** The BVH test's distance was twice the box distance, which makes pruning at half the best distance exact; a distance to each box's centre, not a multiple of the box distance, catches it. The area test's surfaces were so smooth that one 8-point rule per cell met 1e-9; a Möbius change of parameter (the same surface, its weights times c^i) needs the adaptive rule.
 - **S10: "global" needs a lower bound.** Sampling, Newton, Gauss–Newton and coordinate searches each failed on some random surface; only a bound that can rule regions out (a Bézier patch's net box) makes the search global. The local methods then serve to tighten the best answer quickly, so the bound prunes early.
@@ -456,7 +483,7 @@ What the random tests found on the way (each fixed in the engine, not in the tes
 - **The KAD repositories' headers still say AGPL.** The sweep belongs in those repositories (`reference/kad/README.md`).
 
 ## Next
-- **S11 — the topology data model** (HANDOFF §14, M2: vertices, edges, coedges with pcurves, loops, faces, shells, solids; stable IDs; immutable snapshots with an adjacency index; a 1,000-face body × 100 operations benchmark; round-trip clone equality). Release gate v0.1 ("geometry + topology + auditor") comes at S14.
+- **S12 — Euler operators and builders** (HANDOFF §14, M2: loop, face and shell builders, sewing, orientation; Euler–Poincaré for random operator sequences; a box or prism built both ways must agree). Release gate v0.1 ("geometry + topology + auditor") comes at S14.
 - **Recognition (NURBS → analytic)** belongs with S7's conversions but is not built: a NURBS curve or surface that is exactly a circle, a cylinder … is not yet told apart. STEP import (S30) needs it; noted for then.
 - **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc. Settled: D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; D-home superseded by the move.
 - **The pull request** to the site repo's `main` waits for the owner's go (D-home).

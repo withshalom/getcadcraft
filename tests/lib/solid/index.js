@@ -33,10 +33,12 @@
  *                                            S9: compatibility, ruled, loft, Coons, grids, extrude and revolve
  *   query · bvh                              S10: closest points and inversion (global, by sampling, Newton and branch
  *                                            and bound), length, area, tight boxes; a bounding-volume hierarchy
+ *   brep · names                             S11: the B-rep as immutable snapshots (stable ids, copy-on-write edits
+ *                                            checked against the structural rules, adjacency); persistent names
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.13';
+export const VERSION = '0.0.14';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -65,6 +67,8 @@ export * as fit from './geom/fit.js';
 export * as construct from './geom/construct.js';
 export * as query from './geom/query.js';
 export * as bvh from './math/bvh.js';
+export * as brep from './topo/brep.js';
+export * as names from './topo/names.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';

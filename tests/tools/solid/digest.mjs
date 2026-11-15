@@ -321,6 +321,26 @@ const AREAS = {
     const boxes = Array.from({ length: 64 }, () => { const c = [h.range(-9, 9), h.range(-9, 9), h.range(-9, 9)]; return P.aabb.box([c[0] - 1, c[1] - 1, c[2] - 1], [c[0] + 1, c[1] + 1, c[2] + 1]); }), T = P.bvh.build(boxes);
     mix(P.bvh.overlapping(T, P.aabb.box([-3, -3, -3], [3, 3, 3]))); mix(P.bvh.nearest(T, [5, 5, 5], (k, p) => P.bvh.boxDistance(boxes[k], p)));
   },
+  topo(P, { mix }) {                                     // S11: B-rep snapshots (ids, holes, counters), adjacency, persistent names
+    const B = P.brep, N = P.names, A = P.analyticCurve, h = P.makePrng(115), pt = () => [h.range(-9, 9), h.range(-9, 9), h.range(-9, 9)];
+    let b = B.EMPTY;
+    for (let i = 0; i < 60; i++) {
+      const ls = B.ids(b, 'loop'), drop = i % 4 === 3 && ls.length ? ls[h.int(ls.length)] : -1;
+      b = B.edit(b, (d) => {
+        const p = pt(), q = pt(), ln = A.lineThrough(p, q), e = d.edge(ln, 0, A.domain(ln)[1], d.vertex(p), d.vertex(q));
+        d.loop(null, [[e, 1], [e, -1]]);
+        if (drop >= 0) {
+          const L = d.get('loop', drop), E = d.get('edge', d.get('coedge', L.coedges[0]).edge);
+          for (const k of L.coedges) d.remove('coedge', k);
+          d.remove('loop', drop); d.remove('edge', E.id); d.remove('vertex', E.v0); d.remove('vertex', E.v1);
+        }
+      });
+    }
+    mix(B.toData(b)); mix(B.euler(b));
+    const adj = B.adjacency(b);
+    for (const m of [adj.coedgesOfEdge, adj.edgesOfVertex]) mix([...m].sort((x, y) => x[0] - y[0]));
+    for (let i = 0; i < 200; i++) mix(N.nameOf('op' + (i % 7), Array.from({ length: i % 4 }, (_, k) => 'n' + (i * 31 + k)), ['', 'side', 'cap', 'top'][i % 4]));
+  },
   prng(P, { mix }) {
     const g = P.makePrng(108);
     for (let i = 0; i < 5000; i++) { mix(g.u32()); mix(g.float()); mix(g.range(-1e308, 1e308)); mix(g.int(1 + i)); mix(g.normal()); mix(g.unit3()); }

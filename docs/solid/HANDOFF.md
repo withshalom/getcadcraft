@@ -563,7 +563,7 @@ Legend: ☐ not started, ☑ done. Each session ends with passing tests, updated
 | S8 | **done** (2026-11-14) | `geom/fit.js`: interpolation and approximation on cc-nurbs' `fit.js`, checked against their data; the KAD / DXF SPLINE forms; see `STATUS.md`. KUBIC / PartCraft sketch curves come with S19's profile adapter |
 | S9 | **done** (2026-11-14) | `geom/construct.js`: exact compatibility, ruled, loft, Coons, grid interpolation, analytic extrude and revolve, each checked against what it passes through; see `STATUS.md`. Sweeps and Gordon networks wait for S22 |
 | S10 | **done** (2026-11-14) | `geom/query.js` (global closest points and inversion, tight boxes, length, area) and `math/bvh.js`, written new (cc-nurbs' versions sample fixed rules or stop at local minima); see `STATUS.md`. Interval bounds for intersection come with S25 |
-| S11–S12 | new | the core: topology model, stable IDs, Euler operators, builders, sewing **by identity** |
+| S11–S12 | new; S11 **done** (2026-11-15) | the core: topology model, stable IDs, Euler operators, builders, sewing **by identity**. S11: `topo/brep.js` and `topo/names.js` (D-store decided: whole-table copies, 3.9 ms an edit at 1,000 faces); see `STATUS.md` |
 | S13 | new | exact pcurve trims (cc-nurbs' polygon trims stay, for display) |
 | S14 | new | auditor plus corpus; cc-nurbs' box / cylinder / sphere are cross-checks |
 | S15–S16 | adapt | from cc-step `tess.js` and cc-acis `cdt.js` |
@@ -605,7 +605,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 ### M2 — Topology (S11–S14)
 | ☐ | Session | Build | Accept |
 |---|---|---|---|
-| ☐ | **S11** | Topology data model, stable IDs, immutable snapshots, adjacency index; chunking decision by benchmark | 1,000-face body × 100 ops benchmark recorded; round-trip clone equality |
+| ☑ | **S11** | Topology data model, stable IDs, immutable snapshots, adjacency index; chunking decision by benchmark | 1,000-face body × 100 ops benchmark recorded; round-trip clone equality |
 | ☐ | **S12** | Euler operators, loop/face/shell builders, sewing, orientation | Euler–Poincaré holds for random op sequences; box/prism built both ways are equivalent |
 | ☐ | **S13** | Trimming, pcurves, periodic seams, poles/degenerate edges, point-in-face with exact predicates | cylinder/sphere/cone/torus test bodies construct; seam and pole cases covered by explicit tests |
 | ☐ | **S14** | Auditor v1 (topology + geometry checks) and the **primitive corpus** (box, cylinder, cone, sphere, torus, prism with holes, revolved vase) | auditor passes the corpus and fails ≥ 20 deliberately corrupted bodies (each check is proven to fire) |
@@ -794,7 +794,7 @@ Oracle assets (OpenCascade wasm etc.) are **never committed** and never loaded b
 | D-ccn2 | **v1.2 — taken as proposed at S4 (2026-11-12):** how cc-nurbs and cc-step come to sit beside the engine in the library repo before S4 (D8). cc-nurbs was a pinned copy in `lib/nurbs/` (`tools/solid/sync-nurbs.mjs`, `pins.json`). **Settled 2026-11-13 by the second option:** the engine moved into the site repo, where cc-nurbs is canonical beside it; the pins and `sync-nurbs.mjs` are gone. cc-step waits: its two copies have drifted (`STATUS.md`) | synced copies, as `tools/shapes/` is; or move the engine into the site's `lib/` first |
 | D-size | **decided (A), 2026-11-13: a 1 km box with `ang` 1e-12 by default; the box belongs to the Tolerance, so a larger model declares a larger box with a matching tolerance, and other engines (CivilCraft, BimCraft) are not bound by it. Built in 0.0.8.** v1.4 (second review): the model's size box. `lin` 1e-6 mm and `ang` 1e-9 rad agree only out to 1,000 mm (two directions parallel within `ang` drift apart by more than `lin` beyond that), and no maximum extent is declared. Choose a box and make the two tolerances consistent inside it. Before S5 fixes how parallelism and coincidence are compared | a 1 km box (±5e5 mm) with `ang` = 1e-12, the ratio Parasolid uses (1e-8 m, 1e-11 rad, 1 km); doubles resolve 1e-10 mm there |
 | D-wire | **decided (A), 2026-11-13: plain-data forms (`toData` / `fromData`) for every record. Built in 0.0.8.** v1.4 (second review): how checked records cross a worker boundary. Tolerances, budgets, frames and knot vectors are recognised by a private registry, so a `postMessage` copy, or a record from a second loaded copy of the engine, is not recognised. Curves, surfaces and topology will follow the same pattern. Before S5 defines the curve record | every record type gets a plain-data form and a checked way back (`toData` / `fromData`), tested by a round trip through `structuredClone`; nothing but plain data crosses a boundary |
-| D-store | Copy-on-write granularity for B-rep tables | decide by S11 benchmark |
+| D-store | Copy-on-write granularity for B-rep tables | **decided (S11, 2026-11-15):** whole-table copies per edit — 3.9 ms an edit on a 1,000-face body, every rule checked; chunked tables only if a later benchmark needs them |
 | D-ts | Ship optional `tsc --checkJs` dev script | yes, strictly optional |
 | D-ap | AP242 scope (geometry only, or names/colours/PMI) | geometry + names + colours; PMI out |
 | D-sat | ACIS SAT reader (S33) | optional; verify format documentation first |

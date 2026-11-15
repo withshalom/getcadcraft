@@ -30,7 +30,7 @@ Source: getcadcraft.com › Build an add-on › Upload and review.
 | engine.solid never edits cc-nurbs (D8) | the engine only imports it, and the `reach` rule judges every function it takes. Since the move (2026-11-13) cc-nurbs is canonical beside the engine, so the old hash pins are gone and an edit to `lib/nurbs/` is no longer caught by this suite: it is a convention, and host copies are kept equal by `tools/nurbs/sync.mjs --check` | checker rule `reach`; `sync` section (LF-only, same hosts) | checked |
 | Talks to no server | no `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, workers or `importScripts` | checker rule `global` | enforced |
 | A licence the suite can sign | Apache-2.0 | rule `spdx` | enforced |
-| Package size: at most 200 files, 5 MB unpacked | 29 files, about 296 KB (S10); cc-nurbs, which hosts already carry, sits beside it | measured at each session close | checked |
+| Package size: at most 200 files, 5 MB unpacked | 31 files, about 319 KB (S11); cc-nurbs, which hosts already carry, sits beside it | measured at each session close | checked |
 | A published version never changes | each session commits a new version; nothing is rewritten | git history on `engine/solid` | checked |
 
 ## 3. The suite's library practice
@@ -58,7 +58,7 @@ Source: getcadcraft.com › Build an add-on › Upload and review.
 
 | Rule | How it is met | Evidence | Status |
 |---|---|---|---|
-| Same input, same output, in every engine | only exactly specified arithmetic; own elementary functions | checker rules `trig` and `reach`; golden hashes; `digest` in 18 areas: the first 13 the same in Node, Chromium, Firefox and WebKit, page and worker (2026-11-13); the `curve` (S5), `surface` (S6), `analytic` (S7), `fitting` (S8–S9) and `query` (S10) areas recorded in Node, browsers to be run (no Playwright on this machine); Safari proper by hand before the PR | enforced (Node); browsers: before the PR |
+| Same input, same output, in every engine | only exactly specified arithmetic; own elementary functions | checker rules `trig` and `reach`; golden hashes; `digest` in 19 areas: the first 13 the same in Node, Chromium, Firefox and WebKit, page and worker (2026-11-13); the `curve` (S5), `surface` (S6), `analytic` (S7), `fitting` (S8–S9), `query` (S10) and `topo` (S11) areas recorded in Node, browsers to be run (no Playwright on this machine); Safari proper by hand before the PR | enforced (Node); browsers: before the PR |
 | No hidden randomness or clock | no `Math.random`, no `Date`; budgets read an injected clock | checker rule `determinism` | enforced |
 | No `eval` or `Function` | — | checker rule `eval` | enforced |
 | Tolerances in one place | `core/tol.js` only | checker rule `epsilon` | enforced |
@@ -88,7 +88,7 @@ Source: `HANDOFF.md` §15; the owner's direction (D5, D6).
 | Work on branch `engine/solid`; `main` untouched | checked: in the site repo `engine/solid` branches from `main` at fec32b76, which no session changes (the library repo's branch and `main` at a02421e are kept as they were) |
 | No pull request until the owner says engine.solid is finished (D-home, now the site repo) | owner |
 | One complete, tested build per session; `STATUS.md`, `PROVENANCE.md` and `HANDOFF.md` updated at the close | checked each session |
-| A mutation run at each close (deliberate faults must fail the suite) | checked: S2 caught 19 of 20, and the survivor is equivalent in practice; S3 caught 9 of 9; S4 caught 16 of 16; S5 caught 22 of 22 (18 at first; the four survivors became four new tests); S6 caught 23 of 23 (21 at first; the survivors became new tests, two of them inputs found by a seeded search); S7 caught 25 of 25 (20 at first; five new tests), each run checked first on the unmutated code; S8–S9 caught 17 of 18 (12 at first; the survivor is masked by a second guard for the same condition); S10 caught 16 of 18 on the final code (14 at first; two survivors became tests, two showed dead code, which was removed; the two that remain cover each other on analytic surfaces, which have no lower bound yet) |
+| A mutation run at each close (deliberate faults must fail the suite) | checked: S2 caught 19 of 20, and the survivor is equivalent in practice; S3 caught 9 of 9; S4 caught 16 of 16; S5 caught 22 of 22 (18 at first; the four survivors became four new tests); S6 caught 23 of 23 (21 at first; the survivors became new tests, two of them inputs found by a seeded search); S7 caught 25 of 25 (20 at first; five new tests), each run checked first on the unmutated code; S8–S9 caught 17 of 18 (12 at first; the survivor is masked by a second guard for the same condition); S10 caught 16 of 18 on the final code (14 at first; two survivors became tests, two showed dead code, which was removed; the two that remain cover each other on analytic surfaces, which have no lower bound yet); S11 caught 23 of 23 |
 | Commits name their session and carry the attribution lines | checked |
 
 ## 8. The upstream's contribution rules (getcadcraft, read 2026-11-15)
@@ -116,7 +116,7 @@ The other seven app repos carry the same guide and template with their own names
 ## 9. Known gaps
 
 - **The sync script's first real run.** `tools/solid/sync.mjs` is built and tested on temporary hosts; it runs for real when PartCraft takes a copy (S24b), after cc-nurbs' own sync.
-- **Browser digests for the S5–S10 areas.** Node's hashes of the `curve`, `surface`, `analytic`, `fitting` and `query` areas are recorded; `node tools/solid/browser-run.mjs` (Playwright) has to confirm them in Chromium, Firefox and WebKit before the pull request.
+- **Browser digests for the S5–S11 areas.** Node's hashes of the `curve`, `surface`, `analytic`, `fitting`, `query` and `topo` areas are recorded; `node tools/solid/browser-run.mjs` (Playwright) has to confirm them in Chromium, Firefox and WebKit before the pull request.
 - **cc-step beside the engine.** Its copies have drifted; settle which is canonical first. cc-nurbs is here (S4).
 - **D-det (decided (b)).** cc-nurbs' `arc`, `circle` and `angle` are not same-bits; S5 imports only the exact functions (`nurbs-curve.js` passes `reach`), and the checker keeps those three out, function by function. Exact circles, arcs and surfaces of revolution are engine.solid's own, on `core/trig.js` (S7: `analytic-curve.js`, `analytic-surface.js`). Option (a), deterministic trig upstream, is open for later investigation.
 - **Language-table keys for `solid.err.*`.** Due at S24b.

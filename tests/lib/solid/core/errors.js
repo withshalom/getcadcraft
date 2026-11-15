@@ -34,6 +34,9 @@
  *   solid.err.bad_input       an argument is missing, of the wrong type, out of range or unknown — { name, why }; also an
  *                             answer that does not fit in doubles — { name, why: 'overflow' }
  *   solid.err.bad_tolerance   a tolerance value cannot be used — { name, why, value?, min?, max? }
+ *   solid.err.bad_topology    (S11) a B-rep breaks one of its structural rules (topo/brep.js `check`) — { rule, kind, id }:
+ *                             the rule ('id', 'reference', 'range', 'empty', 'back_reference', 'shared', 'open_loop',
+ *                             'orphan', 'sense'), the kind of entity and its id; an edit that would leave one is refused
  *   solid.err.internal        cc-solid's own bug — { reason? } (the details stay out of the envelope)
  *   solid.err.limit           a budget ran out — { what: 'iterations' | 'entities' | 'time', limit, used }; (S4) or
  *                             a representation limit was passed — { what: 'degree' | 'knots', limit, used }; or a
@@ -49,6 +52,7 @@
 export const CODES = Object.freeze([
   'solid.err.bad_input',
   'solid.err.bad_tolerance',
+  'solid.err.bad_topology',
   'solid.err.internal',
   'solid.err.limit',
   'solid.err.no_bracket',
@@ -60,6 +64,7 @@ export const CODES = Object.freeze([
 export const KAD2_CODES = Object.freeze({
   'solid.err.bad_input': 'BAD_INPUT',
   'solid.err.bad_tolerance': 'REFUSED_TOLERANCE',
+  'solid.err.bad_topology': 'AUDIT_FAILED',
   'solid.err.internal': 'INTERNAL',
   'solid.err.limit': 'LIMIT',
   'solid.err.no_bracket': 'REFUSED_NO_BRACKET',
