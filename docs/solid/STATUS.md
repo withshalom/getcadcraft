@@ -2,7 +2,7 @@
 
 The source of truth for what is built. Update it at the end of every session (`HANDOFF.md` §16.3).
 
-**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.14 · **Last session:** S11, the topology data model (2026-11-15), the first of M2 (topology); before it S10, queries (2026-11-14), which closed M1 (splines), S5–S9 the same day, and the relocation to the site repo (2026-11-13)
+**Repo:** the site repo (`withshalom/getcadcraft`, a fork of `getcadcraft/cadcraft`) · **Branch:** `engine/solid` · **Plan:** `HANDOFF.md` v1.2 · **Version:** 0.0.15 · **Last session:** S12, Euler operators and builders (2026-11-15); before it S11, the topology data model, the same day; S10, queries (2026-11-14), which closed M1 (splines), S5–S9 the same day, and the relocation to the site repo (2026-11-13)
 
 > **Relocation, 2026-11-13 (D-home superseded):** the engine moved from the library repo (`withshalom/getlibrarycraft`, branch `engine/solid`, kept as it was) to the site repo, beside cc-nurbs.
 > - **What moved:** `lib/solid/`, `tools/solid/`, `bin/test-solid.mjs` and `docs/solid/`. In a clone of the site repo they sit under `tests/` (`tests/lib/solid/`, `tests/tools/solid/`, `tests/bin/test-solid.mjs`); `docs/solid/` stays at the top. All 13 commits were replayed with their authors, dates and messages; the files matched the library branch byte for byte before anything was changed.
@@ -424,7 +424,29 @@ Found by its own tests: a coedge listed by two loops was reported as a broken ba
 - **Mutation check:** 23 faults in `brep.js` and `names.js` (each rule of `check`, the copy, the freeze, ids, the cache, the counts, the draft's calls, the name hash), the section checked first on the unmutated code: **23 of 23 caught** — 19 by the check written for them, and four because the fault breaks every edit and the section throws.
 - **The whole suite:** 542 checks, all passing, on the tree as committed.
 
+### S12 — Euler operators and builders (2026-11-15, version 0.0.15)
+Built:
+
+| File | What it is |
+|---|---|
+| `topo/euler.js` | the Euler operators (M. Mäntylä, *An Introduction to Solid Modeling*, 1988) in this model's terms: `mevvlfs` / `kevvlfs` (this model's loops are never empty, so the smallest shell is a lamina: one edge and the face whose loop runs along it and back), `mev` / `kev` (struts), `semv` / `jekv` (an edge split and joined), `mef` / `kef`, `mekr` / `kemr`, `kfmrh` / `mfkrh`. Each keeps V − E + F − R = 2 (S − G), names coedges where a vertex can come twice in a loop, and returns the new snapshot and the ids it made; geometry is the caller's |
+| `topo/build.js` | `polygon` (a lamina by Euler operators), `sweep` (Mäntylä's translational sweep: a strut from each vertex, then the side face of each edge; a face of a solid swept inward makes a pocket), `polyhedron` (sewing by vertex identity; turned outward by its signed volume; each face on the plane of Newell's normal), `sew` (HANDOFF § 8.4's second way: points within tol.lin are one vertex, refused when closeness does not split them cleanly; then `polyhedron`) |
+| `index.js` | VERSION 0.0.15; namespaces `euler`, `build` |
+
+Acceptance (HANDOFF §14, S12):
+
+| Criterion | Result | Test |
+|---|---|---|
+| Euler–Poincaré holds for random op sequences | **pass:** 600 random operations on a growing model (418 made, 124 refused with `bad_input` as they should be): each changed V, E, F, L and S exactly as its table says, and the formula held after every one; 148 operations followed by their inverse gave back the model they started from, up to ids | `euler` |
+| box/prism built both ways are equivalent | **pass:** 8 prisms (a rectangle, a hexagon, an L that is not convex, five random convex polygons in random planes; straight and oblique) by Euler sweep and by the polyhedron builder: the same vertices round every face, the same outward normals, the same counts (V = 2n, E = 3n, F = n + 2), the volume area × height | `euler` |
+
+Also checked: a polygon lamina (front through the points, back the other way); a unit cube, and the same given inside out, comes out outward; a square frame of sixteen quadrilaterals is a torus (genus 1); a hole through a block made with Euler operators only (struts and `mef` draw a square on the top, `kemr` leaves it a ring, a sweep down makes a pocket, `kfmrh` opens it into the bottom): V 16, E 24, F 10, R 2, genus 1, every face outward and on its plane, volume (9 − 1) × 2; a cube sewn from six separate faces whose corners are each jittered by up to 0.3 tol.lin; what the defaults keep (the larger tolerance on a join, the parent's surface and sense on a new face, the original face's id through `kef`, the other sense from `mfkrh`); a vertex another shell uses is not removed; every refusal typed (26 of the operators', 23 of the builders').
+
+- **Mutation check:** 23 faults across the operators and the builders (where a strut goes in, which end a kill removes, the order a split puts its halves in, which face a kill keeps, the default senses, the checks on shared vertices, the sweep's planes and order, the builders' refusals), the section checked first on the unmutated code: **23 of 23 caught**. Six of them needed the targeted checks added this session (the defaults and the shared vertex); the random sequence alone did not see them.
+- **The whole suite:** 557 checks, all passing, on the tree as committed.
+
 ## Learned
+- **S12: a random test needs aimed candidates.** Operators picked their arguments from everything in the model, so the ones with narrow preconditions (`jekv` on a split vertex, `kevvlfs` on a bare lamina) succeeded three or four times in 600; drawing three times in four from the candidates they can act on (and still sometimes from anything, so the refusals are tested too) made every operator succeed at least seven times.
 - **S11: the order of checks decides which rule can fire.** A coedge listed by two loops broke two rules at once, and the one checked first (back-reference) always won, so `shared` could never be seen; a test that breaks one rule on purpose is how that shows.
 - **S10: a survivor can be dead code.** Two faults survived every test added for them: dropping the Gauss–Newton fallback, and descending from one sampled minimum instead of twelve. Each had fixed a real failure before branch and bound and the line polish existed; after them neither changed an answer on 1800 queries, and timing showed both cost time. They were removed, and the file header that described them was rewritten: a mutation run is also how stale code is found.
 - **S10: a test can be blind to the fault it is for.** The BVH test's distance was twice the box distance, which makes pruning at half the best distance exact; a distance to each box's centre, not a multiple of the box distance, catches it. The area test's surfaces were so smooth that one 8-point rule per cell met 1e-9; a Möbius change of parameter (the same surface, its weights times c^i) needs the adaptive rule.
@@ -483,7 +505,7 @@ Found by its own tests: a coedge listed by two loops was reported as a broken ba
 - **The KAD repositories' headers still say AGPL.** The sweep belongs in those repositories (`reference/kad/README.md`).
 
 ## Next
-- **S12 — Euler operators and builders** (HANDOFF §14, M2: loop, face and shell builders, sewing, orientation; Euler–Poincaré for random operator sequences; a box or prism built both ways must agree). Release gate v0.1 ("geometry + topology + auditor") comes at S14.
+- **S13 — trims and pcurves** (HANDOFF §14, M2: pcurves per coedge, periodic seams, poles and degenerate edges, point-in-face with exact predicates; cylinder, sphere, cone and torus bodies construct, seam and pole cases covered by explicit tests). Then S14, the auditor and the primitive corpus: release gate v0.1 ("geometry + topology + auditor").
 - **Recognition (NURBS → analytic)** belongs with S7's conversions but is not built: a NURBS curve or surface that is exactly a circle, a cylinder … is not yet told apart. STEP import (S30) needs it; noted for then.
 - **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc. Settled: D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; D-home superseded by the move.
 - **The pull request** to the site repo's `main` waits for the owner's go (D-home).

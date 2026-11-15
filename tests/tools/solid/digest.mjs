@@ -341,6 +341,24 @@ const AREAS = {
     for (const m of [adj.coedgesOfEdge, adj.edgesOfVertex]) mix([...m].sort((x, y) => x[0] - y[0]));
     for (let i = 0; i < 200; i++) mix(N.nameOf('op' + (i % 7), Array.from({ length: i % 4 }, (_, k) => 'n' + (i * 31 + k)), ['', 'side', 'cap', 'top'][i % 4]));
   },
+  euler(P, { mix }) {                                    // S12: Euler operators, polygons swept into prisms, polyhedra
+    const B = P.brep, E = P.euler, Bu = P.build, T = P.trig, h = P.makePrng(116), pt = () => [h.range(-9, 9), h.range(-9, 9), h.range(-9, 9)];
+    for (let i = 0; i < 8; i++) {                         // star-shaped polygons (the engine's own sincos, so every host agrees)
+      const n = 3 + h.int(6), pts = Array.from({ length: n }, (_, k) => { const [s, c] = T.sincos(k * T.TAU / n), r = h.range(1, 3); return [r * c, r * s, 0]; });
+      const lam = Bu.polygon(B.EMPTY, pts), sw = Bu.sweep(lam.brep, lam.front, [h.range(-1, 1), h.range(-1, 1), h.range(1, 4)]);
+      mix(B.toData(sw.brep));
+      const faces = [pts.map((_, k) => n - 1 - k), pts.map((_, k) => n + k), ...pts.map((_, k) => [k, (k + 1) % n, n + (k + 1) % n, n + k])];
+      mix(got(() => B.toData(Bu.polyhedron(B.EMPTY, [...pts, ...pts.map((p) => [p[0], p[1], 2])], faces).brep)));
+    }
+    let b = B.EMPTY;
+    for (let i = 0; i < 150; i++) {
+      const cs = B.ids(b, 'coedge'), es = B.ids(b, 'edge'), pick = (a) => a[h.int(a.length)], op = cs.length ? h.int(4) : 0;
+      const r = got(() => (op === 0 ? E.mevvlfs(b, pt(), pt()) : op === 1 ? E.mev(b, pick(cs), pt())
+        : op === 2 ? (() => { const l = B.get(b, 'loop', B.get(b, 'coedge', pick(cs)).loop).coedges; return E.mef(b, l[0], l[l.length >> 1]); })() : E.kemr(b, pick(es))));
+      if (typeof r === 'string') mix(r); else { b = r.brep; mix(B.euler(b)); }
+    }
+    mix(B.toData(b));
+  },
   prng(P, { mix }) {
     const g = P.makePrng(108);
     for (let i = 0; i < 5000; i++) { mix(g.u32()); mix(g.float()); mix(g.range(-1e308, 1e308)); mix(g.int(1 + i)); mix(g.normal()); mix(g.unit3()); }

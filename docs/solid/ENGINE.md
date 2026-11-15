@@ -8,7 +8,7 @@ For the add-on catalogue at getcadcraft.com › Build an add-on › Engines. The
 | **Id** | `engine.solid` |
 | **Name** | Solid kernel (proposed, after "Field kernel"; the owner's choice) |
 | **What it computes** | Exact solids: NURBS and analytic B-rep, STEP. |
-| **Status** | Planned. Today the numerical ground and the whole of M1 (splines) are built: NURBS curves and surfaces, the analytic curves and surfaces with exact NURBS forms, fitting, construction (ruled, loft, Coons) and queries (closest points, length, area, tight boxes, a BVH) — and M2 (topology) has begun with the B-rep data model: immutable snapshots with stable ids and persistent names — S1–S11 of 44, `STATUS.md`. It becomes "Built · in the lab" when PartCraft's rebuild runs through it (S24b). |
+| **Status** | Planned. Today the numerical ground and the whole of M1 (splines) are built: NURBS curves and surfaces, the analytic curves and surfaces with exact NURBS forms, fitting, construction (ruled, loft, Coons) and queries (closest points, length, area, tight boxes, a BVH) — and M2 (topology) has begun with the B-rep data model (immutable snapshots with stable ids and persistent names) and the Euler operators with polygon, sweep, polyhedron and sewing builders — S1–S12 of 44, `STATUS.md`. It becomes "Built · in the lab" when PartCraft's rebuild runs through it (S24b). |
 | **Maker** | CadCraft |
 | **Licence** | Apache-2.0 |
 | **Hosts** | PartCraft first; then ModelCraft, CadCraft (its 3D tab), BimCraft and SuperCad Studio, each carrying its own copy |

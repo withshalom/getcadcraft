@@ -35,10 +35,11 @@
  *                                            and bound), length, area, tight boxes; a bounding-volume hierarchy
  *   brep · names                             S11: the B-rep as immutable snapshots (stable ids, copy-on-write edits
  *                                            checked against the structural rules, adjacency); persistent names
+ *   euler · build                            S12: the Euler operators; polygons, sweeps, polyhedra and sewing
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.14';
+export const VERSION = '0.0.15';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -69,6 +70,8 @@ export * as query from './geom/query.js';
 export * as bvh from './math/bvh.js';
 export * as brep from './topo/brep.js';
 export * as names from './topo/names.js';
+export * as euler from './topo/euler.js';
+export * as build from './topo/build.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';
