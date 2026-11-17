@@ -30,6 +30,12 @@ files in the tests.
 
 Plots are written as vector PDF by our own code (`plot.js`), from the PDF 1.4 reference.
 
+### Conic sections (`conic.js`)
+
+Parabola and hyperbola arcs: our own code, written from standard analytic geometry (conic sections, the symmetric 2 × 2
+eigenproblem) and the rational Bézier form of a conic arc. Nothing is copied from another program or library, and no
+library is used; its only import is our own `spline.js`.
+
 ### 3D kernel (`m3d/`)
 
 ModelCraft's own geometry kernel, shared as an identical copy by the apps that have a 3D view.
