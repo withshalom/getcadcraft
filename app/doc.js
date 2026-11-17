@@ -517,10 +517,11 @@ export function resolveColor(doc, e, byBlock = null, parentLayer = null) {
 export const NAME_HOOKS = new Set();
 export function typeName(e) {
   for (const f of NAME_HOOKS) { try { const n = f(e); if (n) return n; } catch { /* an add-on's mistake */ } }
+  if (e?.type === 'conic' && (e.kind === 'parabola' || e.kind === 'hyperbola')) return t('type.conic.' + e.kind);   // one type, named by its kind (conic.js)
   return TYPE_NAMES[e?.type] || e?.type || '';
 }
 
 /** Object type names for people: getters, so they are read in the page's language when used (not at module load). */
-export const TYPE_NAMES = Object.fromEntries(['line', 'circle', 'arc', 'poly', 'ellipse', 'text', 'point', 'insert', 'hatch', 'dim', 'viewport', 'mleader', 'xline', 'ray', 'spline']
+export const TYPE_NAMES = Object.fromEntries(['line', 'circle', 'arc', 'poly', 'ellipse', 'text', 'point', 'insert', 'hatch', 'dim', 'viewport', 'mleader', 'xline', 'ray', 'spline', 'conic']
   .map((k) => [k, undefined]));
 for (const k of Object.keys(TYPE_NAMES)) Object.defineProperty(TYPE_NAMES, k, { get: () => t('type.' + k), enumerable: true });

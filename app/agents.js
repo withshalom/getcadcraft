@@ -19,7 +19,7 @@
  * also take file paths inside the folders the person allowed (host.control.files; 0.7 MCP-PATHS).
  */
 import { describe as describeEntity } from './commands.js';
-import { prims, primLength, entityArea, entityBounds } from './geom.js';
+import { prims, primLength, entityArea, entityBounds, curveLength } from './geom.js';
 import { extentsOf, layoutSheet, modelSheet, displayList, toPdf, drawPreview } from './plot.js';
 import { findTable, styleNameFor } from './plotstyle.js';
 import { scaleLabel, scaleList, paperByKey, PAPERS } from './sheets.js';
@@ -42,7 +42,7 @@ import { suggestionsFor, applySuggestion } from './autocomplete.js';   // 0.8 EG
 import { getHost, toolResult, ToolError, stackRollback, peekUndo } from "./host.js";
 import { t } from './i18n.js';
 
-export const OBJECT_TYPES = ['line', 'circle', 'arc', 'poly', 'ellipse', 'text', 'point', 'insert', 'hatch', 'dim', 'viewport', 'mleader', 'spline', 'face3d', 'image', 'wipeout'];
+export const OBJECT_TYPES = ['line', 'circle', 'arc', 'poly', 'ellipse', 'text', 'point', 'insert', 'hatch', 'dim', 'viewport', 'mleader', 'spline', 'conic', 'face3d', 'image', 'wipeout'];
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 1e9) / 1e9 : v);
 const rnd6 = (v) => num(Math.round(v * 1e6) / 1e6);
 
@@ -124,7 +124,7 @@ export function plainObject(doc, e, { full = false } = {}) {
     if (!full && Array.isArray(v) && v.length > 200) { o[k] = v.slice(0, 200); o[k + 'Total'] = v.length; continue; }
     o[k] = typeof v === 'number' ? num(v) : v;
   }
-  try { const ps = prims(e, null); if (['line', 'arc', 'poly', 'circle', 'ellipse'].includes(e.type) && ps?.length) o.length = num(ps.reduce((s, q) => s + primLength(q), 0)); } catch { /* none */ }
+  try { const ps = prims(e, null); if (['line', 'arc', 'poly', 'circle', 'ellipse'].includes(e.type) && ps?.length) o.length = num(ps.reduce((s, q) => s + primLength(q), 0)); else if (e.type === 'conic') { const L = curveLength(e); if (Number.isFinite(L)) o.length = num(L); } } catch { /* none */ }
   try { if (['circle', 'poly', 'ellipse', 'hatch'].includes(e.type)) { const a = entityArea(e); if (a && Number.isFinite(a.area) && a.kind !== 'open') o.area = num(a.area); } } catch { /* none */ }
   try { o.description = describeEntity(e, unitsOf(doc.meta)); } catch { o.description = ''; }
   return o;

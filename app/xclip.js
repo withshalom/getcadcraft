@@ -185,14 +185,14 @@ export function filterOf(clip) {
 export function clipEntities(doc, entities, poly) {
   const out = [];
   let cut = 0, kept = 0;
-  const GEOM = ['id', 'type', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'a0', 'a1', 'pts', 'closed', 'mx', 'my', 'ratio', 't0', 't1', 'w', 'z1', 'z2'];
+  const GEOM = ['id', 'type', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'a0', 'a1', 'pts', 'closed', 'mx', 'my', 'ratio', 't0', 't1', 'w', 'z1', 'z2', 'kind', 'ux', 'uy', 'vx', 'vy'];
   const props = (e) => { const o = { ...e }; for (const k of GEOM) delete o[k]; return o; };   // layer, colour, linetype, lineweight…
   for (const e of entities) {
     const b = entityBounds(e, doc.blocks);
     const corners = validBounds(b) ? [{ x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY }, { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY }] : [];
     const allIn = corners.length && corners.every((p) => insidePoly(p, poly)) && !poly.some((p) => p.x > b.minX && p.x < b.maxX && p.y > b.minY && p.y < b.maxY);
     if (allIn) { out.push(e); continue; }
-    if (['line', 'arc', 'circle', 'poly', 'ellipse'].includes(e.type)) {
+    if (['line', 'arc', 'circle', 'poly', 'ellipse', 'conic'].includes(e.type)) {
       const ps = prims(e, null).flatMap((q) => (q.k === 'L' ? clipLine(q, poly) : clipArc(q, poly)));
       for (const q of ps) out.push(q.k === 'L' ? { type: 'line', ...props(e), x1: q.x1, y1: q.y1, x2: q.x2, y2: q.y2 } : { type: 'arc', ...props(e), cx: q.cx, cy: q.cy, r: q.r, a0: q.a0, a1: q.a1 });
       if (ps.length) cut++;

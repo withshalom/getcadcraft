@@ -2662,6 +2662,8 @@
     "other": "\"{block}\" at {at}, {n} attributes"
   },
   "cmd.desc.ellipse": "center {center}, ratio {ratio}",
+  "cmd.desc.parabola": "vertex {vertex}, focal length {f}, opening toward {angle}°, length {length}",
+  "cmd.desc.hyperbola": "center {center}, semi-axes {a} and {b}, axis at {angle}°, length {length}",
   "cmd.desc.hatch": {
     "one": "{n} boundary loop",
     "other": "{n} boundary loops"
@@ -4024,6 +4026,7 @@
   "toolbar.ray": "Ray",
   "toolbar.point": "Point",
   "clip.bad.direction": "{what} has no direction.",
+  "clip.bad.conic": "{what} is not a parabola or hyperbola arc.",
   "opt.named": "NAmed",
   "opt.world": "World",
   "opt.z": "Z",
@@ -6020,6 +6023,9 @@
   "dwg.save.ole": "{n} OLE objects kept in the DWG as they were read.",
   "dwg.save.ole.frame": "{n} OLE objects that came from a DXF are saved as their frame and label: a DWG cannot take their data yet. Save as DXF 2000 to keep them.",
   "type.spline": "Spline",
+  "type.conic": "Conic",
+  "type.conic.parabola": "Parabola",
+  "type.conic.hyperbola": "Hyperbola",
   "dxf.save.spline": "{n} splines were saved as polylines along the curve: DXF R12 has no spline. Save as DXF 2000 or DWG to keep them.",
   "cmd.spline.first": "First point of the spline [Method/Object] ({method})",
   "cmd.spline.fit": "Fit points",

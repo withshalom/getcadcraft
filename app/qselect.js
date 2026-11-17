@@ -24,7 +24,7 @@ export const QS_PROPS = Object.freeze({
   contents: { types: ['text'], kind: 'text', get: (e) => String(e.s ?? '') },
   block: { types: ['insert'], kind: 'choice', get: (e) => e.block },
   radius: { types: ['circle', 'arc'], kind: 'number', get: (e) => num(e.r) },
-  length: { types: ['line', 'arc', 'poly'], kind: 'number', get: (e) => num(curveLength(e)) },
+  length: { types: ['line', 'arc', 'poly', 'conic'], kind: 'number', get: (e) => num(curveLength(e)) },
   area: { types: ['circle', 'poly', 'ellipse', 'hatch'], kind: 'number', get: (e) => num(entityArea(e)?.area) },
   pattern: { types: ['hatch'], kind: 'choice', get: (e) => (e.solid ? 'SOLID' : String(e.pattern || '').toUpperCase()) },
 });

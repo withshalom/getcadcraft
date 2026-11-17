@@ -47,6 +47,10 @@
  *   toSpline(e)              → a spline.js entity with the same curve, or null
  *   points(e, { tol })       → the curve as points (spline.js flattening); cached per entity
  *   closest(e, p)            → { t, x, y, dist }, the nearest point of the arc to p
+ *   length(e, ta, tb)        → the arc's length (between two parameters when given): a parabola's from its closed form,
+ *                              a hyperbola's by adaptive quadrature; the whole arc's is cached per entity
+ *   middle(e)                → { t, x, y }, the point half way along the arc by length; cached per entity
+ *   bounds(e)                → { minX, minY, maxX, maxY } of the arc, exactly: its ends and the points where it runs level or upright
  *   fromFivePoints(pts)      → { ok: true, kind: 'ellipse' | 'parabola' | 'hyperbola', entity } | { ok: false, error }
  *                              error: 'points' (not five finite points), 'degenerate' (a pair of lines, repeated or
  *                              collinear points), 'imaginary', 'branches' (points on both branches of a hyperbola),
@@ -222,6 +226,76 @@ export function closest(e, p) {
   for (const c of [e.t0, e.t1]) { const qc = pointAt(e, c); if ((qc.x - p.x) ** 2 + (qc.y - p.y) ** 2 < (q.x - p.x) ** 2 + (q.y - p.y) ** 2) { t = c; } }   // an end beats a tie
   const r = pointAt(e, t);
   return { t, x: r.x, y: r.y, dist: Math.hypot(r.x - p.x, r.y - p.y) };
+}
+
+// ── Bounds ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** The arc's exact extents: its two ends, and where its tangent is horizontal or vertical inside the range. */
+export function bounds(e) {
+  if (!valid(e)) return null;
+  const ts = [e.t0, e.t1];
+  for (const [u, v] of [[e.ux, e.vx], [e.uy, e.vy]]) {   // x'(t) = 0, then y'(t) = 0
+    let t = null;
+    if (e.kind === 'parabola') { if (v !== 0) t = -u / (2 * v); }             // u + 2·t·v = 0
+    else if (Math.abs(v) < Math.abs(u)) t = Math.atanh(-v / u);                // u·sinh t + v·cosh t = 0
+    if (t !== null && t > e.t0 && t < e.t1) ts.push(t);
+  }
+  const b = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  for (const t of ts) { const p = pointAt(e, t); b.minX = Math.min(b.minX, p.x); b.maxX = Math.max(b.maxX, p.x); b.minY = Math.min(b.minY, p.y); b.maxY = Math.max(b.maxY, p.y); }
+  return b;
+}
+
+// ── Length ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** ∫ f over [a, b] by adaptive Simpson, to about 1e-13 of its size. */
+function integrate(f, a, b) {
+  const fa = f(a), fb = f(b), m = (a + b) / 2, fm = f(m), whole = (b - a) / 6 * (fa + 4 * fm + fb);
+  const step = (a2, fa2, m2, fm2, b2, fb2, s, depth) => {
+    const l = (a2 + m2) / 2, r = (m2 + b2) / 2, fl = f(l), fr = f(r);
+    const left = (m2 - a2) / 6 * (fa2 + 4 * fl + fm2), right = (b2 - m2) / 6 * (fm2 + 4 * fr + fb2), d = left + right - s;
+    if (depth <= 0 || Math.abs(d) <= 1e-13 * Math.abs(left + right)) return left + right + d / 15;
+    return step(a2, fa2, l, fl, m2, fm2, left, depth - 1) + step(m2, fm2, r, fr, b2, fb2, right, depth - 1);
+  };
+  return step(a, fa, m, fm, b, fb, whole, 40);
+}
+
+function rawLength(e, ta, tb) {
+  if (e.kind === 'parabola') {
+    // in the sideways coordinate s the curve is w = s² / (4f): ∫ √(1 + (s / 2f)²) ds = f·(x·√(1 + x²) + asinh x) with x = s / (2f)
+    const lv = Math.hypot(e.vx, e.vy), kappa = cross(e.ux, e.uy, e.vx, e.vy) / lv, tStar = -(e.ux * e.vx + e.uy * e.vy) / (2 * lv * lv), f = kappa * kappa / (4 * lv);
+    const F = (t) => { const x = kappa * (t - tStar) / (2 * f); return f * (x * Math.sqrt(1 + x * x) + Math.asinh(x)); };
+    return Math.abs(F(tb) - F(ta));
+  }
+  const speed = (t) => { const d = tangentAt(e, t); return Math.hypot(d.x, d.y); };
+  let sum = 0;
+  const n = Math.max(1, Math.ceil((tb - ta) / 0.5));   // pieces no wider than 0.5: the speed grows like cosh t
+  for (let i = 0; i < n; i++) sum += integrate(speed, ta + (tb - ta) * i / n, ta + (tb - ta) * (i + 1) / n);
+  return sum;
+}
+
+const measures = new WeakMap();   // conic entity object → { length, middle } (entities are replaced, never changed in place)
+const measureOf = (e) => { let m = measures.get(e); if (!m) { m = {}; measures.set(e, m); } return m; };
+
+/** The length of the arc, or of its part between the parameters ta and tb. */
+export function length(e, ta = undefined, tb = undefined) {
+  if (!valid(e)) return null;
+  if (ta === undefined && tb === undefined) { const m = measureOf(e); if (m.length === undefined) m.length = rawLength(e, e.t0, e.t1); return m.length; }
+  if (!fin(ta, tb)) return null;
+  return rawLength(e, Math.min(ta, tb), Math.max(ta, tb));
+}
+
+/** The point half way along the arc by length: { t, x, y }. Bisection on the length, which only grows with t. */
+export function middle(e) {
+  if (!valid(e)) return null;
+  const m = measureOf(e);
+  if (!m.middle) {
+    const half = length(e) / 2;
+    let lo = e.t0, hi = e.t1;
+    for (let k = 0; k < 60; k++) { const mid = (lo + hi) / 2; if (rawLength(e, e.t0, mid) < half) lo = mid; else hi = mid; }
+    const t = (lo + hi) / 2, p = pointAt(e, t);
+    m.middle = { t, x: p.x, y: p.y };
+  }
+  return { ...m.middle };
 }
 
 // ── The conic through five points ────────────────────────────────────────────────────────────────────────────────────────

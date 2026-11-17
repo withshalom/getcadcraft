@@ -14,6 +14,7 @@ import { leaderGeometry, leaderStyle } from './leader.js';
 import { advance, advanceIn } from './font.js';
 import { richOf, heightFactor } from './mtext.js';
 import { points as splinePoints, valid as splineValid, editFit as splineEditFit, moveCtrl as splineMoveCtrl, polyline as splinePolyline } from './spline.js';
+import { points as conicPoints, valid as conicValid, transform as conicTransform, closest as conicClosest, ends as conicEnds, length as conicLength, middle as conicMiddle, bounds as conicBounds } from './conic.js';
 
 export const TAU = Math.PI * 2;
 export const EPS = 1e-9;
@@ -126,6 +127,7 @@ export function prims(e, blocks = null, depth = 0) {
     case 'poly': return polyPrims(e);
     case 'ellipse': return ellipsePrims(e);
     case 'spline': return splinePrims(e);
+    case 'conic': return conicPrims(e);
     case 'point': return [];
     case 'text': { const c = textCorners(e); return c.map((p, i) => ({ k: 'L', x1: p.x, y1: p.y, x2: c[(i + 1) % 4].x, y2: c[(i + 1) % 4].y, box: true })); }
     case 'hatch': return e.loops.flatMap((l) => ringPrims(l));
@@ -241,6 +243,12 @@ export function ellipsePoints(e, steps = ELLIPSE_STEPS) {
 function splinePrims(e) {
   if (!splineValid(e)) return [];
   const p = splinePoints(e), out = [];
+  for (let i = 0; i + 1 < p.length; i++) out.push({ k: 'L', x1: p[i].x, y1: p[i].y, x2: p[i + 1].x, y2: p[i + 1].y });
+  return out;
+}
+/** A parabola or hyperbola arc as short segments along the curve (conic.js: its exact spline, flattened as a spline is). */
+function conicPrims(e) {
+  const p = conicPoints(e), out = [];
   for (let i = 0; i + 1 < p.length; i++) out.push({ k: 'L', x1: p[i].x, y1: p[i].y, x2: p[i + 1].x, y2: p[i + 1].y });
   return out;
 }
@@ -518,6 +526,7 @@ export function entityBounds(e, blocks) {
   const b = emptyBounds();
   if (UNBOUNDED.has(e.type)) return b;   // construction lines have no extents (DR.6)
   if (e.type === 'point') { growPt(b, e.x, e.y); return b; }
+  if (e.type === 'conic') { const c = conicBounds(e); if (c) { growPt(b, c.minX, c.minY); growPt(b, c.maxX, c.maxY); } return b; }   // exact, from the curve itself
   for (const p of prims(e, blocks)) primBounds(p, b);
   if (e.type === 'insert' && !validBounds(b)) growPt(b, e.x, e.y);
   return b;
@@ -526,6 +535,7 @@ export function entityBounds(e, blocks) {
 /** Distance from q to an entity (text and hatch count as hit anywhere inside). */
 export function distToEntity(e, q, blocks) {
   if (e.type === 'point') return dist(e, q);
+  if (e.type === 'conic') { const c = conicClosest(e, q); return c ? c.dist : Infinity; }   // to the curve itself, not to the pieces it is drawn with
   if (e.type === 'text' && pointInPoly(q, textCorners(e))) return 0;
   if (e.type === 'hatch' && e.loops.some((l) => pointInFlat(q, l))) return 0;
   if (e.type === 'insert' && e.attrs) {   // a click on an attribute's text picks its reference
@@ -649,6 +659,16 @@ export function snapPoints(e, q, r, kinds, blocks, base) {
     if (kinds.has('near')) { const n = primPoint(p, primParam(p, q)); if (dist(n, q) <= r) out.push({ kind: 'near', x: n.x, y: n.y }); }
     return out;
   }
+  if (e.type === 'conic') {   // a smooth arc: its two ends, its middle and its nearest point, not the ends of the pieces it is drawn with
+    if (!conicValid(e)) return out;
+    const { start, end } = conicEnds(e);
+    add('end', start); add('end', end);
+    if (kinds.has('mid')) add('mid', conicMiddle(e));
+    if (e.kind === 'hyperbola') add('cen', { x: e.cx, y: e.cy });
+    if (base && kinds.has('perp')) { const c = conicClosest(e, base), tiny = 1e-9 * (e.t1 - e.t0); if (c && c.t > e.t0 + tiny && c.t < e.t1 - tiny) add('perp', c); }   // nearest at an inner point = the foot of a perpendicular
+    if (kinds.has('near')) { const n = conicClosest(e, q); if (n && n.dist <= r) out.push({ kind: 'near', x: n.x, y: n.y }); }
+    return out;
+  }
   const ps = prims(e, blocks);
   for (const p of ps) {
     if (p.box) continue;
@@ -702,6 +722,7 @@ export function txEntity(e, m) {
       if (sim.flip && t1 - t0 < TAU - EPS) [t0, t1] = [TAU - t1, TAU - t0];
       return { ...e, cx: c.x, cy: c.y, mx: a.x - c.x, my: a.y - c.y, t0, t1 };
     }
+    case 'conic': return conicTransform(e, m) || { ...e };   // any affine map, exactly (conic.js); a singular one leaves it as it is
     case 'spline': {
       const Q = (p) => P(p.x, p.y);
       const dir = (d) => (d ? { x: m[0] * d.x + m[2] * d.y, y: m[1] * d.x + m[3] * d.y } : d);   // a direction: the matrix without its move
@@ -1208,6 +1229,7 @@ export function pathOf(e) {
   if (e.type === 'circle') { const n = 96, pts = []; for (let i = 0; i < n; i++) pts.push(polar({ x: e.cx, y: e.cy }, (i / n) * TAU, e.r)); return { pts, closed: true }; }
   if (e.type === 'ellipse') { const pts = ellipsePoints(e, 144); const closed = e.t1 - e.t0 >= TAU - 1e-9; if (closed) pts.pop(); return { pts, closed }; }
   if (e.type === 'spline' && splineValid(e)) { const pts = splinePolyline(e, 24); return { pts, closed: !!e.closed }; }
+  if (e.type === 'conic' && conicValid(e)) return { pts: conicPoints(e).map((q) => ({ x: q.x, y: q.y })), closed: false };
   if (e.type === 'line') return { pts: [{ x: e.x1, y: e.y1 }, { x: e.x2, y: e.y2 }], closed: false };
   if (e.type === 'arc') { const p = prims(e)[0], n = Math.max(8, Math.ceil((p.a1 - p.a0) / (TAU / 96))), pts = []; for (let i = 0; i <= n; i++) pts.push(primPoint(p, i / n)); return { pts, closed: false }; }
   if (e.type === 'poly' && e.pts.length >= 2) {
@@ -1303,12 +1325,13 @@ export function breakEntity(e, p1, p2) {
   return out.filter(Boolean);
 }
 
-/** Length of a line, arc or open polyline (null for others). */
+/** Length of a line, arc, open polyline, spline or conic arc (null for others). */
 export function curveLength(e) {
   if (e.type === 'line') return Math.hypot(e.x2 - e.x1, e.y2 - e.y1);
   if (e.type === 'arc') return e.r * (normAngle(e.a1 - e.a0) || TAU);
   if (e.type === 'poly') return polyPrims(e).reduce((s, p) => s + primLength(p), 0);
   if (e.type === 'spline') return prims(e).reduce((s, p) => s + primLength(p), 0);
+  if (e.type === 'conic') return conicLength(e);   // exact: a closed form or quadrature (conic.js), not the sum of the drawn pieces
   return null;
 }
 
@@ -1503,6 +1526,7 @@ export function stretchEntity(e, inside, dx, dy) {
       return { ...e, cx: g.cx, cy: g.cy, r: g.r, a0: normAngle(g.a0), a1: normAngle(g.a1) };
     }
     case 'circle': case 'ellipse': return inside({ x: e.cx, y: e.cy }) ? txEntity(e, mTranslate(dx, dy)) : null;
+    case 'conic': { if (!conicValid(e)) return null; const { start, end } = conicEnds(e); return inside(start) && inside(end) ? txEntity(e, mTranslate(dx, dy)) : null; }   // an end cannot leave its curve: both ends in the window move it whole
     case 'text': case 'point': case 'insert': return inside({ x: e.x, y: e.y }) ? txEntity(e, mTranslate(dx, dy)) : null;
     case 'mleader': {
       const hit = e.pts.map((p) => inside(p));
@@ -1954,7 +1978,7 @@ export function polyCorners(e, kind, spec) {
   return { e: { ...src, pts: dedupe(pts, closed) }, done: repl.size, short, arcs, removed };
 }
 
-/** Explode: a polyline into lines/arcs, an insert into its (transformed) block entities. */
+/** Explode: a polyline into lines/arcs, a spline or a conic arc into a polyline, an insert into its (transformed) block entities. */
 export function explodeEntity(e, blocks) {
   if (e.type === 'poly') {
     return polyPrims(e).map((p) => (p.k === 'L'
@@ -1965,6 +1989,10 @@ export function explodeEntity(e, blocks) {
     if (!splineValid(e)) return null;
     const pts = splinePolyline(e, 10);
     return pts.length >= 2 ? [{ type: 'poly', layer: e.layer, color: e.color ?? null, closed: !!e.closed, pts: pts.map((q) => ({ x: q.x, y: q.y, b: 0 })) }] : null;
+  }
+  if (e.type === 'conic') {   // a polyline along the curve, as a spline gives: what TRIM, OFFSET and the other editing commands take
+    const pts = conicPoints(e);
+    return pts.length >= 2 ? [{ type: 'poly', layer: e.layer, color: e.color ?? null, closed: false, pts: pts.map((q) => ({ x: q.x, y: q.y, b: 0 })) }] : null;
   }
   if (e.type === 'mleader') return leaderGeometry(e).map((c) => ({ ...c, layer: e.layer, color: e.color ?? null }));
   if (e.type === 'insert' || e.type === 'dim') {

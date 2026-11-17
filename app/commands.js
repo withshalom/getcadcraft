@@ -36,6 +36,7 @@ import {
   unitDir, distToPrim, UNBOUNDED, resolveTangent, insertMatrix, mInverse,
 } from './geom.js';
 import * as Arcs from './arcs/arcs.js';
+import { canonical as conicCanonical } from './conic.js';
 import { TYPE_NAMES, typeName, Doc } from './doc.js';
 import { formatMeasure, angularFromLines, DIM_KINDS } from './dims.js';
 import { textUnitOf, withTextUnit, textUnitMm } from './dimstyle.js';
@@ -4036,6 +4037,12 @@ export function describe(e, units = null) {
     case 'insert': { const na = e.attrs ? Object.keys(e.attrs).length : 0; return na ? t('cmd.desc.insert.attrs', { block: e.block, at: P(e), n: na }) : t('cmd.desc.insert', { block: e.block, at: P(e) }); }
     case 'point': return P(e);
     case 'ellipse': return t('cmd.desc.ellipse', { center: P({ x: e.cx, y: e.cy }), ratio: fmt(e.ratio) });
+    case 'conic': {   // a parabola or hyperbola arc, by the numbers people edit (conic.js)
+      const k = conicCanonical(e);
+      if (!k) return '';
+      return k.kind === 'parabola' ? t('cmd.desc.parabola', { vertex: P(k.vertex), f: L(k.f), angle: fmt(deg(normAngle(k.angle))), length: L(curveLength(e)) })
+        : t('cmd.desc.hyperbola', { center: P(k.center), a: L(k.a), b: L(k.b), angle: fmt(deg(normAngle(k.angle))), length: L(curveLength(e)) });
+    }
     case 'hatch': return t('cmd.desc.hatch', { n: e.loops.length });
     case 'dim': { const kind = (DIM_KINDS[e.kind] || t('cmd.desc.dim.imported')).toLowerCase(); return !e.kind ? t('cmd.desc.dim.block', { kind, block: e.block }) : e.text ? t('cmd.desc.dim.text', { kind, value: formatMeasure(e), text: e.text }) : t('cmd.desc.dim', { kind, value: formatMeasure(e) }); }
     case 'viewport': return t('cmd.desc.viewport', { w: L(e.w), h: L(e.h), at: P(e), view: P({ x: e.cx, y: e.cy }), s: fmt(e.s) });

@@ -27,6 +27,7 @@
 
 import { txEntity, mTranslate, entityBounds, validBounds, emptyBounds, growPt, prims, normAngle, TAU } from './geom.js';
 import { planCopy, applyCopy } from './blockcopy.js';
+import { valid as conicValid } from './conic.js';
 import { t } from './i18n.js';
 import { clipConstraints, readClipConstraints, pasteConstraints } from './gcons.js';
 
@@ -46,7 +47,7 @@ export const CLIP_LIMITS = Object.freeze({
   depth: 6,             // nesting inside an entity
 });
 
-const TYPES = new Set(['line', 'circle', 'arc', 'poly', 'ellipse', 'text', 'point', 'insert', 'hatch', 'dim', 'mleader', 'xline', 'ray', 'spline']);
+const TYPES = new Set(['line', 'circle', 'arc', 'poly', 'ellipse', 'text', 'point', 'insert', 'hatch', 'dim', 'mleader', 'xline', 'ray', 'spline', 'conic']);
 const KEY_RE = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
 const BAD_KEYS = new Set(['constructor', 'prototype', 'toString', 'valueOf', 'hasOwnProperty']);
 const NAME_RE = /^[^<>/\\":;?*|=`\u0000-\u001f]{1,255}$/;   // a block name, after an anonymous block's leading "*"
@@ -204,6 +205,7 @@ function checker() {
         break;
       }
       case 'ellipse': need('cx', 'cy', 'mx', 'my', 'ratio', 't0', 't1'); break;
+      case 'conic': need('cx', 'cy', 'ux', 'uy', 'vx', 'vy', 't0', 't1'); if (!conicValid(out)) fail(t('clip.bad.conic', { what })); break;   // a parabola or hyperbola arc (conic.js)
       case 'text':
         need('x', 'y', 'h');
         if (typeof out.s !== 'string') fail(t('clip.text_has_no_text'));

@@ -2674,7 +2674,7 @@ function init(root) {
     return new Promise((done) => {
       const id = (k) => 'cc-qs-' + k;
       const sel = (k, opts) => el('select', { className: 'cc-select', id: id(k) }, ...opts.map(([v, label]) => el('option', { value: v }, label)));
-      const types = ['any', 'line', 'poly', 'circle', 'arc', 'ellipse', 'text', 'point', 'insert', 'hatch', 'dim'].filter((ty) => ty === 'any' || entities.some((e) => e.type === ty));
+      const types = ['any', 'line', 'poly', 'circle', 'arc', 'ellipse', 'conic', 'text', 'point', 'insert', 'hatch', 'dim'].filter((ty) => ty === 'any' || entities.some((e) => e.type === ty));
       const apply = sel('apply', [['all', t('dlg.qs.apply.all')], ...(current.size ? [['sel', t('dlg.qs.apply.sel')]] : [])]);
       const type = sel('type', types.map((ty) => [ty, qsTypeLabel(ty) + (ty === 'any' ? '' : ' (' + entities.filter((e) => e.type === ty).length + ')')]));
       const prop = el('select', { className: 'cc-select', id: id('prop') });
