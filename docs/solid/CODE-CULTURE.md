@@ -110,8 +110,8 @@ text in `app/lang/en.json` (8,232 keys). Plain text, sentence case. (Written: `C
 
 ### 2.7 Provenance and licence
 
-- **Line 1 of every file is `/* SPDX-License-Identifier: Apache-2.0 */`**: all 244 app files and every cc-nurbs and
-  cc-field file. A file that follows another project's published algorithm closely names both licences there, and
+- **Line 1 of every file is the SPDX line, `Apache-2.0`**: all 244 app files and every cc-nurbs and cc-field file. Of the
+  272 JavaScript files 0.10 added, 216 write it as `/* … */` and 55 as `// …`; engine.solid keeps the block form. A file that follows another project's published algorithm closely names both licences there, and
   `THIRD_PARTY.md` credits it. (Observed; Written.)
 - Nothing is copied from proprietary CAD software, its SDKs or file-format libraries, or ported from GPL, LGPL or MPL
   code. Readers are written from published specifications; other implementations are black boxes in tests only. Where the
@@ -171,7 +171,44 @@ millimetres, right-handed, Z up, and the app converts at the boundary. (Observed
 | An import-boundary checker (`check-boundaries.mjs`, 16 rules) | differs | a kernel grows for 40 sessions; a rule that fails the build is the one that lasts |
 | Every number is tested against an exact reference | differs | the engine's claim is exactness |
 
-## 6. A new file, checked
+## 6. What 0.10 added to the pattern
+
+Read on 2026-11-17, after the merge: 272 new JavaScript files in `app/` and `tests/lib/`, among them the new engines
+`classify`, `modelaudit`, `sweptpath`, `lod` and `quantities`. They keep every rule above and show seven habits more
+clearly.
+
+1. **The header says where the work came from.** 81 carry a track tag such as `(0.10 BK.94)`, 85 name their session
+   (`session bk-content-10`), and some name the decision (`owner decision 2026-11-11`). engine.solid's equivalent is
+   `(S13, docs/solid/HANDOFF.md § 8.5)`: a session and a plan section.
+2. **`host-free` is the newer word for `No DOM`** (189 of 272 say one or the other). A shared module also says who carries
+   its copy; 44 write the same sentence: `<App> carries a byte-identical copy in <app>/dev/<lib>/ (tools/<lib>/sync.mjs)`.
+3. **Data, never code.** Tables, limits and formats are data: a frozen constant (`PACK_LIMITS`, `INTERFACE_LIMITS`), a
+   self-describing format `{ format: 'cadcraft-<thing>', version: 1, … }` named by a constant (`PACK_FORMAT`), and a
+   reader (`readPack`, `readDefaults`) that cleans what it takes and refuses what it cannot use. A limit says when it is
+   a starting value and not a standard.
+4. **Two ways to fail, by who is asking.** Code that reads what people or files hand it returns a result,
+   `{ ok: false, error: 'many' }`, with a short lower-case word (34 new files). Geometry engines throw a coded error
+   (25 files throw, 6 define an error class), as cc-nurbs does. engine.solid is a geometry engine and throws; what it
+   reads from a file (STEP, S28 on) is input, and should return the result form first.
+5. **Audits advise.** A rule set returns findings in the shared Problems shape and blocks nothing:
+   `{ code, severity: 'warning' | 'note', msg: { key, vars }, text, about: [{ kind, id, label }], source: { name } }`,
+   inside `{ problems, summary: [{ set, checked, found }] }`, capped, and every finding can be accepted with a reason.
+   The auditor (S14) uses this shape for its findings; the engine's refusals stay refusals.
+6. **A host-free library carries its own English and takes a translator.** `words(key, vars)` holds the sentences and a
+   host passes `t` to replace them (`auditProblems(input, { t })`); the file says so in an `i18n-ignore-file` or an
+   `i18n-ignore-start … i18n-ignore-end` note that always gives its reason (68 files). engine.solid has no words at all,
+   which is the cleaner case.
+7. **Small, dense and forgiving.** Modules are short (`sweptpath/geom.js` is 91 lines; an `index.js` is a handful of
+   `export` lines), names are short (`inPoly`, `segsCross`, `distPointSeg`, `polyArea`), a line averages 66 columns
+   (engine.solid 53), and `?.` and `??` are everywhere (24 per 1,000 lines). Checks on people's input are soft where a
+   refusal would get in the way (`codeLooksRight`: "a code is never refused for its shape"); an engine that builds solids
+   is where the strict ones belong.
+
+A short comment that says *why* sits at the end of the line it explains (`// a pack says where its table comes from`); a
+section is a divider of dashes and a word (`// ---- packs`); a function that does one thing has one sentence above it, with
+an example in it.
+
+## 7. A new file, checked
 
 1. Line 1 is the SPDX line, line 2 the `i18n-ignore-file` note if the file holds no words.
 2. A header says what the file is, what it imports from, and lists its API with `→`.
