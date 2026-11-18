@@ -507,5 +507,5 @@ Also checked: a polygon lamina (front through the points, back the other way); a
 ## Next
 - **S13 — trims and pcurves** (HANDOFF §14, M2: pcurves per coedge, periodic seams, poles and degenerate edges, point-in-face with exact predicates; cylinder, sphere, cone and torus bodies construct, seam and pole cases covered by explicit tests). Then S14, the auditor and the primitive corpus: release gate v0.1 ("geometry + topology + auditor").
 - **Recognition (NURBS → analytic)** belongs with S7's conversions but is not built: a NURBS curve or surface that is exactly a circle, a cylinder … is not yet told apart. STEP import (S30) needs it; noted for then.
-- **Owner decisions still open** (`HANDOFF.md` §17.2): D-ccn, D-kad / D-kbc. Settled: D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; D-home superseded by the move.
+- **Owner decisions still open** (`HANDOFF.md` §17.2): D-kad / D-kbc (to be dropped with the K-themed names). Settled: D-ccn (2026-11-17: cc-nurbs is not edited on this branch; defects go upstream as separate small pull requests), D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; D-home superseded by the move.
 - **The pull request** to the site repo's `main` waits for the owner's go (D-home).
