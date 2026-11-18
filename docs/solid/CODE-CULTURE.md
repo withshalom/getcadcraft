@@ -132,6 +132,7 @@ text in `app/lang/en.json` (8,232 keys). Plain text, sentence case. (Written: `C
 | Constants | `UPPER_SNAKE`, frozen when they are tables | `SIDES`, `PATTERNS`, `MAX_SOLIDS`, `LUNITS` |
 | Helpers kept inside a file | not exported, short, lower-case | `clampU`, `finite3` |
 | Options | one object, last; a tolerance as `tol` | `points(e, { tol })`, `alignMoves(doc, ids, { side, to })` |
+| Accuracy targets | `eps` is an algorithm's own numerical accuracy target (integration, root finding); `tol` is the geometric Tolerance record. Both may appear in one options object | `length(c, { eps, tol })` (engine.solid) |
 | Matrices | an `m` prefix in the app's geometry, row-major 4×4 in the engines | `mMul`, `mTranslate`; `m[3], m[7], m[11]` |
 | Language keys | `<area>.<thing>[.<detail>]` | `props.err.int` |
 | Error codes | `<lib>.err.<snake_case>` | `nurbs.err.knots_order`, `solid.err.bad_input` |
