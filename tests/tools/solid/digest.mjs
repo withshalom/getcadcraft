@@ -359,6 +359,34 @@ const AREAS = {
     }
     mix(B.toData(b));
   },
+  trim(P, { mix }) {                                     // S13: the curved primitives with their pcurves, point in face, the winding number
+    const B = P.brep, Pr = P.prim, Tr = P.trim, Pc = P.pcurve, Fr = P.frame, V = P.vec3, T = P.trig, C = P.curve, h = P.makePrng(117);
+    const frame = () => Fr.frameFromZ([h.range(-5, 5), h.range(-5, 5), h.range(-5, 5)], V.unit([h.range(-1, 1), h.range(-1, 1), h.range(0.2, 1)]));
+    for (let i = 0; i < 6; i++) {
+      const f = frame(), r = h.range(0.5, 3), t = h.range(0.5, 4);
+      for (const make of [() => Pr.cylinder(B.EMPTY, { frame: f, r, h: t }), () => Pr.cone(B.EMPTY, { frame: f, r, h: t }), () => Pr.sphere(B.EMPTY, { frame: f, r }), () => Pr.torus(B.EMPTY, { frame: f, R: r + t, r })]) {
+        const body = make(), b = body.brep;
+        mix(B.toData(b)); mix(B.euler(b)); mix(Tr.degenerate(b));
+        for (const fid of B.ids(b, 'face')) {
+          const surf = B.get(b, 'face', fid).surface;
+          for (let k = 0; k < 6; k++) mix(got(() => Tr.classify(b, fid, [h.range(-1, 7), h.range(-2, 5)])));
+          for (const l of B.get(b, 'face', fid).loops) mix(Tr.uvLoop(b, l));
+          mix(P.surface.typeOf(surf));
+        }
+      }
+    }
+    for (let i = 0; i < 200; i++) {                       // the winding number of random polygons, at corners, midpoints and random points
+      const n = 3 + h.int(5), poly = Array.from({ length: n }, () => [h.int(21) - 10, h.int(21) - 10]), pieces = poly.map((a, k) => ({ kind: 'seg', a, b: poly[(k + 1) % n] }));
+      mix(Tr.winding(pieces, [h.int(25) - 12, h.int(25) - 12])); mix(Tr.winding(pieces, poly[h.int(n)]));
+      mix(Tr.winding(pieces, [h.range(-12, 12), h.range(-12, 12)]));
+    }
+    for (let i = 0; i < 40; i++) {                        // pcurves of a circle round a cylinder, at random heights and starts
+      const f = frame(), r = h.range(0.5, 3), v = h.range(0.1, 2), ta = h.range(0.1, 2), tb = ta + h.range(0.5, 3);
+      const cyl = P.analyticSurface.cylinder({ frame: f, r, urange: [0, T.TAU], vrange: [0, 3] });
+      const ring = P.analyticCurve.circle({ frame: Fr.frameFromZX(V.madd(f.o, v, f.z), f.z, f.x), r, range: [ta, tb] });
+      mix(got(() => { const pc = Pc.pcurveOf(cyl, ring, ta, tb, { near: [ta, v] }); return [C.point(pc, ta), C.point(pc, tb), C.point(pc, (ta + tb) / 2)]; }));
+    }
+  },
   prng(P, { mix }) {
     const g = P.makePrng(108);
     for (let i = 0; i < 5000; i++) { mix(g.u32()); mix(g.float()); mix(g.range(-1e308, 1e308)); mix(g.int(1 + i)); mix(g.normal()); mix(g.unit3()); }

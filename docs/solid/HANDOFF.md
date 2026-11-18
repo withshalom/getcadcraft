@@ -482,7 +482,7 @@ Legend: ☐ not started, ☑ done. Each session ends with passing tests, updated
 | S9 | **done** (2026-11-14) | `geom/construct.js`: exact compatibility, ruled, loft, Coons, grid interpolation, analytic extrude and revolve, each checked against what it passes through; see `STATUS.md`. Sweeps and Gordon networks wait for S22 |
 | S10 | **done** (2026-11-14) | `geom/query.js` (global closest points and inversion, tight boxes, length, area) and `math/bvh.js`, written new (cc-nurbs' versions sample fixed rules or stop at local minima); see `STATUS.md`. Interval bounds for intersection come with S25 |
 | S11–S12 | new; **done** (2026-11-15) | the core: topology model, stable IDs, Euler operators, builders, sewing **by identity**. S11: `topo/brep.js` and `topo/names.js` (D-store decided: whole-table copies, 3.9 ms an edit at 1,000 faces). S12: `topo/euler.js` (the Euler operators and their inverses) and `topo/build.js` (polygon, sweep, polyhedron; sewing by identity and, second, by geometry within tol.lin); see `STATUS.md` |
-| S13 | new | exact pcurve trims (cc-nurbs' polygon trims stay, for display) |
+| S13 | **done** (2026-11-17) | `topo/pcurve.js`, `prim.js`, `trim.js`: exact pcurves for the analytic pairs, the four curved primitives with their seams and poles, the winding number and point in face with exact predicates; see `STATUS.md`. cc-nurbs' polygon trims stay, for display. Curved NURBS pcurves (a general edge on a NURBS face) wait for S30 and S31 |
 | S14 | new | auditor plus corpus; cc-nurbs' box / cylinder / sphere are cross-checks |
 | S15–S16 | adapt | from cc-step `tess.js` and cc-acis `cdt.js` |
 | S17 | adapt | check PartCraft's existing exporters first; the STL format is the reference, not any one writer |
@@ -525,7 +525,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 |---|---|---|---|
 | ☑ | **S11** | Topology data model, stable IDs, immutable snapshots, adjacency index; chunking decision by benchmark | 1,000-face body × 100 ops benchmark recorded; round-trip clone equality |
 | ☑ | **S12** | Euler operators, loop/face/shell builders, sewing, orientation | Euler–Poincaré holds for random op sequences; box/prism built both ways are equivalent |
-| ☐ | **S13** | Trimming, pcurves, periodic seams, poles/degenerate edges, point-in-face with exact predicates | cylinder/sphere/cone/torus test bodies construct; seam and pole cases covered by explicit tests |
+| ☑ | **S13** | Trimming, pcurves, periodic seams, poles/degenerate edges, point-in-face with exact predicates | cylinder/sphere/cone/torus test bodies construct; seam and pole cases covered by explicit tests |
 | ☐ | **S14** | Auditor v1 (topology + geometry checks) and the **primitive corpus** (box, cylinder, cone, sphere, torus, prism with holes, revolved vase) | auditor passes the corpus and fails ≥ 20 deliberately corrupted bodies (each check is proven to fire) |
 
 **Release gate v0.1:** "geometry + topology + auditor". Library only.

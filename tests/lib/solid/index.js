@@ -36,10 +36,12 @@
  *   brep · names                             S11: the B-rep as immutable snapshots (stable ids, copy-on-write edits
  *                                            checked against the structural rules, adjacency); persistent names
  *   euler · build                            S12: the Euler operators; polygons, sweeps, polyhedra and sewing
+ *   pcurve · prim · trim                     S13: an edge in its face's (u, v) space, exactly; the cylinder, cone, sphere and torus as
+ *                                            solids with their seams and poles; the winding number and point-in-face
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.15';
+export const VERSION = '0.0.16';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -72,6 +74,9 @@ export * as brep from './topo/brep.js';
 export * as names from './topo/names.js';
 export * as euler from './topo/euler.js';
 export * as build from './topo/build.js';
+export * as pcurve from './topo/pcurve.js';
+export * as prim from './topo/prim.js';
+export * as trim from './topo/trim.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';

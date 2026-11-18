@@ -43,6 +43,7 @@
  *   solid.err.no_convergence  (S2) an iteration stopped before it met its tolerance — { what, iterations }
  *   solid.err.not_within_tolerance  (S5) an approximating operation cannot stay within the tolerance it was given —
  *                             { what (the operation, e.g. 'reduce'), tol, error? (the deviation it would have left) }
+ *   solid.err.not_supported   (S13) a pair or a case the engine does not build — { what: 'surface' | 'pcurve' | 'loop', why }
  *   solid.err.singular        (S2) a matrix cannot be solved — { why: 'pivot' | 'rank' | 'matrix', size?, column?, rcond? }
  * Later sessions add codes here, each with a test that throws it and its language-table key.
  */
@@ -55,6 +56,7 @@ export const CODES = Object.freeze([
   'solid.err.limit',
   'solid.err.no_bracket',
   'solid.err.no_convergence',
+  'solid.err.not_supported',
   'solid.err.not_within_tolerance',
   'solid.err.singular',
 ].sort());
