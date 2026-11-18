@@ -17,7 +17,7 @@
  *   interpolate(points, { deg = 3, param = 'chord', d0, d1, tol }) → { curve, params, error }   (deg falls to count − 1 when
  *     there are too few points for it; d0, d1 are the first derivatives at the ends, in the parameter of `params` on [0, 1])
  *   approximate(points, { deg = 3, param = 'chord', tol, maxCount }) → { curve, params, error, count }   (error ≤ tol.fit)
- *   fromSpline({ degree, controlPoints, knots, weights, fitPoints, startTangent, endTangent }, tol) → curve — a KAD / DXF
+ *   fromSpline({ degree, controlPoints, knots, weights, fitPoints, startTangent, endTangent }, tol) → curve — a DXF
  *     SPLINE: its control form as it is, or its fit-point form through interpolate; a fit form's end tangents are directions,
  *     scaled by the total chord length (the derivative in a chord-length parameter on [0, 1])
  *   params(points, kind) → the parameters cc-nurbs computes, in [0, 1]

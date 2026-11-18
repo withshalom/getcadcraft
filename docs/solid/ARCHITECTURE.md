@@ -84,8 +84,8 @@ The engine works in millimetres, radians, right-handed and Z up. Apps convert at
 ### 4.3 Refusal, never a quiet wrong answer
 - Every failure throws `SolidError(code, vars)`. The code is a `solid.err.*` key that the app words from its language
   table; `vars` fill the message's placeholders. The engine holds no English text.
-- Codes so far: `bad_input`, `bad_tolerance`, `internal`, `limit`, `no_bracket`, `no_convergence`, `not_within_tolerance` (S5), `singular`. Each maps
-  to an upper-case KAD2 code for the KAD2 adapter.
+- Codes so far: `bad_input`, `bad_tolerance`, `internal`, `limit`, `no_bracket`, `no_convergence`, `not_within_tolerance` (S5), `singular`. Each is a stable key;
+  a host's adapter maps it to its own error type.
 - `toEnvelope` turns any error into plain JSON for a worker reply. Unknown errors become `internal` with no message, so
   no stack or path leaves the engine.
 - **Why:** a CAD kernel that returns a slightly wrong solid is worse than one that says "cannot do this here". A typed

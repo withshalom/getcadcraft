@@ -6,7 +6,7 @@
  *   fit: interpolation passes through its data to 1e-10 of the size (HANDOFF § 14, S8), with the end derivatives it was
  *     given; least-squares approximation stays within the requested tol.fit on a corpus of point sets sampled from known
  *     curves (helices, circles, cubics, noisy ones), and its error is a bound (each point's distance to the curve, by a
- *     dense search, never exceeds it); the KAD / DXF SPLINE forms; refusals.
+ *     dense search, never exceeds it); the DXF SPLINE forms; refusals.
  *   construct: compatibility leaves every curve unchanged (deviation 0 to rounding); a loft passes through its sections
  *     (HANDOFF § 14, S9), rational ones included; a ruled surface's v-lines are straight; a Coons patch has its four curves
  *     as edges and reproduces a bilinear-blended known surface; grid interpolation passes through the grid; every
@@ -74,7 +74,7 @@ export async function register({ section, ok, refuses, same, appUrl }) {
       const noisy = sample(shapes[1], 200).map((q) => [q[0] + g.range(-0.05, 0.05), q[1] + g.range(-0.05, 0.05), q[2]]);
       ok(refuses(() => FI.approximate(noisy, { tol: { lin: 1e-6, fit: 1e-3 }, maxCount: 20 }), 'solid.err.not_within_tolerance', { what: 'approximate', tol: 1e-3 }), 'approximate: noise of ±0.05 cannot be followed within 0.001 by 20 control points: refused with the error left');
     }
-    // the SPLINE forms (KAD, DXF)
+    // the SPLINE forms (DXF)
     {
       const ctrl = FI.fromSpline({ degree: 3, controlPoints: [[0, 0, 0], [1, 2, 0], [3, 2, 0], [4, 0, 0]], knots: [0, 0, 0, 0, 1, 1, 1, 1] });
       const fitp = FI.fromSpline({ degree: 3, fitPoints: [[0, 0, 0], [1, 1, 0], [2, 0, 0], [3, 1, 0]], startTangent: [1, 0, 0], endTangent: [0, 1, 0] });

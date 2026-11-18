@@ -15,8 +15,6 @@
  *   isSolidError(e)             also true for one made by another copy of this module (a worker's, a blob URL's)
  *   CODES                          every code cc-solid throws, frozen and sorted. Each needs a key in the app's language
  *                                  table before the app shows it.
- *   KAD2_CODES                     code → the upper-case code KAD2's EngineError uses (HANDOFF § 4.6), for the KAD2
- *                                  adapter; every code in CODES has one.
  *   toEnvelope(e) → { code, vars } plain, frozen JSON for a worker reply or an adapter:
  *                                  a SolidError → its code and vars; a cc-nurbs or cc-step error (code 'nurbs.err.*' or
  *                                  'step.err.*') → its code and cleaned vars; anything else, which can only be a bug,
@@ -46,7 +44,7 @@
  *   solid.err.not_within_tolerance  (S5) an approximating operation cannot stay within the tolerance it was given —
  *                             { what (the operation, e.g. 'reduce'), tol, error? (the deviation it would have left) }
  *   solid.err.singular        (S2) a matrix cannot be solved — { why: 'pivot' | 'rank' | 'matrix', size?, column?, rcond? }
- * Later sessions add codes here, each with its KAD2 code, a test that throws it, and its language-table key.
+ * Later sessions add codes here, each with a test that throws it and its language-table key.
  */
 
 export const CODES = Object.freeze([
@@ -60,18 +58,6 @@ export const CODES = Object.freeze([
   'solid.err.not_within_tolerance',
   'solid.err.singular',
 ].sort());
-
-export const KAD2_CODES = Object.freeze({
-  'solid.err.bad_input': 'BAD_INPUT',
-  'solid.err.bad_tolerance': 'REFUSED_TOLERANCE',
-  'solid.err.bad_topology': 'AUDIT_FAILED',
-  'solid.err.internal': 'INTERNAL',
-  'solid.err.limit': 'LIMIT',
-  'solid.err.no_bracket': 'REFUSED_NO_BRACKET',
-  'solid.err.no_convergence': 'REFUSED_NO_CONVERGENCE',
-  'solid.err.not_within_tolerance': 'REFUSED_TOLERANCE',
-  'solid.err.singular': 'REFUSED_SINGULAR',
-});
 
 const KNOWN = new Set(CODES);
 const UPSTREAM = /^(?:nurbs|step)\.err\.[a-z0-9_]+$/;

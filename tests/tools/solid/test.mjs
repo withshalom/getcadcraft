@@ -83,11 +83,9 @@ const B = await import(pathToFileURL(path.join(HERE, 'check-boundaries.mjs')).hr
 section('errors', 'typed refusals: codes, vars, the envelope', () => {
   ok(Object.isFrozen(E.CODES) && E.CODES.length >= 4, 'CODES is frozen and lists the S1 codes');
   ok(E.CODES.every((c) => /^solid\.err\.[a-z0-9_]+$/.test(c)), 'every code is solid.err.<lower_snake>');
-  ok(['solid.err.no_bracket', 'solid.err.no_convergence', 'solid.err.singular'].every((c) => E.CODES.includes(c)) && E.KAD2_CODES['solid.err.singular'] === 'REFUSED_SINGULAR', 'S2 adds no_bracket, no_convergence and singular, each with its KAD2 code');
+  ok(['solid.err.no_bracket', 'solid.err.no_convergence', 'solid.err.singular'].every((c) => E.CODES.includes(c)), 'S2 adds no_bracket, no_convergence and singular');
   ok(same([...E.CODES].sort(), E.CODES) && new Set(E.CODES).size === E.CODES.length, 'CODES is sorted and has no duplicates');
   ok(['solid.err.bad_input', 'solid.err.bad_tolerance', 'solid.err.internal', 'solid.err.limit'].every((c) => E.CODES.includes(c)), 'bad_input, bad_tolerance, internal and limit are codes');
-  ok(same(Object.keys(E.KAD2_CODES).sort(), E.CODES) && Object.values(E.KAD2_CODES).every((c) => /^[A-Z][A-Z0-9_]*$/.test(c)), 'every code has exactly one upper-case KAD2 code (and KAD2_CODES has nothing else)');
-  ok(Object.isFrozen(E.KAD2_CODES), 'KAD2_CODES is frozen');
 
   const e = new E.SolidError('solid.err.limit', { what: 'time', limit: 5, used: 6 });
   ok(e instanceof Error && e instanceof E.SolidError, 'SolidError is an Error');

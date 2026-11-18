@@ -79,7 +79,7 @@ Source: `HANDOFF.md` §15; the owner's direction (D5, D6).
 | Other kernels only as black-box oracles, never shipped | none in the repository | review; the `external` rule keeps them out of imports | enforced |
 | Third-party test corpora not committed | none so far | review | checked |
 | The library repo's items keep their own licences | the engine does not touch `items/`; the README states the engine's licence separately | `README.md` | checked |
-| Owner's earlier code (KAD family) | when it is used, a provenance row names the snapshot and lines; stale AGPL headers are not carried over | `PROVENANCE.md` (no KAD code taken so far) | checked |
+| Owner's earlier code | when it is used, a provenance row names the source and lines; stale AGPL headers are not carried over | `PROVENANCE.md` (none taken so far) | checked |
 
 ## 7. Repository and process
 
@@ -109,7 +109,7 @@ The other seven app repos carry the same guide and template with their own names
 | No new library, or one named in the pull request with its permissive licence | PR template, app `CONTRIBUTING.md` | none | checked |
 | Nothing copied from proprietary CAD software, its SDKs or file-format libraries; nothing ported from GPL, LGPL or MPL code; readers from published specifications, other implementations as black boxes only | org and app `CONTRIBUTING.md`, PR template | § 6; `PROVENANCE.md`, a row per file | checked |
 | Apache-2.0, and the right to contribute it | org and app `CONTRIBUTING.md`, PR template | rule `spdx`; the owner's own work | enforced |
-| Other products' names only to say what a format or workflow is compatible with, in plain text, never in a title, heading or product name | app `CONTRIBUTING.md` | `docs/solid/` headings reviewed 2026-11-15: one heading named the ACIS kernel and now names the SAT/SAB format; the rest name the owner's own KAD-family products and the site's own libraries | checked |
+| Other products' names only to say what a format or workflow is compatible with, in plain text, never in a title, heading or product name | app `CONTRIBUTING.md` | `docs/solid/` headings reviewed 2026-11-15: one heading named the ACIS kernel and now names the SAT/SAB format; the rest name the site's own libraries | checked |
 | Help pages compiled by `build-help.php`; translations by the language-file rules | app `CONTRIBUTING.md`, `language-packs` | the engine adds no help pages and no words | not applicable |
 | Security problems are reported privately (`cadcraft-cpp`, `cadcraft-rust` `SECURITY.md`) | those repositories | the engine opens no files from strangers yet; the readers (S28 onward) take the same care | later |
 

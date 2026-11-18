@@ -1,7 +1,7 @@
 # engine.solid — the NURBS-based pure-JavaScript solid kernel of the CadCraft suite
-## Handoff · CadCraft™ Studio / SuperCad / KADsuite (Data Design Group)
+## Handoff · CadCraft™ Studio / SuperCad (Data Design Group)
 
-> **Name:** `engine.solid`, named as the suite's engines are (owner, 2026-11-12): the library is cc-solid, its folder `solid/`, its error codes `solid.err.*`, its error class `SolidError`. Earlier names: the placeholder KNOT (branches `knot/dev` and `knot/kad-reference` in the PartCraft fork) and PartCore (branch `partcore` there, where S1 was built).
+> **Name:** `engine.solid`, named as the suite's engines are (owner, 2026-11-12): the library is cc-solid, its folder `solid/`, its error codes `solid.err.*`, its error class `SolidError`. Earlier name: PartCore (built first in the PartCraft fork, where S1 was built; that fork's branches were removed on 2026-11-17).
 >
 > **Status of this document:** the plan. **Building has started:** S0 (audit), S1 (scaffold), S2 (math kit), S3 (exact predicates) and S4 (basis functions) are done. What is built is recorded in `docs/solid/STATUS.md`, not here. Everything not yet built is a proposal for the owner to confirm, change or reject. Where I am inferring rather than reading something in your repositories, it says so.
 >
@@ -9,7 +9,7 @@
 > - **Home (D-home, superseded 2026-11-13):** the site repo, beside cc-nurbs, on branch `engine/solid`. The engine is in `lib/solid/`, its tools in `tools/solid/` (run by `bin/test-solid.mjs`), these documents in `docs/solid/`; in a clone of the site repo those folders sit under `tests/` (`tests/lib/solid/` and so on). It was first built in the library repo `withshalom/getlibrarycraft`, branch `engine/solid`, and its history was carried over commit by commit. A pull request follows once engine.solid is finished; the owner then authorizes it for the apps that need it, and each of them carries a byte-identical copy (`solid/` in its build folder), as with every engine.
 > - **An engine like the others** (getcadcraft.com › Build an add-on › Engines): Apache-2.0, DOM-free JavaScript run in workers, shared by every app and SuperCad Studio. Add-ons name it in their manifest's `needs` (`engine.solid`) and import `engine:solid/…`; an app with its own copy needs no download.
 > - **Built on what the suite has:** it sits on cc-nurbs and cc-step (D8) instead of rewriting them. They sit beside it in the site's `lib/` and in every host app.
-> - **Sources:** the KAD-family snapshots stay in the PartCraft fork (`withshalom/getpartcraft`, branch `knot/kad-reference`, also contained in `partcore`). Paths `reference/kad/…` below refer there.
+> - **Sources:** the studio's own libraries (cc-nurbs, cc-step, cc-acis) and the published references in § 18. Reference snapshots of the owner's older apps were dropped on 2026-11-17.
 > - **v1.0 → v1.1:** `docs/solid/REVIEW-2026-11-12.md` lists every change (P1–P16); sections that changed carry a **v1.1** note. **v1.1 → v1.2:** renamed (D-name) and moved (D-home); later v1.2 notes say what else changed.
 >
 > **Written:** 2026-11-12 · **Owner / sole copyright holder:** Shalom (`withshalom`) · **Licence for new kernel files:** Apache-2.0, the licence of the suite's engines (see §15)
@@ -37,7 +37,7 @@ Section map: 1 Decisions · 2 Goals and constraints · 3 What your repos tell us
 | D2 | **Everything must run offline.** No network, no CDN, no cloud service, no lazy-fetched module. "Local" means offline. **v1.2, made precise:** the engine is local and embedded as the core. No CAD function depends on a web-loaded service. The suite around it may use cloud services (accounts, sync, the library); the kernel never needs them, and each host carries its own copy. | You, earlier; refined 2026-11-12 |
 | D3 | ~~No booleans in the kernel's core scope.~~ **v1.2: booleans are in scope, but not dominant.** Profile and feature construction stays the main route; exact NURBS booleans (M9) are planned beside it, so both can be used. Without them, splines and conics would be out of reach. | You, 2026-11-12 |
 | D4 | The kernel is built by you and me, **one complete build per session, one step at a time.** | You, earlier |
-| D5 | Code written for KAD, KAD2, KADsuite and the rest is **MIT/Apache** and you hold full copyright discretion. AGPL text still sitting in file headers is to be ignored. | You, this session |
+| D5 | Code the owner wrote earlier is **MIT/Apache** and the owner holds full copyright discretion. AGPL text still sitting in file headers is to be ignored. | You, this session |
 | D6 | OpenCascade (and SMLib, etc.) may be used **only as test oracles**, never as source to copy. PartCraft already works this way (its exact kernel is opt-in and off by default). | PartCraft practice |
 | D7 | ~~**v1.1:** PartCore is built **in the PartCraft fork** (`withshalom/getpartcraft`), on branch `partcore`. The code goes in `app/partcore/`, tests in `tests/tools/partcore/` run by `tests/bin/test-partcore.mjs`, and docs in `docs/partcore/`.~~ Superseded by D-home. | Owner, 2026-11-12 |
 | D-home | ~~**v1.2:** engine.solid is built **in the library repo** (`withshalom/getlibrarycraft`), on branch `engine/solid`: the engine in `lib/solid/`, its tools in `tools/solid/` run by `bin/test-solid.mjs`, docs in `docs/solid/`. A pull request follows once engine.solid is finished; the owner then authorizes it for the apps that need it.~~ **Superseded 2026-11-13:** the home is the site repo's `lib/solid/`, beside `lib/nurbs/`; `tools/solid/sync.mjs` copies it byte for byte into each host's `dev/solid/`. A pull request still waits for the owner's go, and the owner still authorizes each app. | Owner, 2026-11-12; moved 2026-11-13 |
@@ -47,13 +47,13 @@ Section map: 1 Decisions · 2 Goals and constraints · 3 What your repos tell us
 
 I am reading this as: *do not build the kernel around mesh/CSG booleans (the manifold-style approach, or the narrow box-only booleans I found in `solid-kernel`), and do not make booleans a v1 deliverable.* The kernel's core is **NURBS geometry + B-rep topology + solids made by profile operations** (extrude, revolve, sweep, loft, skin) with validation, meshing and STEP.
 
-That reading has a consequence you should confirm, because it affects KUBIC:
+That reading has a consequence you should confirm, because it affects the apps' feature lists:
 
 - **What works without booleans:** prismatic parts whose full outline is sketched (holes as inner loops), revolved parts with grooves in the profile, swept and lofted bodies, transforms, patterns, offsets of whole bodies, measurement, sections and projections, STEP/mesh export.
 - **What does not, without some form of face-vs-face intersection:** cutting a pocket or hole into an *existing* body, push/pull *into* material, fusing two overlapping bodies, intersecting bodies, fillets/chamfers (these need intersections but not booleans).
-- **KUBIC's card on the KADsuite page says "push/pull and booleans".** Either that copy changes, or milestone M9 (optional NURBS booleans, §14) is eventually scheduled. The architecture in this plan keeps that door open (the same surface/surface intersection that sections and fillets need is what booleans would need) but nothing is built for it before M9.
+- **Any app copy that promises "push/pull and booleans" is affected.** Either that copy changes, or milestone M9 (optional NURBS booleans, §14) is eventually scheduled. The architecture in this plan keeps that door open (the same surface/surface intersection that sections and fillets need is what booleans would need) but nothing is built for it before M9.
 
-**Please confirm or correct D3.** If you meant "no booleans, ever, in any form", delete M9 and I will note which KUBIC features must be redefined.
+**Please confirm or correct D3.** If you meant "no booleans, ever, in any form", delete M9 and I will note which promised features must be redefined.
 
 **v1.2, settled (owner, 2026-11-12):** "Booleans are fine as well, they just shouldn't be dominant. We should be able to map both." M9 is planned, not optional. Everything above about building the core without booleans first still holds: M9 comes after the intersection rings it needs.
 
@@ -65,16 +65,16 @@ That reading has a consequence you should confirm, because it affects KUBIC:
 
 ### Goals
 1. A **pure-JS, zero-dependency, offline** B-rep kernel: NURBS and analytic geometry, trimmed faces, valid solids.
-2. **Runs identically** in a browser tab, a Worker and Node (same rule KAD2's engine follows: no DOM, no network, no `eval`, no dynamic import).
+2. **Runs identically** in a browser tab, a Worker and Node (the suite's engine rule: no DOM, no network, no `eval`, no dynamic import).
 3. **Honesty over approximation.** Operations either produce a body that passes the independent auditor, or refuse with a typed, machine-readable error. They never return a quietly-wrong body. (Borrowed from `solid-kernel`'s design, which I judged the best idea in that project.)
-4. **Provenance and persistent naming** for faces and edges, so dimensions, constraints and scripts (KUBIC, KRAFT/SKAD) survive re-computation.
+4. **Provenance and persistent naming** for faces and edges, so dimensions, constraints and scripts (the apps' sketch constraints and scripts) survive re-computation.
 5. A STEP (ISO 10303-21) **writer first, then reader**, so SuperCad can finally replace its STEP stub and PartCraft can retire mesh-only STEP.
-6. **Watertight tessellation** for display, STL/glTF/3MF export and fabrication (KAM, KARVE).
-7. Plugs into KAD2 through the interfaces KAD2 already has (backend registry, commands, capabilities, transactions), not around them.
+6. **Watertight tessellation** for display, STL/glTF/3MF export and fabrication (CAM and nesting).
+7. Plugs into each host app through the interfaces it already has (worker host, commands, capabilities, transactions), not around them.
 
 ### Non-goals (for v1.0)
 - Booleans on general NURBS bodies. **v1.2:** in scope (D3), after the v1.0 core, in M9.
-- Parametric constraint solving, sketch solver, feature-tree history (those live in KUBIC/PartCraft; the kernel provides the stable names they need).
+- Parametric constraint solving, sketch solver, feature-tree history (those live in the apps, PartCraft first; the kernel provides the stable names they need).
 - Assemblies/mates, PMI, rendering materials, kinematics.
 - Subdivision surfaces, T-splines, point clouds, mesh repair.
 - Performance parity with Parasolid/ACIS/OCCT. Target is "fast enough for single parts of a few thousand faces in a Worker."
@@ -82,53 +82,15 @@ That reading has a consequence you should confirm, because it affects KUBIC:
 ### Hard constraints
 - JavaScript only (ES modules; JSDoc types allowed; no TypeScript compile step, no bundler needed to run).
 - No third-party runtime dependencies. **v1.1:** in-repo PartCraft libraries (cc-nurbs `app/nurbs/`, cc-step `app/step/`) are allowed; manifold-3d and OpenCascade are not. Dev tooling must be optional (plain `node` test scripts, as PartCraft's are).
-- Geometry in **millimetres**, angles in **radians**, right-handed, Z-up (matches KAD2: `.kad` stores mm; CadScene uses radians).
+- Geometry in **millimetres**, angles in **radians**, right-handed, Z-up (the suite's convention).
 - Deterministic: same inputs produce the same body and the same IDs.
-- Bounded: every parser and every operation has explicit size/iteration limits, reported as `LIMIT` errors (KAD2 convention).
+- Bounded: every parser and every operation has explicit size/iteration limits, reported as `LIMIT` errors (the suite's convention).
 
 ---
 
 ## 3. What your repositories tell us
 
-I read the original KAD, KAD2 and KADsuite. Findings that shape this plan:
-
-### KAD (1.x, `withshalom/kad`, single 24,570-line `index.html`)
-- **2D only.** The object store (`GeoMemory`) has lines, points, polylines (with bulge), Bézier paths, circles, arcs, hatches. No 3D entities.
-- **A STEP stub already exists** (around lines 14526–14600): `STEP_KERNEL_CHOSEN = false`, `loadStepKernel()` rejects with "no STEP kernel has been selected yet", pinned to nothing. The only STEP path sketched is *planar cross-section import* (`stepChainEdges`, 1e-3 mm). This kernel is what fills that gap.
-- **SKAD** (the scripting interpreter) emits "3D needs KRAFT" in three places. KRAFT is the planned 3D handler; the kernel should expose a script-friendly command surface for it.
-- A `PLANES` / `UCS_PLANES_ACTIVE=false` mechanism and `PartLibrary` exist: sketch-plane frames and parts are already concepts.
-
-### KAD2 (`withshalom/KAD2`, plain single-file build, 357,984 bytes)
-I read the built single file; the `src/` tree was not in the clone, so layout conventions below are inferred from the embedded module map (`src/engine/...`).
-- **Engine/UI separation enforced by a boundary checker**; engine has no DOM/network/eval/dynamic imports. This is exactly the rule the kernel should adopt.
-- **42 validated commands**, frozen results, **capability sessions** (`doc.read`, `doc.write`, `history`, `io.import`, `io.export`, `admin`), budgets, dry runs, proposals. 
-- **Transactions with delta undo/redo.** Immutable-ish records are the norm.
-- **Error type**: `EngineError(code, message, details)` with stable codes, `fail()`, and an `errorEnvelope`. The kernel should reuse the same shape.
-- **`FormatRegistry.registerBackend({id, formats, read(data,opts)→CadScene, write(view,opts)})`**, with `registerBackend` requiring the `admin` capability and a note that backends belong in a Worker. `FORMATS` already lists `step` and `dwg`. This is the STEP integration point.
-- **CadScene** is the shared semantic model for DXF/DWG/STEP readers. Its `SPLINE` entity carries `{degree, closed, ctrl:[[x,y,w]], knots, fit}` and `ELLIPSE` carries `{c, major, ratio, a0, a1}`, so profile curves map to kernel curves almost one-to-one. Its `SOLID` type is the DXF 2D filled quad, not a 3D solid.
-  - **v1.1 correction:** the CadScene speaks NURBS, but **the KAD2 document does not.** `io/cad/resolve.js` keeps a spline exact only when it is a non-rational cubic Bézier chain (it becomes `BEZIER`). Every other spline is sampled into a polyline. So the KAD2 adapter must read profiles from the CadScene or from `BEZIER`, never from the flattened polyline.
-- **Kinds registry**: every entity type is `{type, fields, clean, prims, xf, grips, describe, ...}`, and `prims` reduces everything to lines and arcs (Béziers are flattened). 3D bodies do not fit that 2D `prims` contract; they need their own model (see §13).
-- **`.kad` passthrough limits:** unknown top-level keys are carried but capped at `MAX_PASSTHROUGH_KEYS = 32` and `MAX_PASSTHROUGH_BYTES = 1 << 20` (1 MiB). B-reps will exceed 1 MiB quickly, so bodies need a dedicated, versioned section with its own limit, not the passthrough.
-- **Rounding:** geometry is stored at 1e-6 (`R6`), angles at 1e-8. **The kernel must not apply `R6` to its own data**: rounding rational weights such as √2/2 to six places destroys exact circles at the scale of the kernel's own tolerance.
-- **End-to-end chaining already exists:** `ops/modify.js` `join(entities, tol = 1e-4)` chains lines, arcs and open polylines that meet end to end into polylines (with bulge) and flags closure. It does *not* handle Béziers/splines, loop nesting (holes), orientation or self-intersection, and it rounds output with `R6`. (`kernel/hatch.js` is the hatch *pattern* generator, not a loop finder.) So S19 can reuse the chaining idea, but nesting, orientation, spline support and validity checking are new work.
-- `ext.planes` plus `mergePlanes` already exist for sketch-plane frames.
-- Module headers still say AGPL-3.0-or-later. Per D5 I treated them as MIT/Apache; one sweep session updates them (§15).
-
-### KADsuite (suite landing page)
-- **KUBIC** (Beta, card hidden): "3D solid modeler for fabrication, sketching to solid with push/pull and booleans, exporting STL and STEP." Primary consumer. See D3 conflict note.
-- **KAM** (nesting / G-code) and **KARVE** (lathe/mill) benefit directly from sections, revolve and watertight meshes. **KONSTRUCT** and the rest are later consumers.
-
-### KUBIC (`reference/kad/kubic/KUBIC.html`) — v1.1
-- **What it is:** a Canvas2D 3D sketcher with a Z-up camera, sketching on XY at Z = 0. Tools: line, 3-point arc, rectangle, circle, polygon, line-line fillet, offset and extrude. Files: `.kbc` and binary STL.
-- **No B-rep.** A "solid" is `{ base: polygon, height }`, a prism.
-- **The card overstates it.** There are no push/pull and no booleans in the code.
-- **Kernel-fixable faults K1–K8** (review §3.1): circles faceted; arcs ignored, so filleted outlines cannot be extruded; one line loop only; no holes; inside-out solids from clockwise outlines and negative heights; fan-triangulated concave caps in STL; inch units not round-tripped.
-- **Its own bugs K9–K15:** STL import throws on an undeclared `nextSolidId`; network fonts break the offline rule.
-
-### KARVE (`reference/kad/karve/KARVE.html`) — v1.1
-- **What it is:** a lathe/mill front end with a material table and an operation list.
-- **Its G-code is a placeholder and must not be run** (review §4.1). The moves are fixed rather than computed from geometry, mm/rev feeds are written under `G94`, inch mode is unconverted, radius/diameter mode is unset, and the `G76` / `G83` words do not match the LinuxCNC dialect it claims.
-- **It cannot read KUBIC's files.** It expects `.kbe` with lower-case types; KUBIC writes `.kbc` with upper-case ones.
+The owner's older apps are not part of this engine's plan; the survey of them that stood here was removed on 2026-11-17 (git history keeps it). The findings from the studio's own code that shape the plan follow.
 
 ### PartCraft — audited 2026-11-12 (S0), v1.1
 Full detail is in review §2. In short:
@@ -146,9 +108,7 @@ Full detail is in review §2. In short:
 
 **Implication (v1.1):** engine.solid's own work is the **exact B-rep layer**: shared exact edges with pcurves, exact trims, Euler-valid topology, an independent auditor, exact STEP edges and analytic surface identity, with no mesh booleans. The first consumers are:
 1. PartCraft's exact-kernel seam (`ExactKernel`), which turns on the "Not built yet" exact features
-2. KUBIC's extrude and STL
-3. a STEP writer with exact edges
-4. KAD2's `step` backend
+2. a STEP writer with exact edges
 
 All four are served by the boolean-free core.
 
@@ -162,7 +122,7 @@ All four are served by the boolean-free core.
 - **Code:** `lib/solid/` in `withshalom/getlibrarycraft`, developed on branch `engine/solid`. That is the shape of the site's `lib/<name>/`, so the engine can move there unchanged.
 - **Same rules as every engine** (cc-nurbs, cc-field): DOM-free, no third-party imports, runs in a page, a Worker and Node.
 - **Allowed imports:** its own files, and `../nurbs/` and `../step/` (D8) from `geom/` up: the folders that sit beside `solid/` in the site's `lib/` and in every app's build folder.
-- **Hosts:** each app that needs it (PartCraft first, then ModelCraft, CadCraft's 3D tab, BimCraft, SuperCad Studio) carries a byte-identical copy as `solid/` in its build folder, kept in step by a `sync.mjs [--check]` script like cc-nurbs'. KAD2, KUBIC and KRAFT take the same copy. An add-on that needs it names `engine.solid` and imports `engine:solid/…`: the app's own copy answers, so nothing is downloaded and nothing depends on a network (D2).
+- **Hosts:** each app that needs it (PartCraft first, then ModelCraft, CadCraft's 3D tab, BimCraft, SuperCad Studio) carries a byte-identical copy as `solid/` in its build folder, kept in step by a `sync.mjs [--check]` script like cc-nurbs'. An add-on that needs it names `engine.solid` and imports `engine:solid/…`: the app's own copy answers, so nothing is downloaded and nothing depends on a network (D2).
 - **Dependency direction:** apps, their workers and add-ons may import engine.solid. engine.solid never imports app code.
 
 ### 4.2 Layers and the one-way import rule
@@ -171,7 +131,7 @@ All four are served by the boolean-free core.
 core  ←  math  ←  geom  ←  topo  ←  { ops, mesh, audit, measure }  ←  io  ←  api
 ```
 
-A module may import only from layers to its left. `audit` additionally **must not import `ops` or `mesh`**, so the validator cannot share bugs with the code it judges. A boundary checker (`tools/check-boundaries.mjs`, modelled on KAD2's) runs in CI and has its own test that a deliberate violation fails.
+A module may import only from layers to its left. `audit` additionally **must not import `ops` or `mesh`**, so the validator cannot share bugs with the code it judges. A boundary checker (`tools/check-boundaries.mjs`) runs in CI and has its own test that a deliberate violation fails.
 
 ### 4.3 Layout
 
@@ -187,7 +147,7 @@ solid/   (v1.0 layout, kept for the module split; read src/ as lib/solid/)
   package.json            type:module, zero dependencies
   LICENSE-MIT  LICENSE-APACHE  NOTICE  PROVENANCE.md  STATUS.md  HANDOFF.md
   src/
-    index.js              the single public entry (KAD2 style)
+    index.js              the single public entry
     core/                 errors, tol, limits, ids, freeze, prng, intervals, trig
     math/                 vec3, mat4, frame, aabb, quad (Gauss), roots, linalg, predicates
     geom/
@@ -213,19 +173,17 @@ Plain ES modules. Type information as **JSDoc** with optional `// @ts-check` and
 ### 4.5 Runtime environments
 - Works in Node (≥ 20), Chromium/Firefox/Safari, and Workers. No `window`, `document`, `fetch`, `process`, `require`, `Buffer` in `src/` (checked).
 - Heavy operations run in a Worker via `api/worker.js` using transferable typed arrays (§10). The Worker host is the *only* module that touches `postMessage`.
-- Build outputs mirror KAD2: multi-file ESM for development, an optional single-file build for embedding. No bundler needed to *run* it.
+- Build outputs: multi-file ESM for development, an optional single-file build for embedding. No bundler needed to *run* it.
 
-### 4.6 API shape (KAD2-compatible)
+### 4.6 API shape
 - **Functions are pure** and return new immutable values (frozen).
-- **Failure = thrown `EngineError`** with stable codes. Kernel-specific codes:
-  `REFUSED_OPEN_PROFILE`, `REFUSED_SELF_INTERSECTING_PROFILE`, `REFUSED_DEGENERATE_SWEEP`, `REFUSED_INCOMPATIBLE_SECTIONS`, `REFUSED_TOLERANCE`, `REFUSED_NOT_SUPPORTED` (e.g. an intersection configuration not handled yet), `AUDIT_FAILED`, `LIMIT`, `BAD_INPUT`; **v1.2 (S2):** `REFUSED_NO_BRACKET`, `REFUSED_NO_CONVERGENCE`, `REFUSED_SINGULAR`.
+- **Failure = a thrown `SolidError`** with a stable code. Kernel codes so far are in `core/errors.js` (`CODES`); planned ones: open profile, self-intersecting profile, degenerate sweep, incompatible sections, not supported (e.g. an intersection configuration not handled yet), audit failed.
 - **v1.1, PartCraft's convention:**
   - **Inside PartCraft:** engine.solid throws a `SolidError` shaped like cc-nurbs' `NurbsError`. Its `code` is an i18n key (`solid.err.open_profile`, `solid.err.self_intersecting_profile`, …, `solid.err.limit`) that the app turns into words, plus `vars` (D-err). engine.solid itself carries no English text.
-  - **At the KAD2 adapter:** the same refusals are mapped to KAD2's `EngineError(code, message, details)`, with the upper-case codes above.
   - **cc-nurbs errors pass through unchanged.** A `NurbsError` thrown underneath keeps its `nurbs.err.*` code.
 - **Every constructive op returns** `{ body, report }` where `report` lists tolerances achieved, approximations made (with error bounds), and provenance IDs created.
-- **The `api/` layer** exposes the same contract KAD2 commands use: named command, strict argument schema, required capability, frozen JSON result. KAD2's `validate.js` vocabulary (`num`, `int`, `str`, `bool`, `arr`, `obj`, `pt`, ...) is the model.
-- **Immutability and undo:** bodies are immutable snapshots; unchanged faces/edges are shared by reference between versions. This makes KAD2-style delta undo/redo almost free and makes caching and Worker transfer safe.
+- **The `api/` layer** exposes one contract: named command, strict argument schema, required capability, frozen JSON result.
+- **Immutability and undo:** bodies are immutable snapshots; unchanged faces/edges are shared by reference between versions. This makes delta undo/redo almost free and makes caching and Worker transfer safe.
 
 ---
 
@@ -324,10 +282,10 @@ Chapter numbers are from memory of the 2nd edition; verify against your copy. **
 - **BVH over spans/faces** (`aabb` tree) used by closest-point, mesh picking and intersection culling.
 
 ### 6.5 Fitting and construction (`geom/nurbs/fit`, `skin`, `sweep`)
-Global curve interpolation (chord-length and centripetal parametrization; clamped, natural and tangent end conditions), least-squares approximation to a tolerance, surface interpolation, skinning with **compatibility** (common degree, unified knot vectors, point count), ruled surfaces, Coons/bilinear patches, sweeps with frame laws (Frenet, rotation-minimizing, fixed, guide-rail), twist and scale laws. KAD's SPLINE `fit`-point form converts through the interpolation routine; its `ctrl`+`knots` form maps directly.
+Global curve interpolation (chord-length and centripetal parametrization; clamped, natural and tangent end conditions), least-squares approximation to a tolerance, surface interpolation, skinning with **compatibility** (common degree, unified knot vectors, point count), ruled surfaces, Coons/bilinear patches, sweeps with frame laws (Frenet, rotation-minimizing, fixed, guide-rail), twist and scale laws. The DXF SPLINE `fit`-point form converts through the interpolation routine; its `ctrl`+`knots` form maps directly.
 
 ### 6.6 Representation limits
-`MAX_CTRL_POINTS` per curve/surface, `MAX_DEGREE = 15` default, `MAX_KNOTS`; violations are `LIMIT` errors. Without caps a hostile STEP file can exhaust memory (KAD2's reader caps everything for the same reason).
+`MAX_CTRL_POINTS` per curve/surface, `MAX_DEGREE = 15` default, `MAX_KNOTS`; violations are `LIMIT` errors. Without caps a hostile STEP file can exhaust memory (the suite's readers cap everything for the same reason).
 
 ---
 
@@ -377,7 +335,7 @@ Periodic surfaces and **seam edges** (a cylinder's seam is used twice in one loo
 What is missing everywhere is an **exact** trim: a pcurve per coedge, so loops are curves rather than samples. That is S13's new work. The existing seam and pole handling is the reference for its tests.
 
 ### 8.6 Provenance and persistent names (`topo/names.js`)
-Every face, edge and vertex gets a **deterministic ID derived from (operation, op input IDs, role)**, e.g. `extrude/<profileEdgeId>/side` or `extrude/<profileId>/cap-end`, hashed (non-cryptographic 64-bit or SHA-256 via a pure-JS implementation; no `crypto` dependency) into a short stable string. Consequences: re-running the same recipe yields the same names; downstream references (dimensions, mates, SKAD scripts addressing "the top face") survive edits that preserve topology; splits and merges record `derivedFrom` lists so a lookup can follow history. The report from each op lists the names created, modified and removed.
+Every face, edge and vertex gets a **deterministic ID derived from (operation, op input IDs, role)**, e.g. `extrude/<profileEdgeId>/side` or `extrude/<profileId>/cap-end`, hashed (non-cryptographic 64-bit or SHA-256 via a pure-JS implementation; no `crypto` dependency) into a short stable string. Consequences: re-running the same recipe yields the same names; downstream references (dimensions, mates, scripts addressing "the top face") survive edits that preserve topology; splits and merges record `derivedFrom` lists so a lookup can follow history. The report from each op lists the names created, modified and removed.
 
 ---
 
@@ -387,7 +345,7 @@ All operations: validate inputs → build → **self-audit** (auditor on the res
 
 | Op | Behaviour | Notes |
 |---|---|---|
-| **Profile → face** (`ops/profile`) | assemble loops from curves in a sketch frame, find nesting (outer/holes) with exact point-in-loop, check closure and self-intersection (ring I-0), orient, build a planar trimmed face | accepts lines, arcs, circles, ellipses, NURBS/SPLINE, cubic Béziers, bulge polylines (the CadScene/KAD kinds); chaining follows the idea of KAD2's `join`, extended to splines, nesting and validity checks |
+| **Profile → face** (`ops/profile`) | assemble loops from curves in a sketch frame, find nesting (outer/holes) with exact point-in-loop, check closure and self-intersection (ring I-0), orient, build a planar trimmed face | accepts lines, arcs, circles, ellipses, NURBS/SPLINE, cubic Béziers, bulge polylines (the DXF entity kinds); chaining joins curves end to end, extended to splines, nesting and validity checks |
 | **Extrude** | straight, symmetric, two-sided, up-to-distance, with optional draft/taper; side faces are planes/cylinders/extrusion surfaces/ruled NURBS; caps are the profile face and its translate | analytic side surfaces whenever the profile segment is analytic |
 | **Revolve** | partial/full about any axis in the sketch plane; surfaces of revolution with analytic specialization (cylinder, cone, sphere, torus) | pole/seam handling is the main risk |
 | **Sweep** | profile along path, frame laws (Frenet, rotation-minimizing, fixed, guide-rail), twist/scale, optional caps | refuses at cusps and where the frame degenerates |
@@ -456,11 +414,11 @@ engine.solid's work is therefore:
 
 The bullets below keep v1.0's entity lists as the target.
 
-**Why writer first:** the first thing KUBIC users need is to *export* a part they just modelled; the writer has no ambiguity to resolve, and its output can be validated by re-reading it with our own reader and by OpenCascade as an oracle (devshell only).
+**Why writer first:** the first thing users of a new solid need is to *export* a part they just modelled; the writer has no ambiguity to resolve, and its output can be validated by re-reading it with our own reader and by OpenCascade as an oracle (devshell only).
 
 - **Part 21 tokenizer/parser** (S28): streaming, bounded (max entities, max nesting, max string length), fuzzed. Produces an instance graph; no geometry knowledge.
 - **Writer** (S29): AP214 first, then AP242 geometry subset. Emits analytic entities when the kernel object is analytic (`PLANE`, `CYLINDRICAL_SURFACE`, `CONICAL_SURFACE`, `SPHERICAL_SURFACE`, `TOROIDAL_SURFACE`, `LINE`, `CIRCLE`, `ELLIPSE`), NURBS as `B_SPLINE_CURVE_WITH_KNOTS` / `B_SPLINE_SURFACE_WITH_KNOTS` (+ `RATIONAL_…` complex entities), topology as `VERTEX_POINT` → `EDGE_CURVE` → `ORIENTED_EDGE` → `EDGE_LOOP` → `FACE_OUTER_BOUND`/`FACE_BOUND` → `ADVANCED_FACE` → `CLOSED_SHELL` → `MANIFOLD_SOLID_BREP`, inside `ADVANCED_BREP_SHAPE_REPRESENTATION`, with `SI_UNIT` length context and a stated uncertainty. Names and colours (`STYLED_ITEM`) later.
-- **Reader** (S30): the same entity set in reverse, plus `SURFACE_OF_REVOLUTION`, `SURFACE_OF_LINEAR_EXTRUSION`, `TRIMMED_CURVE`, `SURFACE_CURVE`/`SEAM_CURVE`/`PCURVE`, `BREP_WITH_VOIDS`, `OPEN_SHELL`/surface models, units via `CONVERSION_BASED_UNIT`, flattened assembly occurrences via `NEXT_ASSEMBLY_USAGE_OCCURRENCE` with `ITEM_DEFINED_TRANSFORMATION`. Everything outside this list is *counted and reported as skipped* (the CadScene `skipped` convention), never silently dropped.
+- **Reader** (S30): the same entity set in reverse, plus `SURFACE_OF_REVOLUTION`, `SURFACE_OF_LINEAR_EXTRUSION`, `TRIMMED_CURVE`, `SURFACE_CURVE`/`SEAM_CURVE`/`PCURVE`, `BREP_WITH_VOIDS`, `OPEN_SHELL`/surface models, units via `CONVERSION_BASED_UNIT`, flattened assembly occurrences via `NEXT_ASSEMBLY_USAGE_OCCURRENCE` with `ITEM_DEFINED_TRANSFORMATION`. Everything outside this list is *counted and reported as skipped* (a count in the report), never silently dropped.
 - **Healing** (S31): gaps within the file's stated uncertainty, missing pcurves (computed by projection), flipped orientations, sliver edges, duplicate vertices. Output includes a healing report; anything beyond tolerance is refused.
 - **Corpus** (S32): public STEP test sets (NIST's public CAx test files; check redistribution terms before committing any) kept out of the repo and fetched manually by the developer into a local `corpus/` folder for oracle runs. The repo itself ships only small hand-made and generated STEP files. This keeps the repo offline-clean and licence-clean.
 
@@ -477,23 +435,10 @@ Kernel output reaches 2D drawings only through **derived 2D geometry** (sections
 
 ---
 
-## 13. Integration with KAD2, KUBIC, KRAFT, PartCraft, KARVE
+## 13. Integration with the studio's apps
 
-### 13.1 KAD2: the `step` backend
-KAD2's `FormatRegistry.registerBackend({id, formats:['step'], read, write})` is the seam. The kernel ships an adapter module (outside `src/`, in `adapters/kad2/`) that:
-- **read:** STEP → kernel bodies → returns a `CadScene` containing the *2D projection or planar sections* the user asked for (for drawing) **and** hands the bodies to the document's body store (below). This replaces KAD 1's `stepChainEdges` planar-cross-section stub and ends `STEP_KERNEL_CHOSEN = false`.
-- **write:** bodies → STEP.
-- Runs in a Worker; `registerBackend` needs KAD2's `admin` capability, which the app grants itself at startup (backends are code, not user content).
-
-### 13.2 A 3D document model that does not break the 2D engine
-KAD2's entity kinds reduce everything to lines/arcs for picking/snap/render in 2D. 3D bodies do not belong in that registry in v1. Plan:
-- **Bodies live in their own versioned collection** in the document model (`doc.bodies`), with immutable snapshots, undo via the existing transaction machinery (one transaction = one body change).
-- **2D drawings see bodies only through derived entities:** `body.section` and `body.project` write ordinary KAD entities (lines, arcs, splines/béziers) onto a chosen layer, tagged with the source body ID so they can be refreshed.
-- **`.kad` serialization:** bodies go in a **dedicated top-level key with its own size policy** (e.g. 64 MiB configurable cap, optionally storing STEP text or a compact JSON of the kernel's snapshot). KAD2's passthrough cap (32 keys, 1 MiB) is too small and *older KAD2 builds would silently drop larger bodies on re-save*. **Open decision D-kad:** (a) bump `.kad` to version 2 so old readers refuse instead of drop, or (b) keep v1 and make old readers detect-and-refuse any unknown `bodies` key they can't carry.
-- Kernel geometry is **not rounded** with `R6` (§3). The `.kad` writer serializes with round-trip precision (17 significant digits) for kernel data only.
-
-### 13.3 Commands and capabilities
-New command family, same schema/capability machinery as the existing 42:
+### 13.1 Commands and capabilities
+A new command family on the host's command, schema and capability machinery:
 
 | Command | Capability | Notes |
 |---|---|---|
@@ -504,43 +449,16 @@ New command family, same schema/capability machinery as the existing 42:
 | `body.tessellate` | `doc.read` | returns transferable buffers |
 | `body.importStep`, `body.exportStep` | `io.import` / `io.export` | |
 
-**Budgets:** JavaScript cannot preempt a running function, so every kernel entry point accepts a `budget` (`maxMs`, `maxEntities`, `maxIterations`) checked cooperatively in loops via `core/limits.js`, throwing `LIMIT`. In a Worker the host can additionally terminate a runaway job. This is what makes it safe to expose the kernel to KAD2's AI/cloud capability sessions.
+**Budgets:** JavaScript cannot preempt a running function, so every kernel entry point accepts a `budget` (`maxMs`, `maxEntities`, `maxIterations`) checked cooperatively in loops via `core/limits.js`, throwing `LIMIT`. In a Worker the host can additionally terminate a runaway job. This is what makes it safe to expose the kernel to the hosts' AI and cloud capability sessions.
 
-### 13.4 KUBIC
-**v1.1, what the code is today** (review §3): extrude-only prisms. S36's KUBIC target is concrete:
-1. Replace `findLoops` with engine.solid's profile builder. It reads KUBIC's `Sketch` objects unchanged: `LINE`, `ARC {startA, endA, ccw}`, `CIRCLE`, `POLYLINE {pts, closed}`.
-2. Replace `doExtrude` / `solidFaces` with `body.extrude`.
-3. Replace `exportSTL` with engine.solid's mesh exporter.
-4. Add a `bodies` section to `.kbc`.
-5. Add STEP export.
-
-This fixes K1–K8. K9–K15 are KUBIC's own bugs, to fix in KUBIC.
-
-The kernel is KUBIC's solid engine. Mapping of KUBIC's promised features:
-- sketch → solid (extrude/revolve/sweep/loft): **M4**
-- STL and STEP export: **M3 (STL), M6 (STEP)**
-- push/pull **outward** on a planar face: expressible as a local face-extrude with a refusal when the new prism would hit existing geometry (no classification needed, bbox/mesh clash test); scheduled in **M8** as a boolean-free local op
-- push/pull **into** material, hole/pocket cut, union/subtract/intersect: **M9** (v1.2: planned, D3); until then KUBIC offers them only through sketch-based alternatives (draw the hole in the profile) or does not offer them
-
-### 13.5 KRAFT and SKAD
-SKAD's "3D needs KRAFT" messages become real: KRAFT is a thin script layer over the `body.*` commands. The kernel's stable face/edge names (§8.6) are what let a script say "the top face of the extrusion" and stay valid after parameters change.
-
-### 13.6 PartCraft
+### 13.2 PartCraft
 PartCraft's `ExactKernel` interface (`app/exact-client.js`) already lets an exact kernel be switched on and off. Plan: an adapter implementing that same interface on top of engine.solid, so the OpenCascade module and engine.solid are interchangeable behind the same toggle, and **OpenCascade becomes purely an oracle** in the devshell test run (`--oracles`). The interface itself will be read in S36 (not re-read in this planning session).
 
 **v1.1:**
 - **The seam:** `ExactKernel` starts `brep-worker.js` in a Worker, assembled from blob modules, and is called as `k.call('regen', { part })`. engine.solid's adapter is a worker that answers the same messages. With PartCraft as engine.solid's home, this is the **first** integration, not the last: it is what turns on PartCraft's "Not built yet" exact-B-rep features (`PROVENANCE.md`).
 - **Move it earlier:** S36's PartCraft part should be pulled forward to right after the v0.5 gate (M4), ahead of STEP.
-- **Also first in line:** PartCraft's own sketcher (`sketch*.js`) is engine.solid's first profile source, before KUBIC.
+- **Also first in line:** PartCraft's own sketcher (`sketch*.js`) is engine.solid's first profile source.
 
-### 13.7 KARVE and KAM
-KARVE (lathe/mill) gets revolve/section/offset; KAM (nesting, G-code) gets planar sections and flattened outlines of planar faces. Neither requires new kernel features beyond M4/M5; they just consume the commands.
-
-**v1.1:** KARVE's own G-code is a placeholder and must not be run on a machine (review §4.1). PartCraft already has a CAM stack (`cam-*.js`). The sensible route is:
-
-engine.solid geometry (turned half-sections, planar sections) → PartCraft CAM toolpaths → KARVE as the lathe/mill front end.
-
-KARVE's material table and operation list are worth keeping.
 
 ---
 
@@ -560,23 +478,23 @@ Legend: ☐ not started, ☑ done. Each session ends with passing tests, updated
 | S5 | **done** (2026-11-14) | `geom/nurbs-curve.js` on cc-nurbs' `curve.js` (exact functions only, D-det (b)): checked records, exact evaluation tests, shape preservation to 1e-12, proved `deviation` for reduction; see `STATUS.md` |
 | S6 | **done** (2026-11-14) | `geom/nurbs-surface.js` on cc-nurbs' `surface.js`: checked records, exact evaluation tests, the operations per direction to 1e-12, normals with the true limit at poles, curvature in an orthonormal frame; see `STATUS.md` |
 | S7 | **done** (2026-11-14) | `geom/analytic-curve.js`, `analytic-surface.js` (STEP parameterisations, exact `toNurbs` on own A7.1 arcs), the one interface `curve.js` / `surface.js`, shared `diffgeo.js`; see `STATUS.md`. Recognition (NURBS → analytic) is left for S30 |
-| S8 | **done** (2026-11-14) | `geom/fit.js`: interpolation and approximation on cc-nurbs' `fit.js`, checked against their data; the KAD / DXF SPLINE forms; see `STATUS.md`. KUBIC / PartCraft sketch curves come with S19's profile adapter |
+| S8 | **done** (2026-11-14) | `geom/fit.js`: interpolation and approximation on cc-nurbs' `fit.js`, checked against their data; the DXF SPLINE forms; see `STATUS.md`. PartCraft sketch curves come with S19's profile adapter |
 | S9 | **done** (2026-11-14) | `geom/construct.js`: exact compatibility, ruled, loft, Coons, grid interpolation, analytic extrude and revolve, each checked against what it passes through; see `STATUS.md`. Sweeps and Gordon networks wait for S22 |
 | S10 | **done** (2026-11-14) | `geom/query.js` (global closest points and inversion, tight boxes, length, area) and `math/bvh.js`, written new (cc-nurbs' versions sample fixed rules or stop at local minima); see `STATUS.md`. Interval bounds for intersection come with S25 |
 | S11–S12 | new; **done** (2026-11-15) | the core: topology model, stable IDs, Euler operators, builders, sewing **by identity**. S11: `topo/brep.js` and `topo/names.js` (D-store decided: whole-table copies, 3.9 ms an edit at 1,000 faces). S12: `topo/euler.js` (the Euler operators and their inverses) and `topo/build.js` (polygon, sweep, polyhedron; sewing by identity and, second, by geometry within tol.lin); see `STATUS.md` |
 | S13 | new | exact pcurve trims (cc-nurbs' polygon trims stay, for display) |
 | S14 | new | auditor plus corpus; cc-nurbs' box / cylinder / sphere are cross-checks |
 | S15–S16 | adapt | from cc-step `tess.js` and cc-acis `cdt.js` |
-| S17 | adapt | check PartCraft's existing exporters first; KUBIC's STL writer is the format reference, not the triangulation |
+| S17 | adapt | check PartCraft's existing exporters first; the STL format is the reference, not any one writer |
 | S18 | optional | PartCraft's viewport can show engine.solid meshes |
-| S19 | new | profile builder; inputs are PartCraft's sketch, KUBIC's `Sketch`, KAD2's CadScene |
+| S19 | new | profile builder; inputs are PartCraft's sketch and DXF-style entities |
 | S20–S22 | new as B-rep ops | surfaces come from `construct.js` (`extrude`, `revolve`, `sweep1/2`, `loft`) |
 | **S24b** | new, **moved up** | PartCraft `ExactKernel` adapter (worker answering `regen`) right after the v0.5 gate; was part of S36 |
 | S28 | **exists** (`app/step/part21.js`) | caps and fuzzing only |
 | S29 | extend | cc-nurbs `step.js` writes `MANIFOLD_SOLID_BREP` with `POLYLINE` edges; engine.solid writes exact edges and analytic faces |
 | S30 | new on existing parts | topology from cc-step's index and `geom.js` |
 | S33 | lift | cc-acis model → engine.solid topology |
-| S36 | smaller | KUBIC (§13.4), KRAFT, then KAD2 (S34–S35); PartCraft already done in S24b |
+| S36 | smaller | PartCraft is done in S24b; the other hosts take a synced copy (the app-specific adapters planned in S34–S36 were dropped on 2026-11-17: out of scope for the studio engine) |
 | S37 | partial | cc-nurbs `construct.offset` (surface offset) exists; bodies and thickening are new |
 | S38 | partial | cc-nurbs `blend.rollingBall` geometry exists; trimming the faces **without** `solid.boolean` is new |
 | all others | as v1.0 | |
@@ -586,8 +504,8 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 ### M0 — Ground (S0–S3)
 | ☐ | Session | Build | Accept |
 |---|---|---|---|
-| ☑ | **S0** | *Audit and decisions (no kernel code)*: read PartCraft `app/step/` and `app/nurbs/` and the `ExactKernel` interface; decide reuse vs rewrite per module; confirm D3, repo name, D-kad, D-tr (§17) | written audit table in `STATUS.md`; each reusable module has a provenance/licence note |
-| ☑ | **S1** | Repo scaffold: `package.json` (zero deps), LICENSE-MIT/APACHE/NOTICE, `PROVENANCE.md`, `STATUS.md`, `core/errors.js` (KAD2 shape), `core/tol.js`, `core/limits.js`, `tools/check-boundaries.mjs`, `node --test` runner, CI workflow | `npm test` green; boundary checker fails a deliberately violating fixture; no-hard-coded-epsilon lint works |
+| ☑ | **S0** | *Audit and decisions (no kernel code)*: read PartCraft `app/step/` and `app/nurbs/` and the `ExactKernel` interface; decide reuse vs rewrite per module; confirm D3, repo name, D-tr (§17) | written audit table in `STATUS.md`; each reusable module has a provenance/licence note |
+| ☑ | **S1** | Repo scaffold: `package.json` (zero deps), LICENSE-MIT/APACHE/NOTICE, `PROVENANCE.md`, `STATUS.md`, `core/errors.js` (the suite's error shape), `core/tol.js`, `core/limits.js`, `tools/check-boundaries.mjs`, `node --test` runner, CI workflow | `npm test` green; boundary checker fails a deliberately violating fixture; no-hard-coded-epsilon lint works |
 | ☑ | **S2** | Math kit: `vec3`, `mat4`, `frame`, `aabb`, Gauss–Legendre tables, root finders, LU/banded/QR solvers, intervals, seeded PRNG, `trig` shim | property tests pass (1e5 random cases); solver residual and condition-number tests |
 | ☑ | **S3** | Adaptive exact predicates (`orient2d/3d`, `incircle`) | 0 disagreements vs BigInt reference on 1e6 random + adversarial near-degenerate inputs |
 
@@ -598,7 +516,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 | ☑ | **S5** | `NurbsCurve`: eval/derivs/tangent/curvature, knot insertion/refinement/removal, degree elevation/reduction, split, Bézier decomposition, reverse, join | every shape-preserving op reproduces the curve to ≤ 1e-12 on random curves |
 | ☑ | **S6** | `NurbsSurface`: eval/partials/normal, iso-curves, same shape ops in U and V, swap UV, split | same shape-preservation tests; normal orthogonality |
 | ☑ | **S7** | Analytic classes and exact conversions: `Line`, `Circle`, `Ellipse`, `Plane`, `Cylinder`, `Cone`, `Sphere`, `Torus`, revolution/extrusion surfaces ↔ NURBS | converted radius/axis error < 1e-12; area of sphere/torus patches vs closed form < 1e-9 relative |
-| ☑ | **S8** | Fitting I: global interpolation (chord/centripetal), end conditions, least-squares approximation to tolerance; KAD SPLINE `fit`→control-point path | interpolation passes through data to 1e-10; approximation error ≤ requested `fit` on a test corpus |
+| ☑ | **S8** | Fitting I: global interpolation (chord/centripetal), end conditions, least-squares approximation to tolerance; DXF SPLINE `fit`→control-point path | interpolation passes through data to 1e-10; approximation error ≤ requested `fit` on a test corpus |
 | ☑ | **S9** | Construction: ruled, skinning with compatibility, Coons/bilinear patches, surface interpolation | skinned surface passes through sections; compatibility refusals typed |
 | ☑ | **S10** | Queries: closest point/inversion (curves, surfaces), tight bboxes, length/area, BVH | closest-point matches brute force on 1e4 random queries; bbox contains dense samples and is within slack |
 
@@ -623,20 +541,20 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 ### M4 — Solid construction, no booleans (S19–S24)
 | ☐ | Session | Build | Accept |
 |---|---|---|---|
-| ☐ | **S19** | Profile → face (loop assembly, nesting, orientation, holes) including ring I-0 (2D curve–curve) for self-intersection checks; CadScene/KAD entity adapter | open/self-intersecting profiles refused with locating details; hatch-like nested loops resolved; bulge polylines and Béziers accepted |
+| ☐ | **S19** | Profile → face (loop assembly, nesting, orientation, holes) including ring I-0 (2D curve–curve) for self-intersection checks; DXF entity adapter | open/self-intersecting profiles refused with locating details; hatch-like nested loops resolved; bulge polylines and Béziers accepted |
 | ☐ | **S20** | Extrude (straight, symmetric, two-sided, to-distance, draft/taper) with provenance names | audited valid for a 200-profile fuzz set; analytic sides stay analytic; names stable across re-runs |
 | ☐ | **S21** | Revolve (partial/full) with poles/seams | cylinder/cone/sphere/torus produced by revolve are identical (within `tol`) to the S14 primitives |
 | ☐ | **S22** | Sweep (frame laws, twist/scale, caps) and loft solids | pipe of known radius has exact volume within 1e-6 relative; refusals at cusps |
 | ☐ | **S23** | Transform, mirror, pattern, instances; placement frames; geometry sharing | mirror flips orientation correctly (audit); 10,000 instances share geometry (memory test) |
 | ☐ | **S24** | Mass properties and measurement (area, volume, centroid, inertia, min distance, bbox) | closed-form agreement on primitives to 1e-9 relative; mesh vs B-rep consistency |
 
-**Release gate v0.5 — "Generative kernel":** sketch to solid, validate, mesh, measure. Usable by KUBIC for prismatic/revolved/swept parts.
+**Release gate v0.5 — "Generative kernel":** sketch to solid, validate, mesh, measure. Usable by the apps for prismatic/revolved/swept parts.
 
 ### M5 — Intersection I (S25–S27)
 | ☐ | Session | Build | Accept |
 |---|---|---|---|
 | ☐ | **S25** | Curve–surface, line–surface, plane–surface (analytic fast paths + NURBS) | residual ≤ `tol.lin`; compared with dense sampling; tangent cases typed-refused |
-| ☐ | **S26** | Planar **section** of a body → 2D wires; planar **projection/silhouette** → 2D curves; KAD entity output | section areas equal mass-properties cross-sections; works on the primitive corpus + S20–S22 bodies |
+| ☐ | **S26** | Planar **section** of a body → 2D wires; planar **projection/silhouette** → 2D curves; 2D entity output | section areas equal mass-properties cross-sections; works on the primitive corpus + S20–S22 bodies |
 | ☐ | **S27** | Analytic–analytic surface pairs and general NURBS surface–surface marching with typed refusals | residual ≤ `tol.lin` on a pair corpus; every refusal case has a regression fixture |
 
 ### M6 — STEP (S28–S33)
@@ -654,9 +572,9 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 ### M7 — Integration (S34–S36)
 | ☐ | Session | Build | Accept |
 |---|---|---|---|
-| ☐ | **S34** | KAD2 `step` backend, `doc.bodies` collection, `.kad` bodies section (decision D-kad), Worker hosting | open a STEP file in KAD2, see its section/projection in 2D, save/reload `.kad` with bodies intact; old-reader behaviour per D-kad |
+| — | **S34** | dropped 2026-11-17: it was an app-specific backend and file format outside this engine's scope; a host that needs a body collection or a file section builds it on the engine's `toData` / `fromData` |
 | ☐ | **S35** | `body.*` commands, schemas, capabilities, cooperative budgets, dry-run/proposal support | command reference regenerates; capability-restricted session cannot write; budget overrun yields `LIMIT` |
-| ☐ | **S36** | KUBIC adapter, KRAFT script hooks, PartCraft `ExactKernel` adapter | KUBIC extrude→STL/STEP end-to-end; PartCraft toggle swaps kernels; oracle comparison runs |
+| ☐ | **S36** | PartCraft `ExactKernel` adapter (pulled forward to S24b) | PartCraft toggle swaps kernels; oracle comparison runs |
 
 **Release gate v1.0-beta.**
 
@@ -665,7 +583,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 |---|---|---|---|
 | ☐ | **S37** | Offset curves/surfaces, thicken, whole-body shell (approximation within `tol.fit`, refuse on local self-intersection) | offset error bound reported; thickened prism volumes match closed forms |
 | ☐ | **S38** | Fillet and chamfer (rolling ball between two faces, constant radius), using ring I-4 | fillet radius deviation ≤ `tol.fit`; corner cases refused with locations |
-| ☐ | **S39** | Face split/imprint; draft; **push/pull outward** on planar faces with clash refusal | KUBIC push-out works on corpus; clash detected and refused |
+| ☐ | **S39** | Face split/imprint; draft; **push/pull outward** on planar faces with clash refusal | push-out works on corpus; clash detected and refused |
 
 ### M9 — NURBS booleans (S40–S42) — v1.2: planned (D3 settled: in scope, not dominant)
 | ☐ | Session | Build | Accept |
@@ -686,7 +604,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 
 ## 15. Licence and provenance
 
-**Your code (D5).** KAD, KAD2, KADsuite and siblings are yours and are reissued MIT/Apache. The copies I read still carry `SPDX-License-Identifier: AGPL-3.0-or-later` headers and AGPL/trademark text in places. As instructed, I treated that as stale and did not weigh it. One housekeeping session (can run any time, not blocking) should still sweep those headers to the actual licence so downstream users, contributors and licence scanners see the same thing you do. Suggested header for new kernel files:
+**Your code (D5).** The owner's earlier code is theirs and is reissued MIT/Apache. Copies of it may still carry `SPDX-License-Identifier: AGPL-3.0-or-later` headers and AGPL/trademark text in places. As instructed, I treated that as stale and did not weigh it. One housekeeping session (can run any time, not blocking) should still sweep those headers to the actual licence so downstream users, contributors and licence scanners see the same thing you do. Suggested header for new kernel files:
 
 ~~v1.0 suggested `MIT OR Apache-2.0`.~~ **v1.1:** new kernel files use PartCraft's first line, Apache-2.0 (PartCraft's `LICENSE` and `NOTICE`: Copyright The Data Design Group, Inc.). **v1.2:** that is also the licence of every engine (getcadcraft.com › Engines) and of the library repo's scripts; the library's items keep their own licences, item by item:
 
@@ -696,11 +614,7 @@ Below is the v1.0 roadmap, kept as written. Read each row together with the tabl
 
 Apache-2.0 also carries the explicit patent grant that suits a geometry kernel. If engine.solid is later published on its own under MIT as well, that is the owner's choice to make then. This is not legal advice.
 
-**KAD snapshots** (`reference/kad/`) keep their stale `AGPL-3.0-or-later` headers byte-for-byte, so they still match their sources (`MANIFEST.json`). The owner, as sole author, has reissued that code (`reference/kad/README.md`). When engine.solid takes code from a snapshot:
-- the new file gets the Apache-2.0 line above
-- `docs/solid/PROVENANCE.md` records the snapshot and line range
-
-The header sweep belongs in the KAD repositories themselves.
+**Reference snapshots of older code:** none are kept in this repository. If engine.solid ever takes code from an older codebase, the new file gets the Apache-2.0 line above and `docs/solid/PROVENANCE.md` records the source and line range.
 
 **Clean-room rule for the kernel (so the copyright stays unambiguously yours):**
 1. Algorithms come from **books, papers and standards** (§18), not from other kernels' source.
@@ -724,7 +638,7 @@ The header sweep belongs in the KAD repositories themselves.
 | Fuzz | mutated STEP/Part 21, random profiles, random op sequences | `test/fuzz/` |
 | Determinism | hash of rounded outputs for fixed seeds; run on two Node versions | CI |
 | Architecture | boundary checker, no-forbidden-globals scan, no-hard-coded-epsilon lint | CI |
-| Browser | Worker host + dev viewer under Chromium (same approach as KAD2's 40 Chromium checks) | CI (optional job) |
+| Browser | Worker host + dev viewer under Chromium | CI (optional job) |
 | Benchmarks | per-op timing and allocation tracked over time | `tools/bench.mjs` |
 
 Oracle assets (OpenCascade wasm etc.) are **never committed** and never loaded by any app path; they exist in the devshell like PartCraft's `oracles` vendor area.
@@ -770,14 +684,14 @@ Oracle assets (OpenCascade wasm etc.) are **never committed** and never loaded b
 | R4 | STEP in the wild is varied and messy | High | reader counts and reports skipped entities; healing session; real-file corpus run; refusal over guess |
 | R5 | Pure-JS performance | Medium | typed arrays, scratch buffers, BVH culling, Worker, cooperative budgets; targets in §16.2 revised by measurement |
 | R6 | Scope creep into booleans | Medium | M9 comes last (v1.2: planned, D3); all boolean-adjacent work is expressed as separate, useful ops |
-| R7 | KUBIC marketing promises booleans | Medium | **v1.2:** D3 decided and M9 scheduled; until M9, KUBIC's copy should say booleans are coming |
-| R8 | `.kad` compatibility when bodies are added | Medium | D-kad decision before S34 |
+| R7 | App copy promises booleans | Medium | **v1.2:** D3 decided and M9 scheduled; until M9, an app's copy should say booleans are coming |
+
 | R9 | Cross-engine `Math.*` differences | ~~Low–Med~~ **v1.2: closed** | `core/trig.js` computes its own functions, bit-exact everywhere; goldens hash exact bits (S2) |
 | R10 | Bus factor (one maintainer) | Medium | `STATUS.md`, this handoff, tests as documentation, generated docs |
 | R11 | Licence contamination from reading other kernels | Medium | clean-room rule (§15), `PROVENANCE.md` |
 | R12 | Browser memory limits on big bodies | Medium | limits and caps everywhere; immutable sharing; Worker memory budget; streaming parse |
 | R13 | **v1.1:** engine.solid depends on cc-nurbs / cc-step, which are synced copies of monorepo libraries; an upstream change can break engine.solid, and a local fix breaks the byte-identical rule | Medium | import read-only (D8); engine.solid's tests exercise every cc-nurbs function it uses; fixes go upstream (D-ccn) |
-| R14 | **v1.1:** KUBIC and KARVE are prototypes with real bugs (review §3–§4); integrating early exposes users to them | Medium | fix K9–K15 and V1–V5 in the apps before S36; label KARVE's G-code "preview only" |
+
 
 ### 17.2 Open decisions (to settle in S0 unless noted)
 | ID | Question | My lean |
@@ -786,9 +700,6 @@ Oracle assets (OpenCascade wasm etc.) are **never committed** and never loaded b
 | D-repo | Repo name and location | **resolved (v1.2, D-home; moved 2026-11-13):** first the library repo, now the site repo, `lib/solid/`, branch `engine/solid` |
 | D-ccn | **decided, 2026-11-17: cc-nurbs and cc-step are not edited on `engine/solid`.** A defect found in either gets its own small pull request upstream (one defect, a failing test first, no change to other functions' bits, every host's suite run), and the engine drops its workaround once that merges. A change that moves other apps' bits (for example deterministic trig in `arc`, `circle` and `angle`) starts with an issue, as the upstream asks for anything larger than a fix. **v1.1 question:** when engine.solid needs a change in cc-nurbs or cc-step, does it go to the canonical copy first, or may a host's copy diverge for a while? | canonical first; engine.solid works around gaps in its own files meanwhile |
 | D-lic | **v1.1:** header for engine.solid files | **resolved:** `Apache-2.0`, as PartCraft |
-| D-name | **v1.1:** KUBE vs KUBIC | KUBIC is current (owner, 2026-11-12); nothing new says KUBE |
-| D-kbc | **v1.1:** how `.kbc` carries bodies (as D-kad for `.kad`) | same answer as D-kad |
-| D-kad | How `.kad` carries bodies (v2 bump vs v1 + detect-and-refuse) | v2 bump is cleaner; decide before S34 |
 | D-tr | Own fdlibm-style `sin/cos/exp/pow` or accept `Math.*` | **resolved (v1.2, S2):** own functions from + − × ÷ and √, bit-exact everywhere (§5.5) |
 | D-det | **decided (b), 2026-11-12; (a) kept for later investigation.** (b): S5–S6 import only the cc-nurbs functions that are exact (+ − × ÷, √), and a checker guard keeps `arc`, `circle` and `angle` out. Circles come from engine.solid's own code on `core/trig.js` (S7). Original question, **v1.3 (S4):** cc-nurbs' `vec.js`, `curve.js`, `surface.js` and `fit.js` use `Math.atan2`, `sin`, `cos`, `tan` and `**`, which differ between engines in the last bits. How does engine.solid use them without losing the same bits (§5)? | (b) import under `solid-allow: reach` with the functions used listed and checked to be + − × ÷ only, now; (a) deterministic trig upstream in the site's `lib/nurbs/` when the owner agrees; not (c), own evaluators (against D8) |
 | D-ccn2 | **v1.2 — taken as proposed at S4 (2026-11-12):** how cc-nurbs and cc-step come to sit beside the engine in the library repo before S4 (D8). cc-nurbs was a pinned copy in `lib/nurbs/` (`tools/solid/sync-nurbs.mjs`, `pins.json`). **Settled 2026-11-13 by the second option:** the engine moved into the site repo, where cc-nurbs is canonical beside it; the pins and `sync-nurbs.mjs` are gone. cc-step waits: its two copies have drifted (`STATUS.md`) | synced copies, as `tools/shapes/` is; or move the engine into the site's `lib/` first |
@@ -799,17 +710,17 @@ Oracle assets (OpenCascade wasm etc.) are **never committed** and never loaded b
 | D-ap | AP242 scope (geometry only, or names/colours/PMI) | geometry + names + colours; PMI out |
 | D-sat | ACIS SAT reader (S33) | optional; verify format documentation first |
 | D-view | Dev viewer inside the kernel repo or only inside apps | inside the kernel repo, single HTML, no deps |
-| D-unit | Kernel units fixed at mm, or configurable | fixed mm; apps convert at the boundary (as KAD2 does) |
+| D-unit | Kernel units fixed at mm, or configurable | fixed mm; apps convert at the boundary |
 
 ### 17.3 Decision log
 Append entries as `YYYY-MM-DD · ID · decision · reason · who`.
 
 - 2026-11-12 · D1–D6 · see §1 · planning session · owner
-- 2026-11-12 · D-id · reuse of KAD2 `EngineError` shape, capability vocabulary, and `registerBackend` seam for the kernel API · consistency with the engine the kernel plugs into · proposed
+- 2026-11-12 · D-id · reuse of the suite's error shape and capability vocabulary for the kernel API · consistency with the engine the kernel plugs into · proposed
 - 2026-11-12 · D7 · PartCore is built in the PartCraft fork (`withshalom/getpartcraft`), branch `partcore` · owner's direction · owner
 - 2026-11-12 · D8 · build on cc-nurbs / cc-step / cc-acis; never edit `app/nurbs/` in place · S0 audit (review §2) · proposed
 - 2026-11-12 · D-lic · engine.solid files are Apache-2.0 · PartCraft's licence · proposed
-- 2026-11-12 · D-id (amended) · inside PartCraft, `solid.err.*` i18n codes in cc-nurbs' style; KAD2's `EngineError` only at the KAD2 adapter · PartCraft convention · proposed
+- 2026-11-12 · D-id (amended) · inside PartCraft, `solid.err.*` i18n codes in cc-nurbs' style · PartCraft convention · proposed
 - 2026-11-12 · D-kname · the kernel is named **PartCore**; it is built on branch `partcore`, in `app/partcore/` · owner's direction · owner
 - 2026-11-12 · D-err (S1) · `SolidError(code, vars)`, as cc-nurbs' `NurbsError(code, vars)`: `vars` (not `details`) are the values the app's message puts in its `{placeholders}` · PartCraft's language tables use `{name}` placeholders · S1
 - 2026-11-12 · D-spec (S1) · import specifiers in `lib/solid/` are single-quoted, relative, lower-case `[a-z0-9-]` names ending in `.js` · `exact-client.js` `blobModules()` only follows imports written that way, and S24b runs engine.solid in that worker · S1
@@ -827,7 +738,7 @@ Append entries as `YYYY-MM-DD · ID · decision · reason · who`.
 - 2026-11-13 · D-size, D-wire (opened) · the second review (code, math, architecture) found seven faults, fixed in 0.0.7, and two design gaps: no size box with consistent `lin` and `ang`, and checked records that do not survive a worker boundary. Both wait for the owner, before S5.
 - 2026-11-13 · D-size, D-wire (decided) · the owner took option A on both. D-size: `size` joins the Tolerance (default 1e6 mm), `ang` defaults to `lin` / `size` (1e-12) and may not exceed it, `lin` ≥ `size` · 1e-13. The limit applies to engine.solid at the declared tolerance only. D-wire: `toData` / `fromData` on tol, limits, frame and basis; `fromEnvelope` on errors.
 - 2026-11-17 · D-home (confirmed) · the site repo (`withshalom/getcadcraft`, branch `engine/solid`, `lib/solid/` beside `lib/nurbs/`) is the one canonical home; each app (PartCraft first) carries a byte-identical `dev/solid/` copy made by `tools/solid/sync.mjs` and checked with `--check`. PartCraft as the canonical home was considered again and rejected: every other host would then depend on one app's repo, and cc-nurbs is canonical in the site repo. The pull request to the site repo's `main` waits for the owner's go; a PartCraft pull request that adds only the synced copy follows it. The reason on record is cc-nurbs adjacency, a modest one; it is enough to move forward · "It's good enough reasoning to move forward." · owner
-- 2026-11-17 · clean-up · the old clones in `Documents` (12 repos and `CadCraft Studio`) were deleted, and so were the library repo's `engine/solid` branch and PartCraft's `partcore`, `knot/dev` and `knot/kad-reference` branches on GitHub (the KAD snapshots under `reference/kad/` in `knot/kad-reference` are gone with it). `engine/solid` was pushed to `origin` of the site repo as a backup (22 commits) · one working location · owner
+- 2026-11-17 · clean-up · the old clones in `Documents` (12 repos and `CadCraft Studio`) were deleted, and so were the library repo's `engine/solid` branch and PartCraft's `partcore` branch and its two placeholder-named branches on GitHub (the older apps' reference snapshots went with them). `engine/solid` was pushed to `origin` of the site repo as a backup (22 commits) · one working location · owner
 - 2026-11-17 · D-ccn (decided) · cc-nurbs and cc-step are not edited on `engine/solid`. A defect in either gets a separate small upstream pull request (one defect, a failing test first, no change to other functions' bits, every host's suite run); the engine removes its workaround after it merges. A change that moves other apps' bits starts with an issue. The first candidate is the unclamped end-span NaN in `basis.js` `findSpan`; deterministic trig in `arc`, `circle` and `angle` is D-det (a), later · cc-nurbs is shared by every host, so an edit on this branch would change their bits and bypass the upstream's review (COMPLIANCE.md, the row "engine.solid never edits cc-nurbs"; risk R13) · owner
 
 ---
@@ -865,7 +776,7 @@ Append entries as `YYYY-MM-DD · ID · decision · reason · who`.
 **v1.1, in the PartCraft fork on branch `partcore`** (as built there; v1.2 shows the paths where the files now live, in the library repo). PartCraft already has `package.json`, `LICENSE`, `NOTICE` and CI (`.github/workflows/test.yml`, which runs `npm test -- --oracles` on pull requests and on `main`), so S1 creates only:
 ```
 lib/solid/index.js              the single public entry
-lib/solid/core/errors.js        SolidError (code = 'solid.err.*' i18n key, details), fail(), and envelope() for the KAD2 adapter
+lib/solid/core/errors.js        SolidError (code = 'solid.err.*' i18n key, details), fail(), and envelope() for an adapter
 lib/solid/core/tol.js           Tolerance factory + defaults (§5.2)
 lib/solid/core/limits.js        budgets: deadline / iterations / entities, cooperative step() and checkTime()
 tools/solid/test.mjs      the engine.solid test runner (plain node, like tests/tools/nurbs/test.mjs)
@@ -884,7 +795,7 @@ src/index.js  src/core/errors.js  src/core/tol.js  src/core/limits.js
 tools/check-boundaries.mjs  .github/workflows/ci.yml  test/unit/core.test.mjs  test/architecture/boundaries.test.mjs
 ```
 
-**`core/errors.js`** (same contract as KAD2's, rewritten here so the repo is self-contained). **v1.1:** in PartCraft the class is `SolidError`, its `code` is a `solid.err.*` i18n key (cc-nurbs' `NurbsError` is the model), and `errorEnvelope` is what the KAD2 adapter uses to produce KAD2's `EngineError`:
+**`core/errors.js`** (the suite's contract, written here so the repo is self-contained). **v1.1:** in PartCraft the class is `SolidError`, its `code` is a `solid.err.*` i18n key (cc-nurbs' `NurbsError` is the model), and `errorEnvelope` is what an adapter uses to produce its own host's error type:
 ```js
 export class EngineError extends Error {
   constructor(code, message, details) {

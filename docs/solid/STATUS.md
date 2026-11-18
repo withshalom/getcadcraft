@@ -17,9 +17,7 @@ The source of truth for what is built. Update it at the end of every session (`H
 ### S0 — audit and review (2026-11-12)
 - PartCraft's cc-nurbs, cc-step and cc-acis were read; the audit table is in `REVIEW-2026-11-12.md` §2. cc-nurbs'
   tests: 173 of 174 pass; the one failure is the monorepo sync check, which needs the CadCraft monorepo layout.
-- KUBIC.html and KARVE.html were reviewed (review §3–§4).
 - The plan was revised to v1.1 (review §5, P1–P16).
-- The KAD-family reference snapshots are under `reference/kad/` in the PartCraft fork (branch `knot/kad-reference`).
 
 ### S1 — scaffold and ground rules (2026-11-12)
 Built:
@@ -27,7 +25,7 @@ Built:
 | File | What it is |
 |---|---|
 | `lib/solid/index.js` | the one public entry (VERSION, the core namespaces and their main names) |
-| `lib/solid/core/errors.js` | `SolidError(code, vars)` and `fail`. Codes are `solid.err.*` i18n keys (bad_input, bad_tolerance, internal, limit). Also `cleanVars`, `toEnvelope` (cc-nurbs and cc-step errors pass through; anything else becomes `internal` with no detail) and `KAD2_CODES`. |
+| `lib/solid/core/errors.js` | `SolidError(code, vars)` and `fail`. Codes are `solid.err.*` i18n keys (bad_input, bad_tolerance, internal, limit). Also `cleanVars`, `toEnvelope` (cc-nurbs and cc-step errors pass through; anything else becomes `internal` with no detail). |
 | `lib/solid/core/tol.js` | the tolerance policy (HANDOFF §5.2): `DEFAULT_TOL`, `makeTol` (every value checked: ranges, unknown keys, lin ≤ fit / maxEdgeTol / mesh.chord), `resolveTol`, `isTol` (cannot be fooled by a copy) |
 | `lib/solid/core/limits.js` | budgets (HANDOFF §13.3): exact iteration and entity counts, an optional deadline on an injectable clock, and child budgets that can never outgrow their parent |
 | `tools/solid/check-boundaries.mjs` | the architecture checker: 14 rules (below), a comment-, string-, template- and regex-aware tokenizer, a command line that exits 1 on any problem |
@@ -84,7 +82,7 @@ Built (the engine, `lib/solid/`):
 | `math/quad.js` | Gauss–Legendre rules 1–64 computed by Newton on the Legendre recurrence; `fixed`; `adaptive` with global error control, deterministic, bounded by `maxDepth` and `maxPieces` |
 | `math/roots.js` | `quadratic` (exact-sign discriminant), `cubic` (Kahan's method, then polishing with a compensated Horner residual), `brent`, `newton` kept inside its bracket |
 | `math/linalg.js` | LU with partial pivoting (`lu`, `luSolve`, `luSolveT`, `solve`, `solveMany`, `det`, `inverse`), `rcond1` (Hager–Higham), `bandSolve` (banded LU with pivoting), `qr` and `lstsq` (Householder) |
-| `core/errors.js` | three new refusals: `solid.err.no_bracket` { fa, fb }, `solid.err.no_convergence` { what, iterations }, `solid.err.singular` { why, size?, column?, rcond? }, with KAD2 codes `REFUSED_NO_BRACKET`, `REFUSED_NO_CONVERGENCE`, `REFUSED_SINGULAR` |
+| `core/errors.js` | three new refusals: `solid.err.no_bracket` { fa, fb }, `solid.err.no_convergence` { what, iterations }, `solid.err.singular` { why, size?, column?, rcond? } |
 | `index.js` | VERSION 0.0.2; the eleven S2 modules as namespaces, plus `makePrng`; the engine-library header (where the edited copy lives, how hosts and add-ons get it) |
 
 Built (the tools, `tools/solid/`):
@@ -249,7 +247,7 @@ Built (the engine, `lib/solid/`):
 | File | What it is |
 |---|---|
 | `geom/nurbs-curve.js` | NURBS curves as checked, frozen records `{ type: 'nurbs', deg, knots, cvs, w }` — cc-nurbs' plain data, so they pass to cc-nurbs and its STEP and IGES writers as they are. `make` / `isCurve` / `toData` / `fromData` (D-wire); `domain`, `bbox`, `point`, `derivs`, `tangent`, `curvature`, `curvatureVector`, `torsion`, `isClosed`; `insertKnot`, `refine`, `removeKnot`, `decompose`, `elevate`, `reduce`, `split`, `segment`, `reverse`, `reparam`, `transform`, `join`; `deviation` |
-| `core/errors.js` | `solid.err.not_within_tolerance` { what, tol, error? } (KAD2 `REFUSED_TOLERANCE`): an approximating operation that cannot stay within the tolerance it was given |
+| `core/errors.js` | `solid.err.not_within_tolerance` { what, tol, error? }: an approximating operation that cannot stay within the tolerance it was given |
 | `index.js` | VERSION 0.0.9; the `nurbsCurve` namespace |
 
 Built (the tools, `tools/solid/`): `test-curve.mjs` (section `curve`); `digest.mjs` gains `genCurveData` and a `curve` area (14 areas); `test-geom.mjs` exports its exact Cox–de Boor reference as `exactBasis` for the curve tests.
@@ -341,7 +339,7 @@ Built together, as two modules with one section each:
 
 | File | What it is |
 |---|---|
-| `geom/fit.js` (S8) | `interpolate` (A9.1 with chord, centripetal or uniform parameters and optional end derivatives), `approximate` (§ 9.4.1, the control-point count raised until every point is within `tol.fit`), `fromSpline` (a KAD / DXF SPLINE: its control form as it is, or its fit points through `interpolate` with the end tangents scaled by the chord length), `params`. On cc-nurbs' `fit.js`; every answer is checked against its data: an interpolation that misses a point by more than `tol.lin` is refused, and an approximation's `error` is the largest distance from each point to the curve's point at its parameter — a bound on its distance to the curve |
+| `geom/fit.js` (S8) | `interpolate` (A9.1 with chord, centripetal or uniform parameters and optional end derivatives), `approximate` (§ 9.4.1, the control-point count raised until every point is within `tol.fit`), `fromSpline` (a DXF SPLINE: its control form as it is, or its fit points through `interpolate` with the end tangents scaled by the chord length), `params`. On cc-nurbs' `fit.js`; every answer is checked against its data: an interpolation that misses a point by more than `tol.lin` is refused, and an approximation's `error` is the largest distance from each point to the curve's point at its parameter — a bound on its distance to the curve |
 | `geom/construct.js` (S9) | `compatible` (one degree and one knot vector, knots merged by value), `ruled`, `loft` (skinning, § 10.3: the v parameters averaged over the columns, A9.1 per column, rational sections through homogeneous columns), `coons` (bilinearly blended, S = Lc + Ld − B, as one exact NURBS for polynomial curves), `interpolateGrid`, `extrude` and `revolve` (analytic surfaces, exact). Each result is checked against what it was built to pass through, within `tol.lin` |
 | `index.js` | VERSION 0.0.12; namespaces `fit`, `construct` |
 
@@ -405,7 +403,7 @@ Built:
 |---|---|
 | `topo/brep.js` | the B-rep as immutable snapshots (§ 8.1, § 8.3): frozen records with stable integer ids in seven tables (vertex, edge, coedge, loop, face, shell, solid). `edit(b, fn)` makes a new snapshot through a draft that adds, changes and removes records, and for the Euler operators (S12) also makes a coedge in no loop yet, builds a loop of existing coedges and relinks a loop; it shares every record it did not touch and checks the structural rules before it returns. `check` (ids, references, back-references, sharing, closed loops, edge ranges, senses, empty solids, orphans); `adjacency` (cached per snapshot); `euler` counts; `toData` / `fromData` (holes and counters kept) |
 | `topo/names.js` | persistent names (§ 8.6): FNV-1a in two 32-bit lanes over (operation, inputs, role), each part closed by a separator no part may hold, 64 bits shown as `n` + 16 hexadecimal digits |
-| `core/errors.js` | `solid.err.bad_topology` { rule, kind, id } (KAD2 `AUDIT_FAILED`) |
+| `core/errors.js` | `solid.err.bad_topology` { rule, kind, id } |
 | `index.js` | VERSION 0.0.14; namespaces `brep`, `names` |
 
 Decision **D-store** (§ 8.3, § 17): whole-table copies per edit. Measured: a 1,000-face sheet (V 1066, E 2065, built in 26 ms) takes 100 edits at 3.9 ms each, every edit copying the seven tables and checking every rule — far inside "no visible lag". Chunked tables only if a later benchmark asks for them.
@@ -482,7 +480,7 @@ Also checked: a polygon lamina (front through the points, back the other way); a
 - **S2: an exported function is a tested function.** The transposed solve was internal and a wrong permutation in it went unnoticed; exported as `luSolveT`, it has a residual test of its own.
 - **S2: Hager's estimate is exact on most matrices, not all** (1704 of 2000 random ones). The tests check what it guarantees (never below the true 1/κ₁) and what it does in practice (never 3× above).
 - **S2: Math.sqrt is fully specified since ECMAScript 2025** (TC39 PR #3345, merged 2024-08-17), so + − × ÷ and √ are what every engine computes alike, and what trig.js is built from.
-- **Earlier findings still stand.** Most of M1 already exists in cc-nurbs. The missing layer is exact topology. cc-nurbs' solids and booleans are mesh-based, and KAD2 documents flatten splines.
+- **Earlier findings still stand.** Most of M1 already exists in cc-nurbs. The missing layer is exact topology. cc-nurbs' solids and booleans are mesh-based.
 
 ## Found (for later sessions)
 - **cc-field's `detmath.js` is less accurate than it says.** Its comment claims about 1e-15 for |x| < 1e6. Measured against the BigInt reference, `dsin`'s absolute error is 3.3e-16 below 10, 5.7e-14 below 1e3, and 5.8e-11 below 1e6. The reduction multiplies by a full 53-bit 2π, so `n · 2π` is not exact. A Cody–Waite split of 2π with trailing zeros, as in `core/trig.js`, fixes it. The fix belongs in the site's `lib/field/` (owner).
@@ -500,12 +498,9 @@ Also checked: a polygon lamina (front through the points, back the other way); a
 - **Language-table keys:** the `solid.err.*` codes need keys in `app/lang/*.json` (English first) before the app shows them. That belongs to the first UI-facing session (S24b); `CODES` lists what is needed.
 - **`fromEnvelope`** (a worker's reply turned back into an error on the main thread) belongs with the worker protocol (S18 / S24b).
 - **This sandbox cannot finish PartCraft's main test file.** `test-partcraft.mjs` stopped 13 minutes in, during the tet FEA section, at more than 3 GB of memory, on 7 GB and 2 cores. This happened on the unchanged code. Before that it reported four failures on the unchanged code: two need ModelCraft in the same checkout (illustrate copies, cc-step in ModelCraft), one is an arc-method key check in `lang/en.json`, and one is `cam-sheets`. CI's runner is where that file should be judged, and CI runs only on pull requests and on `main`.
-- **KUBIC's own bugs**, to fix before S36 (review §3.2): K9, an undeclared `nextSolidId`, breaks STL import; K15, network fonts, breaks the offline rule.
-- **KARVE's G-code is unsafe.** Label it "preview only" or turn it off (review §4.1). KARVE also cannot read `.kbc` (V1).
-- **The KAD repositories' headers still say AGPL.** The sweep belongs in those repositories (`reference/kad/README.md`).
 
 ## Next
 - **S13 — trims and pcurves** (HANDOFF §14, M2: pcurves per coedge, periodic seams, poles and degenerate edges, point-in-face with exact predicates; cylinder, sphere, cone and torus bodies construct, seam and pole cases covered by explicit tests). Then S14, the auditor and the primitive corpus: release gate v0.1 ("geometry + topology + auditor").
 - **Recognition (NURBS → analytic)** belongs with S7's conversions but is not built: a NURBS curve or surface that is exactly a circle, a cylinder … is not yet told apart. STEP import (S30) needs it; noted for then.
-- **Owner decisions still open** (`HANDOFF.md` §17.2): D-kad / D-kbc (to be dropped with the K-themed names). Settled: D-ccn (2026-11-17: cc-nurbs is not edited on this branch; defects go upstream as separate small pull requests), D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; D-home superseded by the move.
+- **Owner decisions still open** (`HANDOFF.md` §17.2): none. Settled: D-ccn (2026-11-17: cc-nurbs is not edited on this branch; defects go upstream as separate small pull requests), D-size, D-wire (2026-11-13), D-det (b), D-ccn2 (by the move to the site repo, 2026-11-13), D3, D-tr, D-name; two file-format decisions for older apps dropped (2026-11-17); D-home superseded by the move.
 - **The pull request** to the site repo's `main` waits for the owner's go (D-home).
