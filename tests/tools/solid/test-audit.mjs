@@ -162,6 +162,13 @@ export async function register({ section, ok, refuses, same, deepFrozen, appUrl 
         d.remove('shell', s2); d.remove('solid', sol2);
       });
     }, ['euler', 'disconnected_shell'], false);
+    add('two corners of a cube made one vertex', () => {
+      const b = cube([0, 0, 0], 2), [vA] = B.ids(b, 'vertex').filter((v) => V.dist(B.get(b, 'vertex', v).point, [0, 0, 0]) === 0), [vB] = B.ids(b, 'vertex').filter((v) => V.dist(B.get(b, 'vertex', v).point, [2, 2, 2]) === 0);
+      return B.edit(b, (d) => {
+        for (const e of B.ids(b, 'edge')) { const E = B.get(b, 'edge', e); if (E.v0 === vB) d.set('edge', e, { v0: vA }); if (E.v1 === vB) d.set('edge', e, { v1: vA }); }
+        d.remove('vertex', vB);
+      });
+    }, ['euler', 'vertex_off_edge'], false);
     add('a hole carried outside its face', () => {
       const b = get('prism-with-holes'), f = B.ids(b, 'face').find((x) => B.get(b, 'face', x).loops.length === 3), [lo, , lb] = B.get(b, 'face', f).loops;
       const ext = (l) => { let lo2 = [Infinity, Infinity], hi2 = [-Infinity, -Infinity]; for (const p of Tr.uvLoop(b, l)) for (const q of [p.a, p.b]) { lo2 = [Math.min(lo2[0], q[0]), Math.min(lo2[1], q[1])]; hi2 = [Math.max(hi2[0], q[0]), Math.max(hi2[1], q[1])]; } return [lo2, hi2]; };
@@ -231,6 +238,10 @@ export async function register({ section, ok, refuses, same, deepFrozen, appUrl 
         [sg([-2, -2], [-1, -1]), at0, false, 'a segment past the circle'],
         [sg([0, -3], [0, -2]), arcR(0, 0, 1, [0, -1], [1, 0], 1, -1), false, 'a segment short of the circle'],
         [sg([-2, 0], [-0.5, 0]), at0, false, 'a segment into the circle on the side the arc is not'],
+        [sg([0, -2], [0, -0.5]), at0, false, 'a segment into the circle below the arc'],
+        [sg([0, 0], [4, 0]), sg([2, 0], [2, 3]), true, 'a T: one segment ends on the middle of the other'],
+        [sg([0, 0], [4, 0]), sg([2, 3], [2, 0]), true, 'a T the other way round'],
+        [at0, arcR(0.5, 0.5, 0.1, [0.6, 0.5], [0.5, 0.6], 1, 1), false, 'a small circle inside the arc\'s circle'],
         [at0, arcR(1, 0, 1, [1, 1], [0, 0], -1, 1), true, 'two arcs crossing, inside both'],
         [at0, arcR(3, 0, 1, [3, 1], [2, 0], -1, 1), false, 'two circles apart'],
         [at0, arcR(0.6, -0.8, 1, [0.6, -1.8], [1.6, -0.8], 1, -1), false, 'two circles that meet, but not on the second arc'],

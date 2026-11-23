@@ -30,7 +30,7 @@ Source: getcadcraft.com › Build an add-on › Upload and review.
 | engine.solid never edits cc-nurbs (D8) | the engine only imports it, and the `reach` rule judges every function it takes. Since the move (2026-11-13) cc-nurbs is canonical beside the engine, so the old hash pins are gone and an edit to `lib/nurbs/` is no longer caught by this suite: it is a convention (decided 2026-11-17, D-ccn: a defect in cc-nurbs gets its own small upstream pull request with a failing test first, and the engine drops its workaround after it merges), and host copies are kept equal by `tools/nurbs/sync.mjs --check` | checker rule `reach`; `sync` section (LF-only, same hosts) | checked |
 | Talks to no server | no `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, workers or `importScripts` | checker rule `global` | enforced |
 | A licence the suite can sign | Apache-2.0 | rule `spdx` | enforced |
-| Package size: at most 200 files, 5 MB unpacked | 33 files, about 350 KB (S12); cc-nurbs, which hosts already carry, sits beside it | measured at each session close | checked |
+| Package size: at most 200 files, 5 MB unpacked | 38 files, about 400 KB (S14); cc-nurbs, which hosts already carry, sits beside it | measured at each session close | checked |
 | A published version never changes | each session commits a new version; nothing is rewritten | git history on `engine/solid` | checked |
 
 ## 3. The suite's library practice
@@ -58,7 +58,7 @@ Source: getcadcraft.com › Build an add-on › Upload and review.
 
 | Rule | How it is met | Evidence | Status |
 |---|---|---|---|
-| Same input, same output, in every engine | only exactly specified arithmetic; own elementary functions | checker rules `trig` and `reach`; golden hashes; `digest` in 20 areas: the first 13 the same in Node, Chromium, Firefox and WebKit, page and worker (2026-11-13); the `curve` (S5), `surface` (S6), `analytic` (S7), `fitting` (S8–S9), `query` (S10), `topo` (S11) and `euler` (S12) areas recorded in Node, browsers to be run (no Playwright on this machine); Safari proper by hand before the PR | enforced (Node); browsers: before the PR |
+| Same input, same output, in every engine | only exactly specified arithmetic; own elementary functions | checker rules `trig` and `reach`; golden hashes; `digest` in 22 areas (S14 added `audit`; Chromium page and worker agreed on all 22 on 2026-11-23, Firefox and WebKit not run since 0.0.7): the first 13 the same in Node, Chromium, Firefox and WebKit, page and worker (2026-11-13); the `curve` (S5), `surface` (S6), `analytic` (S7), `fitting` (S8–S9), `query` (S10), `topo` (S11) and `euler` (S12) areas recorded in Node, browsers to be run (no Playwright on this machine); Safari proper by hand before the PR | enforced (Node); browsers: before the PR |
 | No hidden randomness or clock | no `Math.random`, no `Date`; budgets read an injected clock | checker rule `determinism` | enforced |
 | No `eval` or `Function` | — | checker rule `eval` | enforced |
 | Tolerances in one place | `core/tol.js` only | checker rule `epsilon` | enforced |
@@ -88,8 +88,9 @@ Source: `HANDOFF.md` §15; the owner's direction (D5, D6).
 | Work on branch `engine/solid`; `main` untouched | checked: in the site repo `engine/solid` branches from `main` at fec32b76, which no session changes (the library repo's branch and `main` at a02421e are kept as they were) |
 | No pull request until the owner says engine.solid is finished (D-home, now the site repo) | owner |
 | One complete, tested build per session; `STATUS.md`, `PROVENANCE.md` and `HANDOFF.md` updated at the close | checked each session |
-| A mutation run at each close (deliberate faults must fail the suite) | checked: S2 caught 19 of 20, and the survivor is equivalent in practice; S3 caught 9 of 9; S4 caught 16 of 16; S5 caught 22 of 22 (18 at first; the four survivors became four new tests); S6 caught 23 of 23 (21 at first; the survivors became new tests, two of them inputs found by a seeded search); S7 caught 25 of 25 (20 at first; five new tests), each run checked first on the unmutated code; S8–S9 caught 17 of 18 (12 at first; the survivor is masked by a second guard for the same condition); S10 caught 16 of 18 on the final code (14 at first; two survivors became tests, two showed dead code, which was removed; the two that remain cover each other on analytic surfaces, which have no lower bound yet); S11 caught 23 of 23; S12 caught 23 of 23 |
+| A mutation run at each close (deliberate faults must fail the suite) | checked: S2 caught 19 of 20, and the survivor is equivalent in practice; S3 caught 9 of 9; S4 caught 16 of 16; S5 caught 22 of 22 (18 at first; the four survivors became four new tests); S6 caught 23 of 23 (21 at first; the survivors became new tests, two of them inputs found by a seeded search); S7 caught 25 of 25 (20 at first; five new tests), each run checked first on the unmutated code; S8–S9 caught 17 of 18 (12 at first; the survivor is masked by a second guard for the same condition); S10 caught 16 of 18 on the final code (14 at first; two survivors became tests, two showed dead code, which was removed; the two that remain cover each other on analytic surfaces, which have no lower bound yet); S11 caught 23 of 23; S12 caught 23 of 23; S14 caught 39 of 46 at first (the survivors became tests) and 56 of 56 with them, in `audit/audit.js` |
 | Commits name their session and carry the attribution lines | checked |
+| Hosts: PartCraft and ModelCraft carry the same bytes (D-host, 2026-11-23) | to build: `HOSTS.md` lists the sync, the manifest and the checks that make "uniform" a test and not a hope |
 
 ## 8. The upstream's contribution rules (getcadcraft, read 2026-11-15)
 

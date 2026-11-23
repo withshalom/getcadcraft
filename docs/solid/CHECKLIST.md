@@ -1,31 +1,33 @@
-# engine.solid — checklist from 0.0.16 (S13)
+# engine.solid — checklist from 0.0.17 (S14)
 
-Written 2026-11-23 from `STATUS.md`, `COMPLIANCE.md` and `HANDOFF.md` §14. Verified on this checkout:
-`node bin/test-solid.mjs` (Node 22.23): 590 passed, 0 failed; boundary checker: 36 files, 210 imports, 0 problems.
+Written 2026-11-23 from `STATUS.md`, `COMPLIANCE.md`, `HOSTS.md` and `HANDOFF.md` §14. Verified on this checkout:
+`node bin/test-solid.mjs` (Node 22.23): 616 passed, 0 failed; boundary checker: 38 files, 237 imports, 0 problems.
 
 ## A. Before the pull request (owner / gate items)
 - [ ] Open a proposal issue upstream (scope, layout under `tests/`, how hosts take copies) — org rules require it for anything larger than a fix
-- [ ] Run `node tools/solid/browser-run.mjs` (Playwright) — browsers last agreed on 13 of 21 digest areas (0.0.7); S5–S13 unconfirmed
+- [ ] Run `node tools/solid/browser-run.mjs` (Playwright) — Chromium agrees on all 22 areas (2026-11-23); Firefox and WebKit last ran at 0.0.7 (13 areas)
 - [ ] Safari check by hand
 - [ ] Run the suite on Node 20.19 (BUILDING.md minimum) and confirm `npm test -- --oracles` on Node 22 as CI does
 - [ ] Owner's go for the PR (D-home)
 - [ ] Publish the `engine.solid` catalogue page (drafted in `ENGINE.md`)
 
-## B. Next build — S14 auditor and primitive corpus (closes M2, release gate v0.1)
-- [ ] Auditor imports only core/math/geom/topo (never ops or mesh); findings in the Problems shape (`CODE-CULTURE.md` §6)
-- [ ] Euler–Poincaré as V − (E − D) + F − R using `trim.degenerate` (else a sphere is called wrong)
-- [ ] Corpus: box, cylinder, cone, sphere, torus, prism with holes, revolved vase
-- [ ] Auditor passes the corpus and fails >= 20 corrupted bodies, each check proven to fire
-- [ ] Mutation run at close; STATUS/PROVENANCE/HANDOFF updated; VERSION 0.0.17; new digest area
+## B. Done — S14 auditor and primitive corpus (closes M2, release gate v0.1)
+- [x] Auditor imports only core/math/geom/topo; findings in the Problems shape
+- [x] Euler–Poincaré with `trim.degenerate`; corpus of seven bodies; 30 corrupted bodies, every finding code fired
+- [x] Mutation run: 56 of 56 caught; STATUS/PROVENANCE/HANDOFF updated; VERSION 0.0.17; digest area `audit`
+
+## B2. Next — hosts, then M3
+- [ ] `HOSTS.md` refinements: per-repo sync, manifest with hashes, lang keys, job table (PartCraft and ModelCraft together)
+- [ ] S15 edge discretization (M3 decisions taken with the owner first)
 
 ## C. Get ahead (ordered by what blocks later sessions)
-- [ ] cc-step: settle the canonical copy (PartCraft `app/step/` has `part21.js`, site `lib/step/` lacks it; `read.js` differs) before S28
+- [ ] cc-step: after the 0.11 sync only `read.js` differs, by one import line (`../ifc/step.js` against `./part21.js`); ModelCraft has no cc-step. Settle at the start of M6 (`HOSTS.md` § 6)
 - [ ] Periodic-aware `classify` for circle-bounded faces with no seam (needed by S30 STEP import)
 - [ ] Unclamped/periodic knot vector -> clamped converter (S30)
 - [ ] NURBS -> analytic recognition (S30)
 - [ ] Closed-form / lower-bound closest points for analytic surfaces (S10 leftover)
 - [ ] Curvature limit at a pole (needed by offset/fillet, S37–S38)
-- [ ] Language keys for `solid.err.*` (due S24b)
+- [ ] Language keys for `solid.err.*` and `solid.audit.*` in both hosts (`HOSTS.md` R3)
 - [ ] First real `tools/solid/sync.mjs` run against PartCraft (S24b)
 - [ ] `fromEnvelope` with the worker protocol (S18)
 - [ ] Open upstream PRs (not edits here, per D-ccn) for: cc-nurbs `findSpan` empty end span, cc-nurbs `reduce` tolerance, cone-apex rounding in `geom/analytic-surface.js`, cc-field `detmath.js` accuracy
