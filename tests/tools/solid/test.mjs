@@ -309,12 +309,13 @@ await (await import('./test-query.mjs')).register(api);
 await (await import('./test-topo.mjs')).register(api);
 await (await import('./test-euler.mjs')).register(api);
 await (await import('./test-trim.mjs')).register(api);
+await (await import('./test-audit.mjs')).register(api);
 
 // ================================================================================================== entry
 section('entry', 'the public entry', async () => {
   ok(/^\d+\.\d+\.\d+$/.test(P.VERSION), 'VERSION is x.y.z (' + P.VERSION + ')');
-  const expected = ['CODES', 'DEFAULT_TOL', 'SolidError', 'VERSION', 'aabb', 'analyticCurve', 'analyticSurface', 'basis', 'brep', 'build', 'bvh', 'construct', 'curve', 'errors', 'euler', 'exact', 'fail', 'fit', 'float', 'frame', 'intervals', 'isBudget', 'isSolidError', 'isTol', 'limits', 'linalg', 'makeBudget', 'makePrng', 'makeTol', 'mat4', 'names', 'nurbsCurve', 'nurbsSurface', 'pcurve', 'predicates', 'prim', 'prng', 'quad', 'query', 'resolveBudget', 'resolveTol', 'roots', 'surface', 'toEnvelope', 'tol', 'trig', 'trim', 'vec3'];
-  ok(same(Object.keys(P).sort(), [...expected].sort()), 'index.js exports exactly the S1–S13 names (a new export is a deliberate change to this list)');
+  const expected = ['CODES', 'DEFAULT_TOL', 'SolidError', 'VERSION', 'aabb', 'analyticCurve', 'analyticSurface', 'audit', 'basis', 'brep', 'build', 'bvh', 'construct', 'corpus', 'curve', 'errors', 'euler', 'exact', 'fail', 'fit', 'float', 'frame', 'intervals', 'isBudget', 'isSolidError', 'isTol', 'limits', 'linalg', 'makeBudget', 'makePrng', 'makeTol', 'mat4', 'names', 'nurbsCurve', 'nurbsSurface', 'pcurve', 'predicates', 'prim', 'prng', 'quad', 'query', 'resolveBudget', 'resolveTol', 'roots', 'surface', 'toEnvelope', 'tol', 'trig', 'trim', 'vec3'];
+  ok(same(Object.keys(P).sort(), [...expected].sort()), 'index.js exports exactly the S1–S14 names (a new export is a deliberate change to this list)');
   ok(P.errors.SolidError === E.SolidError && P.tol.DEFAULT_TOL === T.DEFAULT_TOL && P.limits.makeBudget === L.makeBudget, 'the namespaces are the core modules themselves');
   const mods = { float: 'core/float.js', trig: 'core/trig.js', prng: 'core/prng.js', intervals: 'core/intervals.js', exact: 'core/exact.js', vec3: 'math/vec3.js', mat4: 'math/mat4.js', frame: 'math/frame.js', aabb: 'math/aabb.js', quad: 'math/quad.js', roots: 'math/roots.js', linalg: 'math/linalg.js', predicates: 'math/predicates.js', basis: 'geom/basis.js', nurbsCurve: 'geom/nurbs-curve.js', nurbsSurface: 'geom/nurbs-surface.js', analyticCurve: 'geom/analytic-curve.js', analyticSurface: 'geom/analytic-surface.js', curve: 'geom/curve.js', surface: 'geom/surface.js', fit: 'geom/fit.js', construct: 'geom/construct.js', query: 'geom/query.js', bvh: 'math/bvh.js', brep: 'topo/brep.js', names: 'topo/names.js', euler: 'topo/euler.js', build: 'topo/build.js', pcurve: 'topo/pcurve.js', prim: 'topo/prim.js', trim: 'topo/trim.js' };
   let nsOk = true;

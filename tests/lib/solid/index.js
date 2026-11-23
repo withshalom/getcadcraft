@@ -38,10 +38,12 @@
  *   euler · build                            S12: the Euler operators; polygons, sweeps, polyhedra and sewing
  *   pcurve · prim · trim                     S13: an edge in its face's (u, v) space, exactly; the cylinder, cone, sphere and torus as
  *                                            solids with their seams and poles; the winding number and point-in-face
+ *   audit · corpus                           S14: the auditor (topology, geometry, volume; findings in the Problems shape) and the
+ *                                            primitive corpus it is tested on
  *   SolidError · fail · isSolidError · toEnvelope · CODES · DEFAULT_TOL · makeTol · resolveTol · isTol
  *   makeBudget · resolveBudget · isBudget · makePrng
  */
-export const VERSION = '0.0.16';
+export const VERSION = '0.0.17';
 
 export * as errors from './core/errors.js';
 export * as tol from './core/tol.js';
@@ -77,6 +79,8 @@ export * as build from './topo/build.js';
 export * as pcurve from './topo/pcurve.js';
 export * as prim from './topo/prim.js';
 export * as trim from './topo/trim.js';
+export * as audit from './audit/audit.js';
+export * as corpus from './audit/corpus.js';
 
 export { SolidError, fail, isSolidError, toEnvelope, CODES } from './core/errors.js';
 export { DEFAULT_TOL, makeTol, resolveTol, isTol } from './core/tol.js';

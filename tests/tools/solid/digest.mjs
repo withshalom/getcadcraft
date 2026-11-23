@@ -387,6 +387,16 @@ const AREAS = {
       mix(got(() => { const pc = Pc.pcurveOf(cyl, ring, ta, tb, { near: [ta, v] }); return [C.point(pc, ta), C.point(pc, tb), C.point(pc, (ta + tb) / 2)]; }));
     }
   },
+  audit(P, { mix }) {                                    // S14: the corpus and its audits (volumes from Green's theorem, Euler–Poincaré, findings)
+    const B = P.brep, A = P.audit, K = P.corpus;
+    for (const seed of [1, 2, 3]) {
+      for (const c of K.corpus({ seed })) {
+        const r = A.audit(c.brep, { genus: c.genus });
+        mix(c.name); mix(B.toData(c.brep)); mix(c.volume);
+        mix(r.ok); mix(r.problems.map((p) => p.code)); mix(r.summary); mix(r.stats);
+      }
+    }
+  },
   prng(P, { mix }) {
     const g = P.makePrng(108);
     for (let i = 0; i < 5000; i++) { mix(g.u32()); mix(g.float()); mix(g.range(-1e308, 1e308)); mix(g.int(1 + i)); mix(g.normal()); mix(g.unit3()); }
