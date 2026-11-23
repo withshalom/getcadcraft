@@ -83,6 +83,18 @@ export async function register({ section, ok, refuses, same, deepFrozen, appUrl 
       return B.edit(b, (d) => { for (const f of B.ids(b, 'face')) { for (const l of B.get(b, 'face', f).loops) flip(d, l); d.set('face', f, { sense: -d.get('face', f).sense }); } });
     };
 
+    // an edge whose ends are on its faces and whose middle is too, between them off: a cubic with offsets (0, h, −h, 0) is zero at
+    // t = 0, ½ and 1 and 3h t (1 − t)(1 − 2t) between
+    const sCurve = () => {
+      const b = cube([0, 0, 0], 2), e = B.ids(b, 'edge')[0], E = B.get(b, 'edge', e), a = B.get(b, 'vertex', E.v0).point, z = B.get(b, 'vertex', E.v1).point;
+      const t = V.unit(V.sub(z, a)), w = V.unit(V.sub([1, 1, 1], V.scale(t, V.dot(t, [1, 1, 1]))));
+      const curve = P.nurbsCurve.make({ deg: 3, knots: [0, 0, 0, 0, 1, 1, 1, 1], cvs: [a, V.madd(V.add(V.scale(a, 2 / 3), V.scale(z, 1 / 3)), 0.6, w), V.madd(V.add(V.scale(a, 1 / 3), V.scale(z, 2 / 3)), -0.6, w), z], w: [1, 1, 1, 1] });
+      return B.edit(b, (d) => d.set('edge', e, { curve, t0: 0, t1: 1 }));
+    };
+    const sCurveCheck = () => {
+      const bad = sCurve();
+      ok(codesOf(A.audit(bad)).has('edge_off_surface') && !codesOf(A.audit(bad, { samples: 2 })).has('edge_off_surface'), 'the samples option is honoured: an edge that leaves its faces only between its ends and its middle is found at 8 samples a coedge and not at 2 (the ends and the middle all lie on them)');
+    };
     const cases = [];
     const add = (name, make, want, only) => cases.push({ name, make, want, only });
 
@@ -92,6 +104,10 @@ export async function register({ section, ok, refuses, same, deepFrozen, appUrl 
     add('a cylinder face moved to a wider cylinder', () => { const b = get('cylinder'), f = at(b, 'cylinder'), s = B.get(b, 'face', f).surface; return B.edit(b, (d) => d.set('face', f, { surface: AS.cylinder({ frame: s.frame, r: s.r + 0.5, urange: s.urange, vrange: s.vrange }) })); }, ['edge_off_surface'], false);
     add('a pcurve shifted off its edge', () => { const b = get('box'), f = at(b, 'plane'), c = coedgeWith(b, f), co = B.get(b, 'coedge', c), e = B.get(b, 'edge', co.edge); return B.edit(b, (d) => d.set('coedge', c, { pcurve: shiftLine(co.pcurve, e.t0, e.t1, 0.25, 0) })); }, ['pcurve_off_edge'], false);
     add('a pcurve far out of its plane\'s range', () => { const b = get('box'), f = at(b, 'plane'), c = coedgeWith(b, f), co = B.get(b, 'coedge', c), e = B.get(b, 'edge', co.edge); return B.edit(b, (d) => d.set('coedge', c, { pcurve: shiftLine(co.pcurve, e.t0, e.t1, 1000, 0) })); }, ['pcurve_out_of_domain'], false);
+    for (const [name, du, dv] of [['below u', -1000, 0], ['below v', 0, -1000], ['above v', 0, 1000]]) {
+      add(`a pcurve far out of its plane's range, ${name}`, () => { const b = get('box'), f = at(b, 'plane'), c = coedgeWith(b, f), co = B.get(b, 'coedge', c), e = B.get(b, 'edge', co.edge); return B.edit(b, (d) => d.set('coedge', c, { pcurve: shiftLine(co.pcurve, e.t0, e.t1, du, dv) })); }, ['pcurve_out_of_domain'], false);
+    }
+    add('an edge that leaves its faces between its ends', () => sCurve(), ['edge_off_surface'], false);
     add('a loop run the other way', () => { const b = get('box'), f = at(b, 'plane'); return B.edit(b, (d) => flip(d, B.get(b, 'face', f).loops[0])); }, ['edge_same_direction', 'loop_orientation'], false);
     add('a face\'s sense flipped', () => { const b = get('box'), f = at(b, 'plane'); return B.edit(b, (d) => d.set('face', f, { sense: -B.get(b, 'face', f).sense })); }, ['loop_orientation'], false);
     add('a whole solid inside out', () => cube([0, 0, 0], 2, true), ['volume_sign', 'volume_nonpositive'], true);
@@ -134,6 +150,24 @@ export async function register({ section, ok, refuses, same, deepFrozen, appUrl 
       const b = attach(another(cube(), null, [-9, 0, 0]).brep), [s1, s2] = B.ids(b, 'shell'), sol2 = B.get(b, 'shell', s2).solid, sol1 = B.get(b, 'shell', s1).solid;
       return B.edit(b, (d) => { d.set('solid', sol1, { shells: [s1, s2] }); d.set('shell', s2, { solid: sol1 }); d.remove('solid', sol2); });
     }, ['volume_sign', 'void_outside'], false);
+    add('two cubes that touch at one vertex, in one shell', () => {
+      const b = attach(another(cube(), null, [1, 1, 1]).brep), [s1, s2] = B.ids(b, 'shell'), sol2 = B.get(b, 'shell', s2).solid;
+      const at111 = B.ids(b, 'vertex').filter((v) => V.dist(B.get(b, 'vertex', v).point, [1, 1, 1]) === 0), [vA, vB] = at111;
+      return B.edit(b, (d) => {
+        for (const e of B.ids(b, 'edge')) { const E = B.get(b, 'edge', e); if (E.v0 === vB) d.set('edge', e, { v0: vA }); if (E.v1 === vB) d.set('edge', e, { v1: vA }); }
+        d.remove('vertex', vB);
+        const faces2 = d.get('shell', s2).faces;
+        for (const f of faces2) d.set('face', f, { shell: s1 });
+        d.set('shell', s1, { faces: [...d.get('shell', s1).faces, ...faces2] });
+        d.remove('shell', s2); d.remove('solid', sol2);
+      });
+    }, ['euler', 'disconnected_shell'], false);
+    add('a hole carried outside its face', () => {
+      const b = get('prism-with-holes'), f = B.ids(b, 'face').find((x) => B.get(b, 'face', x).loops.length === 3), [lo, , lb] = B.get(b, 'face', f).loops;
+      const ext = (l) => { let lo2 = [Infinity, Infinity], hi2 = [-Infinity, -Infinity]; for (const p of Tr.uvLoop(b, l)) for (const q of [p.a, p.b]) { lo2 = [Math.min(lo2[0], q[0]), Math.min(lo2[1], q[1])]; hi2 = [Math.max(hi2[0], q[0]), Math.max(hi2[1], q[1])]; } return [lo2, hi2]; };
+      const [[ox0, oy0], [ox1, oy1]] = ext(lo), [[hx0, hy0]] = ext(lb), du = (ox1 - ox0) * 1.05 - (hx0 - ox0), dv = (oy1 - oy0) * 0.0 + (hy0 - hy0);
+      return B.edit(b, (d) => { for (const c of B.get(b, 'loop', lb).coedges) { const co = B.get(b, 'coedge', c), e = B.get(b, 'edge', co.edge); d.set('coedge', c, { pcurve: shiftLine(co.pcurve, e.t0, e.t1, du, dv) }); } });
+    }, ['loop_nesting'], false);
     add('a polygon that crosses itself', () => attach(Bu.polygon(B.EMPTY, [[0, 0, 0], [3, 0, 0], [0, 2, 0], [2, 2, 0]]).brep), ['loop_self_intersect'], false);
     add('a pole\'s edge used twice', () => {
       const b = get('sphere'), pole = P.trim.degenerate(b)[0], co = B.adjacency(b).coedgesOfEdge.get(pole)[0], C0 = B.get(b, 'coedge', co), L = C0.loop;
@@ -162,6 +196,47 @@ export async function register({ section, ok, refuses, same, deepFrozen, appUrl 
       });
       const r0 = A.audit(cyl), r1 = A.audit(turned);
       ok(r1.ok && r1.problems.length === 0 && Math.abs(volumeOf(r1)[0] - volumeOf(r0)[0]) <= 1e-12 * volumeOf(r0)[0], 'a periodic face whose pcurves lie a whole turn away audits clean, with the same volume (a period is not a domain error)');
+    }
+
+    sCurveCheck();
+    {
+      const cut = cube([0, 0, 0], 2), sh = B.ids(cut, 'shell')[0], sol = B.get(cut, 'shell', sh).solid, face = B.ids(cut, 'face')[0];
+      const sheetOpen = B.edit(cut, (d) => { dropFace(d, face); d.set('shell', sh, { solid: null }); d.remove('solid', sol); });
+      const ro = A.audit(sheetOpen);
+      for (const code of codesOf(ro)) fired.add(code);
+      ok(ro.ok && codesOf(ro).has('open_edge') && ro.problems.filter((p) => p.code.endsWith('open_edge')).every((p) => p.severity === 'note'), 'an open shell that belongs to no solid (a sheet) is allowed its open edges: ok, and the open edges are only noted');
+      const asSolid = B.edit(cut, (d) => dropFace(d, face));
+      ok(A.audit(asSolid).problems.filter((p) => p.code.endsWith('open_edge')).every((p) => p.severity === 'warning'), 'the same shell inside a solid is not: its open edges are warnings');
+    }
+
+    // the loop helpers, on shapes with answers: a rounded rectangle (arcs of quarter turns and segments), the way round, and the meetings
+    {
+      const w = 7, h = 4, r = 1.5, arc = (cx, cy, a, b, qx, qy) => ({ kind: 'arc', c: [cx, cy], r, qx, qy, a, b }), seg = (a, b) => ({ kind: 'seg', a, b });
+      const ring = [seg([r, 0], [w - r, 0]), arc(w - r, r, [w - r, 0], [w, r], 1, -1), seg([w, r], [w, h - r]), arc(w - r, h - r, [w, h - r], [w - r, h], 1, 1),
+        seg([w - r, h], [r, h]), arc(r, h - r, [r, h], [0, h - r], -1, 1), seg([0, h - r], [0, r]), arc(r, r, [0, r], [r, 0], -1, -1)];
+      const want = w * h - (4 - P.trig.PI) * r * r;
+      const back = [...ring].reverse().map((p) => ({ ...p, a: p.b, b: p.a }));
+      ok(Math.abs(A.loopArea(ring) - want) <= 1e-12 * want && Math.abs(A.loopArea(back) + want) <= 1e-12 * want, `the area of a rounded rectangle (${w} × ${h}, corners ${r}) round the loop is w h − (4 − π) r² = ${want.toFixed(9)}, positive counter-clockwise and negative the other way`);
+      const sg = (a, b) => seg(a, b), arcR = (cx, cy, rr, a, b, qx, qy) => ({ kind: 'arc', c: [cx, cy], r: rr, qx, qy, a, b });
+      const at0 = arcR(0, 0, 1, [1, 0], [0, 1], 1, 1);                                          // a quarter of the unit circle, in the first quadrant
+      const R = (p, q) => A.piecesMeet(p, q, 1e-9);
+      const meets = [
+        [sg([0, 0], [4, 4]), sg([0, 4], [4, 0]), true, 'two segments crossing'],
+        [sg([0, 0], [2, 0]), sg([2, 0], [2, 3]), true, 'two segments touching at an end'],
+        [sg([0, 0], [4, 0]), sg([1, 0], [3, 0]), true, 'two segments on one line, overlapping'],
+        [sg([0, 0], [1, 0]), sg([2, 0], [3, 0]), false, 'two segments on one line, apart'],
+        [sg([0, 0], [4, 0]), sg([0, 1], [4, 1]), false, 'two parallel segments'],
+        [sg([0, 0], [2, 2]), at0, true, 'a segment through the arc'],
+        [sg([2, 0], [2, 2]), at0, false, 'a segment beside the arc'],
+        [sg([-2, -2], [-1, -1]), at0, false, 'a segment past the circle'],
+        [sg([0, -3], [0, -2]), arcR(0, 0, 1, [0, -1], [1, 0], 1, -1), false, 'a segment short of the circle'],
+        [sg([-2, 0], [-0.5, 0]), at0, false, 'a segment into the circle on the side the arc is not'],
+        [at0, arcR(1, 0, 1, [1, 1], [0, 0], -1, 1), true, 'two arcs crossing, inside both'],
+        [at0, arcR(3, 0, 1, [3, 1], [2, 0], -1, 1), false, 'two circles apart'],
+        [at0, arcR(0.6, -0.8, 1, [0.6, -1.8], [1.6, -0.8], 1, -1), false, 'two circles that meet, but not on the second arc'],
+      ];
+      const wrong = meets.filter(([p, q, want2]) => R(p, q) !== want2 || R(q, p) !== want2).map((m) => m[3]);
+      ok(wrong.length === 0, `${meets.length} meetings of pieces, each in both orders: segments and arcs that cross, touch, overlap or miss` + (wrong.length ? '; wrong: ' + wrong.join(', ') : ''));
     }
 
     // the notes: a sheet is allowed to be open, a free shell is only worth mentioning, a face with no pcurves cannot be judged in (u, v)

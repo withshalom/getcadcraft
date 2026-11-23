@@ -17,6 +17,8 @@
  *     samples   points checked along each coedge (2 to 64, default 8); genus: the genus every closed shell must have (a number,
  *               or { shellId: genus }); volume: false to skip the volume of each shell
  *   FINDINGS · LIMIT
+ *   loopArea(pieces) → the area of a closed loop of trim.js pieces in (u, v), positive counter-clockwise (Green's theorem)
+ *   piecesMeet(p, q, slack) → whether two pieces (segments judged exactly, arcs in floats) share a point
  *
  * Topology (every one needs only the tables; a snapshot's structural rules were checked when it was made, brep.js check)
  *   orphan_vertex · orphan_edge · orphan_face · face_without_loop · free_shell (note) ·
@@ -82,7 +84,7 @@ function turn(p) {
   return d > PI ? d - TAU : d <= -PI ? d + TAU : d;
 }
 /** ½ ∮ (u dv − v du) round a loop: its area, positive counter-clockwise in (u, v) */
-function loopArea(pieces) {
+export function loopArea(pieces) {
   let s = 0;
   for (const p of pieces) {
     if (p.kind === 'seg') s += p.a[0] * p.b[1] - p.b[0] * p.a[1];
@@ -99,8 +101,8 @@ function onArc(p, q, slack) {
   return w * (ax * qy - ay * qx) >= -eps && w * (qx * by - qy * bx) >= -eps;
 }
 /** whether two pieces share a point (the callers skip pieces next to each other). Segments are judged exactly; arcs in floats. */
-function meet(p, q, slack) {
-  if (p.kind === 'arc' && q.kind === 'seg') return meet(q, p, slack);
+export function piecesMeet(p, q, slack) {
+  if (p.kind === 'arc' && q.kind === 'seg') return piecesMeet(q, p, slack);
   if (p.kind === 'seg' && q.kind === 'seg') {
     const o1 = orient2d(p.a, p.b, q.a), o2 = orient2d(p.a, p.b, q.b), o3 = orient2d(q.a, q.b, p.a), o4 = orient2d(q.a, q.b, p.b);
     if (o1 * o2 < 0 && o3 * o4 < 0) return true;
@@ -308,7 +310,7 @@ export function audit(b, { tol, samples = 8, genus, volume = true } = {}) {
     for (let i = 0; i < flat.length && crossed === 0; i++) for (let j = i + 1; j < flat.length; j++) {
       const A = flat[i], Bp = flat[j];
       if (A.li === Bp.li && (Bp.pi - A.pi === 1 || (A.pi === 0 && Bp.pi === A.n - 1))) continue;
-      if (meet(A.p, Bp.p, T.lin)) { crossed++; break; }
+      if (piecesMeet(A.p, Bp.p, T.lin)) { crossed++; break; }
     }
     if (crossed) found('geometry', 'loop_self_intersect', [label('face', f)]);
     faceInfo.set(f, { pieces, o });
