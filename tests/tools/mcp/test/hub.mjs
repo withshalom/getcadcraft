@@ -62,7 +62,11 @@ const rpc = async (name, method, params = {}) => {
 };
 const names = (r) => r.body.result.tools.map((t) => t.name);
 
-let r = await rpc('claude-desktop', 'tools/list');
+// studio#5 part 3: studio_apps_list before any tools/list must still count each open app's tools (it said 0 for all but the last listed)
+let r = await rpc('claude-desktop', 'tools/call', { name: 'studio_apps_list', arguments: {} });
+const first = r.body.result.structuredContent.apps;
+ok(first.find((a) => a.app === 'cadcraft').tools > 0 && first.find((a) => a.app === 'markupcraft').tools > 0 && first.find((a) => a.app === 'bimcraft').tools === 0, 'studio_apps_list counts tools before any tools/list (an app that takes no assistants: 0)', first.map((a) => a.app + ':' + a.tools).join(' '));
+r = await rpc('claude-desktop', 'tools/list');
 const want = ['cad_item_add', 'cad_objects_list', 'markup_markups_list', 'markup_objects_list', 'studio_apps_list', 'studio_windows_list', 'cad_takeoff_quantities', 'studio_apps_open'].sort();
 ok(r.status === 200 && r.body.result.resultType === 'complete' && JSON.stringify(names(r)) === JSON.stringify(want), 'one list: every enabled app\'s tools, app-prefixed (takeoff_ not doubled), sorted; the app that takes no assistants is absent', names(r));
 ok(!names(r).includes('bim_walls_list') && names(r).includes('studio_apps_open'), 'studio_apps_open is offered when Studio can open apps (openApp given)', names(r));
@@ -91,7 +95,7 @@ r = await rpc('claude-desktop', 'tools/call', { name: 'windows_list', arguments:
 ok(r.body.result.structuredContent.windows.length === 3 && r.body.result.structuredContent.windows.find((w) => w.app === 'cadcraft').window === 'cadcraft:plan a.dwg', 'windows_list (0.7) = studio_windows_list, with stable window ids', r.body.result);
 r = await rpc('claude-desktop', 'tools/call', { name: 'studio_apps_list', arguments: {} });
 const apps = r.body.result.structuredContent.apps;
-ok(apps.length === 8 && apps.find((a) => a.app === 'cadcraft').assistants && apps.find((a) => a.app === 'bimcraft').open && !apps.find((a) => a.app === 'bimcraft').assistants && !apps.find((a) => a.app === 'partcraft').open && apps.find((a) => a.app === 'cadcraft').allowed.includes('edit'), 'studio_apps_list: eight apps, open / takes assistants / allowed', apps);
+ok(apps.length === 9 && apps[8].app === 'supercadcraft' && !apps[8].open && apps.find((a) => a.app === 'cadcraft').assistants && apps.find((a) => a.app === 'bimcraft').open && !apps.find((a) => a.app === 'bimcraft').assistants && !apps.find((a) => a.app === 'partcraft').open && apps.find((a) => a.app === 'cadcraft').allowed.includes('edit'), 'studio_apps_list: the eight apps and Super (BK.59), open / takes assistants / allowed', apps);
 r = await rpc('claude-desktop', 'tools/call', { name: 'nonsense_tool', arguments: {} });
 ok(r.status === 400 || r.body.error, 'an unknown tool is a protocol error (-32602)', r.body);
 

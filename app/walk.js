@@ -38,11 +38,13 @@
 
 import { prims, txPrim, txEntity, insertMatrix, ellipsePoints, mMul, mApply, dimParts, attrTexts, textLayout, TAU } from './geom.js';
 import { resolveColor } from './doc.js';
+import { bpParts } from './blockparams.js';   // 0.10 SU.1804
 
 let shxHook = null;
 /** (doc, te) → line primitives for a text in an SHX font, or null (shx-text.js). */
 export function setShxHook(fn) { shxHook = fn; }
 import { hatchLines } from './hatch.js';
+import { gradOf, gradientFill } from './hatch-gradient.js';   // ORS.7: gradient fills
 import { leaderGeometry } from './leader.js';
 import { resolveLt, resolveLw, patternOf, dashPrims } from './linetypes.js';
 import { findPicture } from './pictures.js';
@@ -51,11 +53,17 @@ import { isIsoLinetype } from './plotstyle.js';
 import { clipOut, clipPoly } from './xclip.js';
 import { floorView } from './floors.js';   // 0.9 PLAN2D.3: stacked floors
 import { classView } from './classes.js';   // 0.8 SU.912 (sx-classes): ByClass styles, hidden classes, viewport class overrides
+import { annoView, annoVpKey } from './anno-scale-cad.js';   // ORS.26: annotative objects at several scales (a viewport shows the size for its scale)
+import { runNow, ticker } from './slices.js';   // 0.11 PERF.9: walkSteps, the walk in slices
 
 /** How strongly what is outside REFEDIT's working set is drawn (0.6 DF.5). */
 export const REF_FADE = 0.3;
+const COMPOSITE = new Set(['insert', 'dim', 'mleader']);   // objects that draw other objects (walkSteps' parts())
 
-export function walk(doc, entities, out, { m = null, plot = false, frozen = null, penLt = null, ltTable = 1 } = {}) {
+/** 0.11 PERF.9 (perf-finish-11): walk() runs walkSteps() at once. walkSteps is the same walk as a generator: it yields now and then (also
+ *  inside a block reference with many objects), so view.js can build a big drawing's picture in slices (slices.js); the output is the same. */
+export function walk(doc, entities, out, opts = {}) { runNow(walkSteps(doc, entities, out, opts)); }
+export function* walkSteps(doc, entities, out, { m = null, plot = false, frozen = null, penLt = null, ltTable = 1, lockFade = 0 } = {}) {   // ORS.28: lockFade 0–0.9 = how much objects on locked layers fade (view.js passes it; plots never do)
   // per-viewport layer overrides (VP.3, frozenSet(vp).ovr): the layers as that viewport shows them
   const ovr = frozen && frozen.ovr;
   if (ovr && ovr.size) {
@@ -97,21 +105,27 @@ export function walk(doc, entities, out, { m = null, plot = false, frozen = null
   const optsOf = (tr) => (Number.isFinite(tr) && tr > 0 ? { alpha: Math.max(0, Math.min(1, 1 - tr / 100)) } : undefined);
 
   const cv = classView(doc, frozen && frozen.vpc);   // 0.8 SU.912: null when the drawing has no classes or overrides
-  const emit = (e, byBlock, parentLayer, mm, depth, blk = {}) => {
-    if (depth > 16) return;
-    if (cv) { e = cv(e); if (!e) return; }   // 0.8 SU.912: object → class → layer (classes.js)
+  // emit(e, …): what one object draws. A reference, dimension or multileader is a generator (its parts may be many: it yields between
+  // them, 0.11 PERF.9); every other object is drawn by a plain call. `e` has been through the class view already (pass()).
+  const tick = ticker(32);
+  const pass = (e) => (cv ? cv(e) : e);   // 0.8 SU.912: object → class → layer (classes.js); null = not drawn
+  const emit = function* (e, byBlock, parentLayer, mm, depth, blk = {}) {
+    if (depth > 16 || !e) return;
+    if (COMPOSITE.has(e.type)) yield* parts(e, byBlock, parentLayer, mm, depth, blk); else one(e, byBlock, parentLayer, mm, blk);
+  };
+  const parts = function* (e, byBlock, parentLayer, mm, depth, blk) {
     const color = resolveColor(doc, e, byBlock, parentLayer);
     const lw = resolveLw(doc, e, blk.lw, parentLayer);
-    const ctx = { lt: blk.lt, layer: parentLayer };
-    const tr = trOf(e, blk.tr, parentLayer), o = optsOf(tr);
-    switch (e.type) {
-      case 'insert': case 'dim': case 'mleader': {
+    const tr = trOf(e, blk.tr, parentLayer);
+    {
+      {
         let parts, m2 = mm;
         if (e.type === 'insert') {
           const blk = doc.blocks.get(e.block);
           if (!blk) return;
           // the block, then its attributes (visible ones with a value; same layer and colour rules)
-          parts = blk.attdefs?.length || e.attrs ? [...blk.entities, ...attrTexts(e, blk)] : blk.entities;
+          const ents = blk.bp ? bpParts(blk, e.bp) : blk.entities;   // 0.10 SU.1804: several visibility parameters
+          parts = blk.attdefs?.length || e.attrs ? [...ents, ...attrTexts(e, blk)] : ents;
           const im = insertMatrix(e, blk);
           m2 = mm ? mMul(mm, im) : im;
         } else parts = e.type === 'mleader' ? leaderGeometry(e) : dimParts(e, doc.blocks);   // a multileader draws itself, like a dimension
@@ -123,11 +137,20 @@ export function walk(doc, entities, out, { m = null, plot = false, frozen = null
         try {
           for (const c of parts) {
             if (!shown(c.layer === '0' ? layer : c.layer)) continue;
-            emit(c, color, layer, m2, depth + 1, e.type === 'insert' ? inner : { lt: 'Continuous', lw, tr });   // dimension and leader lines stay solid
+            yield* emit(depth + 1 > 16 ? null : pass(c), color, layer, m2, depth + 1, e.type === 'insert' ? inner : { lt: 'Continuous', lw, tr });   // dimension and leader lines stay solid
+            if (tick()) yield;
           }
         } finally { out = outer; }
         return;
       }
+    }
+  };
+  const one = (e, byBlock, parentLayer, mm, blk) => {
+    const color = resolveColor(doc, e, byBlock, parentLayer);
+    const lw = resolveLw(doc, e, blk.lw, parentLayer);
+    const ctx = { lt: blk.lt, layer: parentLayer };
+    const tr = trOf(e, blk.tr, parentLayer), o = optsOf(tr);
+    switch (e.type) {
       case 'text':
         if (e.picName && findPicture(doc, e.s)) return;   // a picture's name stands in for it only until its file is loaded
         if (e.pdfName && findPdf(doc, e.s.replace(/ \(\d+\)$/, ''))) return;   // …and an underlay's
@@ -144,6 +167,7 @@ export function walk(doc, entities, out, { m = null, plot = false, frozen = null
         return;
       case 'point': { const p = P(mm, e.x, e.y); out.point(color, p.x, p.y); return; }
       case 'hatch': {
+        if (out.gradient && e.xd?.CADCRAFT_GRAD) { const gr = gradOf(e), gf = gr && gradientFill(e.loops, gr, mm); if (gf) { out.gradient(gf, o); return; } }   // ORS.7: an output that paints gradients gets one (others: the solid fill below)
         if (e.bg !== undefined && e.bg !== null && !e.solid) out.fill(resolveColor(doc, { ...e, color: e.bg }, byBlock, parentLayer), txLoops(e.loops, mm), true, o);   // background colour under the pattern
         const lines = hatchLines(e, doc);   // a known pattern draws its lines (hatch.js); others show as a tone, as before
         if (lines) { out.stroke(color, mm ? lines.flatMap((q) => txPrim(q, mm)) : lines, lw, o); return; }
@@ -186,8 +210,17 @@ export function walk(doc, entities, out, { m = null, plot = false, frozen = null
   const fv = floorView(doc, frozen);   // 0.9 PLAN2D.3: other floors faded, floors turned off skipped
   const faded = re || fv ? { ...plain, stroke: (c, p, lw, o) => plain.stroke(c, p, lw, fade(o)), fill: (c, l, s, o) => plain.fill(c, l, s, o?.wipe ? o : fade(o)), text: (c, e, o) => plain.text(c, e, fade(o)),
     ...(plain.infinite ? { infinite: (c, e, lw, o) => plain.infinite(c, e, lw, fade(o)) } : {}), ...(plain.pdf ? { pdf: (p) => plain.pdf({ ...p, alpha: (p.alpha ?? 1) * REF_FADE }) } : {}), ...(plain.picture ? { picture: (p) => plain.picture({ ...p, alpha: (p.alpha ?? 1) * REF_FADE }) } : {}) } : plain;
-  for (const e of entities) {
+  // ORS.5 (objhide.js): objects hidden for the session are not drawn. ORS.28 (lockedlayers.js): objects on locked layers draw faded.
+  const orsHid = doc.orsHidden && doc.orsHidden.size ? doc.orsHidden : null;
+  const lk = lockFade > 0 && lockFade < 1 && !plot ? 1 - lockFade : 0, lfade = (o) => ({ ...(o || {}), alpha: (o?.alpha ?? 1) * lk });
+  const lockOut = lk ? { ...plain, stroke: (c, p, lw, o) => plain.stroke(c, p, lw, lfade(o)), fill: (c, l, s, o) => plain.fill(c, l, s, o?.wipe ? o : lfade(o)), text: (c, e, o) => plain.text(c, e, lfade(o)),
+    ...(plain.infinite ? { infinite: (c, e, lw, o) => plain.infinite(c, e, lw, lfade(o)) } : {}), ...(plain.pdf ? { pdf: (p) => plain.pdf({ ...p, alpha: (p.alpha ?? 1) * lk }) } : {}), ...(plain.picture ? { picture: (p) => plain.picture({ ...p, alpha: (p.alpha ?? 1) * lk }) } : {}) } : null;
+  const av = annoView(doc, frozen);   // ORS.26: null unless a drawing uses annotation scale lists
+  for (let e of entities) {
+    if (orsHid && orsHid.has(e.id)) continue;   // ORS.5
     if (re && re.map.get(e.id) === e) { if (e.id === re.ref) continue; out = re.ids.has(e.id) ? plain : faded; } else out = plain;
+    if (av && e.ann) { e = av(e); if (!e) continue; }   // ORS.26: the size for this viewport's scale, or not shown there
+    if (lockOut && out === plain && doc.layers.get(e.layer)?.locked) out = lockOut;   // ORS.28
     if (fv && e.type !== 'viewport') { const f = fv(e); if (f === 2) continue; if (f === 1) out = faded; }
     if (e.type === 'viewport') {
       // the view shows whatever its layer; the border follows the layer like anything else
@@ -195,7 +228,7 @@ export function walk(doc, entities, out, { m = null, plot = false, frozen = null
       if (shown(e.layer)) out.stroke(resolveColor(doc, e), mm2(prims(e, null), m), resolveLw(doc, e), optsOf(trOf(e, undefined, null)));
       continue;
     }
-    if (shown(e.layer)) emit(e, null, null, m, 0);
+    if (shown(e.layer)) { yield* emit(pass(e), null, null, m, 0); if (tick()) yield; }
   }
 }
 
@@ -246,11 +279,13 @@ export function frozenSet(vp, hasFloors = false) {
   const lov = vp && vp.lov && typeof vp.lov === 'object' ? Object.entries(vp.lov).filter(([k, v]) => k && v && typeof v === 'object') : [];
   const vpc = vp && vp.vpc && typeof vp.vpc === 'object' && Object.keys(vp.vpc).length ? vp.vpc : null;   // 0.8 SU.912 viewport class overrides (vpclass.js)
   const flr = vp && typeof vp.flr === 'string' && vp.flr ? vp.flr : null;   // 0.9 PLAN2D.3: the one floor this viewport shows
-  if (!f.length && !lov.length && !vpc && !flr && !hasFloors) return null;
+  const an = annoVpKey(vp);   // ORS.26: null unless a drawing uses annotation scale lists
+  if (!f.length && !lov.length && !vpc && !flr && !hasFloors && !an) return null;
   const set = new Set(f.map((n) => n.toUpperCase()));
   if (flr) set.flr = flr;
   if (lov.length) set.ovr = new Map(lov.map(([k, v]) => [k.toUpperCase(), v]));
   if (vpc) set.vpc = vpc;
+  if (an) set.anno = an;   // ORS.26
   return set;
 }
 
@@ -258,7 +293,7 @@ export function frozenSet(vp, hasFloors = false) {
 export function frozenKey(set) {
   if (!set) return '';
   const o = set.ovr ? '\u0001' + JSON.stringify([...set.ovr].sort((a, b) => (a[0] < b[0] ? -1 : 1))) : '';
-  return [...set].sort().join('\n') + o + (set.vpc ? '\u0002' + JSON.stringify(set.vpc) : '') + (set.flr ? '\u0003' + set.flr : '') + (!set.size && !set.ovr && !set.vpc && !set.flr ? '\u0004' : '');   // 0.8 SU.912
+  return [...set].sort().join('\n') + o + (set.vpc ? '\u0002' + JSON.stringify(set.vpc) : '') + (set.flr ? '\u0003' + set.flr : '') + (set.anno ? '\u0005' + set.anno.id + ':' + set.anno.s : '') + (!set.size && !set.ovr && !set.vpc && !set.flr && !set.anno ? '\u0004' : '');   // 0.8 SU.912
 }
 
 const mm2 = (ps, m) => (m ? ps.flatMap((q) => txPrim(q, m)) : ps);

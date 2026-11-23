@@ -145,6 +145,12 @@
     return e;
   }
   function iconLabel(btn, icon, text) {
+    // layout() runs from a MutationObserver on <main> (childList, subtree). Rebuilding a button that already shows this
+    // icon and text is itself a childList mutation, so the observer fired again and layout() ran on every frame for
+    // as long as the phone layout was on. Only touch the DOM when something changes.
+    var key = icon + '\n' + text;
+    if (btn._ccIconLabel === key && btn.firstChild) return;
+    btn._ccIconLabel = key;
     btn.textContent = '';
     var i = el('i', 'bi ' + icon, { 'aria-hidden': 'true' });
     var s = el('span', 'shell-phone-btn-label');
@@ -175,6 +181,7 @@
     paintToolButtons();
     // one button per sheet, in the app's order
     var seen = new Set();
+    var after = btnPos || null;   // the sheet buttons follow the toolbar's two buttons
     parts.sheets.forEach(function (s) {
       seen.add(s.el);
       var b = sheetBtns.get(s.el);
@@ -184,7 +191,11 @@
         b.title = nameOf(s.el, s.side);
         sheetBtns.set(s.el, b);
       }
-      bar.append(b);
+      // put it where it belongs only if it is not there already: re-appending a button that is in place is a childList
+      // mutation too (see iconLabel)
+      var want = after ? after.nextSibling : bar.firstChild;
+      if (want !== b) bar.insertBefore(b, want);
+      after = b;
       b.classList.toggle('is-side-panel', s.side !== 'bottom');
     });
     sheetBtns.forEach(function (b, sheet) { if (!seen.has(sheet)) { b.remove(); sheetBtns.delete(sheet); } });
@@ -662,6 +673,9 @@
         seen: function () { return P.seen; },
         down: function () { return penDown; },
         state: function () { return Object.assign({ at: penAt }, last); },
+        // 0.11 SU.1807: would the palm rule drop this touch? (an app's own window listener that takes fingers first, e.g. CadCraft's
+        // finger crosshair, asks and leaves it to the rule below; nothing else changes)
+        palm: function (e) { return !!(e && e.pointerType === 'touch' && P.seen && P.palm && (penDown || now() - penAt < PALM_MS || palmSized(e))); },
         prefs: function () { return Object.assign({}, P); },
         set: setPref,
         forget: function () { P.seen = false; root.classList.remove('cc-pen'); savePen(); syncSet(); },   // tests, and "no pen here any more"

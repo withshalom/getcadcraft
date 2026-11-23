@@ -956,6 +956,14 @@ section('Arithmetic wherever a length or number is typed (0.6 DF.3; lencalc.js, 
   ok(nearPt({ x: doc.all()[3].x2, y: doc.all()[3].y2 }, 12, 10), 'direct distance 2*6 toward the cursor');
   await type('POLYGON', '2+4', '0,0', 'I', '10');
   ok(doc.all()[4]?.pts?.length === 6, 'POLYGON 2+4 sides', doc.all()[4]?.pts?.length);
+  {   // 0.10.1 (#1971): a radius typed while the pointer is still on the centre (clicked, then typed) was refused; it runs along X now
+    const n0 = doc.all().length, keep = host.cursor;
+    host.cursor = { x: 300, y: 300 };
+    await type('POLYGON', '4', '300,300', 'I', '15');
+    const pg = doc.all()[n0];
+    ok(doc.all().length === n0 + 1 && pg?.pts?.length === 4 && nearPt(pg.pts[0], 315, 300, 1e-9) && nearPt(pg.pts[1], 300, 315, 1e-9), 'POLYGON: a typed radius with the pointer on the centre', pg?.pts);
+    doc.undo(); host.cursor = keep;
+  }
   await type('C', '0,0', '4+');
   ok(log.includes(EN('calc.err.end', { pos: 3, text: '' })) && /radius/i.test(host.lastPrompt || ''), 'a broken calculation is refused with where, and asked again', log.slice(-2).join(' | '));
   await type('3');
@@ -1309,7 +1317,8 @@ section('The coordinate system and map layers in the file (0.6 GEO-DWG; geodwg.j
 
 section('Clicking an empty spot (0.6 DC.67; settings.inc, cadcraft.js)');
 {
-  const inc = fs.readFileSync(path.join(APP, 'settings.inc'), 'utf8'), js = fs.readFileSync(path.join(APP, 'cadcraft.js'), 'utf8');
+  // cadcraft.js and the modules its init() sections moved to (0.11 PERF.71 round two: cadui-*.js)
+  const inc = fs.readFileSync(path.join(APP, 'settings.inc'), 'utf8'), js = ['cadcraft.js', ...fs.readdirSync(APP).filter((f) => /^cadui-.*\.js$/.test(f)).sort()].map((f) => fs.readFileSync(path.join(APP, f), 'utf8')).join('\n');
   ok(/name="ccEmptyClick" value="clear"/.test(inc) && /name="ccEmptyClick" value="keep"/.test(inc), 'Settings › CadCraft has Clears / Keeps the selection');
   ok(/ccEmptyClick: 'emptyClick'/.test(js) && /setRadio\('ccEmptyClick', 'clear'\)/.test(js) && /settings\.emptyClick !== 'keep'\) \{ host\.setSelection\(new Set\(\)\)/.test(js), 'stored, reset to Clears, and read by the empty click (the browser test drives it)');
 }
@@ -2420,12 +2429,31 @@ section('Dimensions');
   await type('DAN'); await click(25, 100); await click(0, 125); await type('10,110');
   const an = doc.all().pop();
   ok(an.kind === 'angular' && near(Dm.dimMeasure(an), Math.PI / 2), 'DIMANGULAR between two lines', JSON.stringify(an));
+  {
+    // Imtaar 2026-11-21: the text on the arc (not outside it), no extension line back along a measured edge, arrows at both ends
+    const ag = Dm.dimGeometry(an), tx = ag.find((p) => p.type === 'text'), R = Math.hypot(an.loc.x - an.c.x, an.loc.y - an.c.y);
+    ok(near(Math.hypot(tx.x - an.c.x, tx.y - an.c.y), R) && tx.va === 'middle' && ag.filter((p) => p.type === 'arc' && /^dim[12]$/.test(p.role)).length === 2, 'DIMANGULAR: the text is centred on the arc, which is broken round it');
+    ok(!ag.some((p) => /^ext/.test(p.role || '')) && ag.filter((p) => /^arrow/.test(p.role || '')).length === 2, 'DIMANGULAR: no extension lines when the arc meets the lines, two arrowheads');
+    const far = Dm.dimGeometry({ ...an, loc: { x: an.c.x + 80, y: an.c.y + 80 } });
+    ok(far.filter((p) => /^ext/.test(p.role || '')).length === 2, 'DIMANGULAR: extension lines when the arc passes the ends of the lines');
+  }
+  await type('POLYGON', '6', '300,100', 'I', '20');
+  const hex = doc.all().pop();
+  const mid = (i) => { const a = hex.pts[i], b = hex.pts[(i + 1) % 6]; return [(a.x + b.x) / 2, (a.y + b.y) / 2]; };
+  const v1 = hex.pts[1];
+  await type('DAN'); await click(...mid(0)); await click(...mid(1)); await type(`${300 + (v1.x - 300) * 0.8},${100 + (v1.y - 100) * 0.8}`);
+  const ap = doc.all().pop();
+  ok(ap.kind === 'angular' && near(Dm.dimMeasure(ap), 2 * Math.PI / 3, 1e-9) && nearPt(ap.c, v1.x, v1.y), 'DIMANGULAR between two sides of a POLYGON (a closed polyline): 120°', JSON.stringify(ap));
+  await type('PL', '400,0', '450,0', '450,50', '');
+  await type('DAN'); await click(425, 0); await click(450, 25); await type('440,10');
+  const al2 = doc.all().pop();
+  ok(al2.kind === 'angular' && near(Dm.dimMeasure(al2), Math.PI / 2, 1e-9), 'DIMANGULAR between two sides of an open polyline', JSON.stringify(al2));
   await type('C', '200,200', '10');
   await type('DRA'); await click(210, 200); await type('230,220');
   ok(Dm.dimText(doc.all().pop()) === 'R10', 'DIMRADIUS of a circle');
   await type('DIMSCALE', '50');
   ok(doc.current.dim.scale === 50, 'DIMSCALE sets the scale for new dimensions');
-  ok(doc.undoStack.length === 10, 'each command is one undo step (DIMCONTINUE\'s two dimensions are one)', doc.undoStack.length);
+  ok(doc.undoStack.length === 14, 'each command is one undo step (DIMCONTINUE\'s two dimensions are one)', doc.undoStack.length);
 }
 {
   const { doc, type, eng } = harness();
@@ -3836,7 +3864,7 @@ section('Properties fields in files (cad-props P.3–P.7, part 2; dwg-props.js)'
   }
 }
 
-section('Autosave and crash recovery (0.4 item 1.2; dwg-autosave.js on the shell\'s app-autosave.js)');
+section('Autosave and crash recovery (0.4 item 1.2; dwg-autosave.js on the shell\'s app-autosave.js; the whole-DWG copy, journal: false. The journal is tools/history-test/test-cadcraft.mjs)');
 {
   const A = await load('app-autosave.js');
   const { wireAutosave } = await load('dwg-autosave.js');
@@ -3847,7 +3875,7 @@ section('Autosave and crash recovery (0.4 item 1.2; dwg-autosave.js on the shell
   d.load({ meta: { name: 'Plan', source: 'Plan.dxf', saveFormat: 'dxf' } }); d.markSaved();
   const tabs = { list: [{ id: 1 }], active: 1, docOf: () => d };
   const as1 = new A.Autosave({ app: 'cadcraft', store, locks: null, alive: async () => ['s1'], session: 's1' });
-  const w1 = wireAutosave({ autosave: as1, doc: d, tabs, open: async () => {} });
+  const w1 = wireAutosave({ autosave: as1, doc: d, tabs, open: async () => {}, journal: false });
   ok(!w1.handles.size, 'nothing is kept before the first edit');
   d.change('x', () => { d.add({ type: 'line', layer: '0', x1: 0, y1: 0, x2: 10, y2: 0 }); d.add({ type: 'circle', layer: '0', cx: 5, cy: 5, r: 2 }); });
   await as1.flush();
@@ -3867,7 +3895,7 @@ section('Autosave and crash recovery (0.4 item 1.2; dwg-autosave.js on the shell
   const orph = await as2.orphans();
   const d2 = new Doc();
   let opened = null;
-  const w2 = wireAutosave({ autosave: as2, doc: d2, tabs: { list: [{ id: 1 }], active: 1, docOf: () => d2 }, open: async (file, meta) => {
+  const w2 = wireAutosave({ autosave: as2, doc: d2, tabs: { list: [{ id: 1 }], active: 1, docOf: () => d2 }, journal: false, open: async (file, meta) => {
     const r = importDwg(readDwg(new Uint8Array(await file.arrayBuffer())), { versionTag: 'x' });
     d2.load({ ...r, meta: { ...r.meta, name: file.name.replace(/\.dwg$/, '') } });
     Object.assign(d2.meta, meta); d2.savedVersion = -1; d2.emit();
@@ -3883,7 +3911,7 @@ section('Autosave and crash recovery (0.4 item 1.2; dwg-autosave.js on the shell
   const before = (await store.index('cadcraft')).filter((r) => r.session === 's2').length;
   w2.sweep();
   const t2 = { list: [], active: 1, docOf: () => d2 };
-  const w3 = wireAutosave({ autosave: as2, doc: d2, tabs: t2, open: async () => {} });
+  const w3 = wireAutosave({ autosave: as2, doc: d2, tabs: t2, open: async () => {}, journal: false });
   w3.handles.set(1, w2.handles.get(1)); w3.sweep(); await new Promise((r) => setTimeout(r, 20));
   ok(before === 1 && (await store.index('cadcraft')).filter((r) => r.session === 's2').length === 0, 'closing the drawing\'s tab removes its copy');
   for (const w of [w1, w2, w3]) w.stop();
@@ -4154,9 +4182,10 @@ section('Multileaders, pictures and wipeouts from files (0.4 C6)');
     const r = importDwg(readDwg(new Uint8Array(fs.readFileSync(arch))), { versionTag: 'AC1021' });
     const d = open(r);
     const ml = all(d).filter((e) => e.type === 'mleader'), lb = all(d).filter((e) => e.type === 'insert' && /^\*L/.test(e.block));
-    ok(ml.length === 33 && lb.length === 3 && ml.every((e) => e.s && e.pts.length >= 2 && e.st.asz > 0), 'Autodesk sample: 33 text multileaders become editable ones; the 3 with a block are drawn as they were (one block each)', ml.length + ' / ' + lb.length);
-    const withBlock = lb.map((e) => d.blocks.get(e.block)).find((b) => b.entities.some((x) => x.type === 'insert'));
-    ok(withBlock && withBlock.entities.some((x) => x.type === 'poly') && withBlock.entities.some((x) => x.type === 'hatch' && x.solid), 'a multileader with block content keeps its leader, arrowhead and block', JSON.stringify(withBlock?.entities.map((x) => x.type)));
+    // ORS.15: multileaders with a block are editable multileaders too now (before: drawn as they were, one unnamed block each)
+    ok(ml.length === 36 && lb.length === 0 && ml.filter((e) => e.blk).length === 3 && ml.every((e) => (e.s || e.blk) && e.pts.length >= 2 && e.st.asz > 0), 'Autodesk sample: all 36 multileaders become editable ones, 33 with text and 3 with a block', ml.length + ' / ' + lb.length);
+    const withBlock = ml.find((e) => e.blk), wbParts = withBlock ? Ld.leaderGeometry(withBlock) : [];
+    ok(withBlock && d.blocks.has(withBlock.blk.name) && Object.keys(withBlock.blk.attrs || {}).length === 2 && wbParts.some((x) => x.type === 'poly') && wbParts.some((x) => x.type === 'hatch' && x.solid) && wbParts.some((x) => x.type === 'insert' && x.block === withBlock.blk.name), 'a multileader with block content keeps its leader, arrowhead, block and attribute values', JSON.stringify(wbParts.map((x) => x.type)));
     const r2 = importDwg(readDwg(new Uint8Array(fs.readFileSync(ex))), { versionTag: 'AC1032' });
     const wipe = r2.entities.filter((e) => e.type === 'poly' && e.closed && e.pts.length >= 4 && Math.abs(e.pts[0].x) > 1000);
     ok(!r2.report.skipped.WIPEOUT && r2.report.notes.some((n) => /2 wipeouts are drawn as their frames/.test(n)) && wipe.length >= 2, 'Autodesk sample: its 2 wipeouts are drawn as their frames (and said)', r2.report.notes.join(' | '));
@@ -7802,6 +7831,419 @@ section('ARC: the eleven methods (0.9 FX.137; lib/arcs, arcs.js)');
   h = harness();
   await h.type('ARC', '5,0', 'C', '0,0', 'A', '90');
   ok(h.doc.all().length === 1, 'one undo step per arc');
+}
+
+section('0.9.1: typed coordinates count from the last point, MTEXT lines as tall as their text, Layer manager');
+{
+  // typedRelative is what the command line asks before sending typed text (cadcraft.js submit); text() itself stays absolute
+  let h = harness();
+  await h.type('LINE');
+  ok(h.eng.typedRelative('4,0') === null, 'first point: typed x,y stays absolute');
+  await h.type('10,10');
+  ok(h.eng.typedRelative('4,0') === '@4,0', 'next point: typed x,y becomes @x,y', h.eng.typedRelative('4,0'));
+  ok(h.eng.typedRelative(' 5 < 90 ') === '@5<90', 'next point: typed d<a becomes @d<a', h.eng.typedRelative(' 5 < 90 '));
+  ok(h.eng.typedRelative('#4,0') === null && h.eng.typedRelative('@4,0') === null, '# and @ are left as typed');
+  ok(h.eng.typedRelative('25') === null && h.eng.typedRelative('U') === null && h.eng.typedRelative('mid') === null, 'a distance, an option and a snap word are left as typed');
+  ok(h.eng.typedRelative('2+2,6/2') === '@2+2,6/2', 'arithmetic in a coordinate still counts');
+  ok(h.eng.typedRelative('a,b') === null, 'something that is not a coordinate is left alone');
+  await h.type(h.eng.typedRelative('4,0'), h.eng.typedRelative('3<90'), '');
+  const ls = h.doc.all();
+  ok(ls.length === 2 && nearPt({ x: ls[0].x2, y: ls[0].y2 }, 14, 10) && nearPt({ x: ls[1].x2, y: ls[1].y2 }, 14, 13), 'LINE 10,10 then 4,0 then 3<90 as typed at the command line', JSON.stringify(ls.map((l) => [l.x2, l.y2])));
+  h = harness();
+  await h.type('LINE', '10,10', '4,0', '');
+  ok(nearPt({ x: h.doc.all()[0].x2, y: h.doc.all()[0].y2 }, 4, 0), 'a script, LISP or an assistant (text() directly) keeps absolute coordinates');
+  h = harness();
+  await h.type('LINE', '10,10', '#4,0', '');
+  ok(nearPt({ x: h.doc.all()[0].x2, y: h.doc.all()[0].y2 }, 4, 0), '#x,y is absolute at a next-point prompt');
+  h = harness();
+  await h.type('CIRCLE', '5,5', '3');
+  await h.type('MOVE', 'ALL', '', '5,5');
+  ok(h.eng.typedRelative('10,0') === '@10,0', 'MOVE: the second point counts from the base point', String(h.eng.typedRelative('10,0')));
+  await h.type(h.eng.typedRelative('10,0'));
+  ok(near(h.doc.all()[0].cx, 15) && near(h.doc.all()[0].cy, 5), 'MOVE base 5,5 then 10,0 moves by 10,0');
+  h = harness();
+  await h.type('LINE', '10,10');
+  h.eng.lastPoint = { x: 99, y: 99 };   // the base is not the last point given: the answer is the world point from the base
+  ok(h.eng.typedRelative('4,0') === '#*14,10', 'a base that is not the last point: counts from the base', String(h.eng.typedRelative('4,0')));
+  await h.type('');
+}
+{
+  const base = { type: 'text', s: 'FIRST LINE\nSECOND LINE', h: 2.5, ls: 1, ha: 'left', va: 'top', x: 0, y: 0 };
+  const plain = G.textLayout({ ...base });
+  ok(near(plain.baselines[0], -2.5) && near(plain.baselines[1], -2.5 - 2.5 * G.LINE_SPACING) && near(plain.box.h, 2.5 * (1 + G.LINE_SPACING)), 'plain text lays out as before');
+  const big = G.textLayout({ ...base, mt: 'FIRST LINE\\P{\\H3x;SECOND LINE}' });
+  ok(near(big.baselines[0], -2.5) && near(big.baselines[1], -2.5 - 7.5 * G.LINE_SPACING), 'a line of 3x text sits 3x the spacing below the line above', JSON.stringify(big.baselines));
+  ok(big.baselines[0] - big.baselines[1] > 7.5, 'the bigger second line clears the first (it overlapped before)');
+  ok(near(big.box.h, 2.5 + 7.5 * G.LINE_SPACING) && near(big.box.y, -big.box.h), 'the box grows with it');
+  const top = G.textLayout({ ...base, va: 'baseline', mt: '{\\H3x;FIRST LINE}\\PSECOND LINE' });
+  ok(near(top.baselines[0], 0) && near(top.baselines[1], -2.5 * G.LINE_SPACING) && near(top.box.y + top.box.h, 7.5), 'a bigger first line: its top is 3x up, the next line keeps its own spacing', JSON.stringify(top.baselines));
+  const mid = G.textLayout({ ...base, va: 'middle', mt: 'FIRST LINE\\P{\\H3x;SECOND LINE}' });
+  ok(near(mid.box.y, -mid.box.h / 2), 'middle justification centres the real height');
+  const mix = G.textLayout({ ...base, s: 'ab CD ef\nnext', mt: 'ab {\\H2x;CD} ef\\Pnext' });
+  ok(near(mix.baselines[0], -5) && near(mix.baselines[0] - mix.baselines[1], 2.5 * G.LINE_SPACING), 'part of a line bigger: that line is as tall as its tallest text', JSON.stringify(mix.baselines));
+  const wrap = G.textLayout({ type: 'text', s: 'aaa bbb ccc ddd', mt: 'aaa {\\H3x;bbb ccc} ddd', h: 2.5, ls: 1, ww: 30, ha: 'left', va: 'top', x: 0, y: 0 });
+  ok(wrap.lines.length === 2 && wrap.lines[0] === 'aaa bbb' && wrap.widths.every((w) => w <= 30), 'wrapping measures bigger runs at their own size', JSON.stringify([wrap.lines, wrap.widths]));
+}
+{
+  const LM = await load('layer-ui.js');
+  const d = new Doc();
+  d.setLayer('Walls', { color: 1 });
+  d.setLayer('Doors', { color: 3, linetype: 'DASHED', lineweight: 0.5 }, { current: true });
+  d.change('T', () => { d.add({ type: 'line', x1: 0, y1: 0, x2: 1, y2: 0, layer: 'Walls' }); d.add({ type: 'line', x1: 0, y1: 0, x2: 1, y2: 1, layer: 'Walls' }); });
+  const rows = LM.layerRows(d);
+  ok(rows.map((r) => r.name).join() === '0,Doors,Walls', 'layer rows: 0 first, then by name', rows.map((r) => r.name).join());
+  const doors = rows.find((r) => r.name === 'Doors'), walls = rows.find((r) => r.name === 'Walls');
+  ok(doors.current && doors.linetype === 'DASHED' && doors.lineweight === 0.5 && doors.color === 3 && doors.on && !doors.frozen && !doors.locked && doors.plot, 'a row carries current, colour, linetype, lineweight and the switches');
+  ok(walls.objects === 2 && doors.objects === 0, 'a row counts the objects on its layer');
+  ok(LM.layerRows(d, 'wal').length === 1, 'the search box filters by name');
+  ok(LM.nextLayerName(d) === 'Layer1', 'the first new layer is Layer1');
+  d.setLayer('Layer1', {});
+  ok(LM.nextLayerName(d) === 'Layer2', 'then Layer2');
+  ok(LM.layerRefusal(d, 'Doors', { on: false }) === 'current_off' && LM.layerRefusal(d, 'Doors', { frozen: true }) === 'current_frozen', 'the current layer is not turned off or frozen');
+  ok(LM.layerRefusal(d, '0', { name: 'Zero' }) === 'rename0' && LM.layerRefusal(d, 'Walls', { name: 'doors' }) === 'taken' && LM.layerRefusal(d, 'Walls', { name: 'a<b' }) === 'badname' && LM.layerRefusal(d, 'Walls', { name: '  ' }) === 'badname', 'rename: layer 0, a name in use and a bad name are refused');
+  ok(LM.layerRefusal(d, 'Walls', { name: 'Walls-2', frozen: true, locked: true }) === null && LM.layerRefusal(d, 'Nope', {}) === 'none', 'a fine change passes; an unknown layer does not');
+  d.setLayer('Walls', { name: 'Walls-2', newVpFrozen: true, plot: false });
+  const w2 = LM.layerRows(d).find((r) => r.name === 'Walls-2');
+  ok(w2 && w2.objects === 2 && w2.newVpFrozen && !w2.plot, 'a rename keeps the objects; frozen in new viewports and no-plot are read back');
+  d.undo();
+  ok(LM.layerRows(d).some((r) => r.name === 'Walls' && r.objects === 2 && r.plot), 'one undo step puts the layer back');
+  { const lk = (await load('commands.js')).lookup; ok(['LAYER', 'LA', 'LAYERPANEL'].every((n) => lk(n)) && lk('LA').name === 'LAYER', 'LAYER, LA and LAYERPANEL are commands'); }
+}
+
+section('0.9.1: a pointer move stays cheap (pointer-perf.js)');
+{
+  const { BoxGrid, frameGate, PointerGovernor } = await load('pointer-perf.js');
+  // the grid returns every box within r of a point, in the order given: checked against walking all of them
+  let seed = 12345;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const boxes = new Map();
+  for (let i = 1; i <= 3000; i++) { const x = rnd() * 1000, y = rnd() * 400, w = rnd() < 0.02 ? rnd() * 900 : rnd() * 12, h = rnd() < 0.02 ? rnd() * 300 : rnd() * 12; boxes.set(i, { minX: x, minY: y, maxX: x + w, maxY: y + h }); }
+  boxes.set(3001, { minX: -Infinity, minY: 0, maxX: Infinity, maxY: 0 });   // a construction line
+  boxes.set(3002, null);                                                     // an object with no box
+  boxes.set(3003, { minX: 5, minY: 5, maxX: 5, maxY: 5 });                   // a point
+  const grid = new BoxGrid(boxes, { always: (id) => id === 3001 });
+  let same = true, fewer = 0, asked = 0;
+  for (let k = 0; k < 400 && same; k++) {
+    const p = { x: rnd() * 1100 - 50, y: rnd() * 500 - 50 }, r = k % 3 ? rnd() * 4 : rnd() * 60;
+    const want = [...boxes].filter(([id, b]) => b && (id === 3001 || !(p.x < b.minX - r || p.x > b.maxX + r || p.y < b.minY - r || p.y > b.maxY + r))).map(([id]) => id);
+    const got = grid.near(p.x, p.y, r);
+    const gotIn = got.filter((id) => want.includes(id));
+    same = want.every((id) => got.includes(id)) && gotIn.join() === want.join() && !got.includes(3002);
+    asked += boxes.size; fewer += got.length;
+  }
+  ok(same, 'the grid finds every object whose box is near the point, in drawing order (400 points against a walk of all 3,003)');
+  ok(fewer < asked / 20, 'and hands back a small share of the drawing to test', (100 * fewer / asked).toFixed(1) + '%');
+  ok(new BoxGrid(new Map()).near(0, 0, 5).length === 0 && new BoxGrid(new Map([[1, { minX: 2, minY: 2, maxX: 2, maxY: 2 }]])).near(2, 2, 0).join() === '1', 'an empty drawing and a single point work');
+
+  // one update a frame
+  let clock = 0, frames = [];
+  const gate = frameGate({ frame: (cb) => frames.push(cb), now: () => clock, gap: 12 });
+  const ran = [];
+  ok(gate.push(() => ran.push('a')) === true && ran.join() === 'a', 'the first move of a frame is applied at once');
+  clock = 2; gate.push(() => ran.push('b')); clock = 4; gate.push(() => ran.push('c'));
+  ok(ran.join() === 'a' && gate.waiting && frames.length === 1, 'moves that follow within the frame wait, and ask for one frame');
+  clock = 16; frames.shift()();
+  ok(ran.join() === 'a,c' && !gate.waiting, 'the frame applies only the newest of them');
+  clock = 17; gate.push(() => ran.push('d')); gate.flush();
+  ok(ran.join() === 'a,c,d' && !gate.flush(), 'a click or a key applies a waiting move first (flush), once');
+  clock = 40; ok(gate.push(() => ran.push('e')) === true, 'a move in a later frame is applied at once again');
+  const now0 = frameGate({ frame: () => {}, now: () => 0, gap: 0 });
+  ok(now0.push(() => {}) && now0.push(() => {}), 'gap 0: every move at once (how tests and films run)');
+
+  // the governor
+  const feed = (g, dt, n) => { let r = null; for (let i = 0; i < n; i++) r = g.frame(dt) || r; return r; };
+  let g = new PointerGovernor();
+  ok(!g.light && feed(g, 16.7, 600) === null && !g.light, 'automatic: fast frames never turn the light pointer on');
+  g = new PointerGovernor();
+  ok(feed(g, 60, 60) === null && !g.light, 'two slow windows are not enough');
+  ok(feed(g, 60, 30) === 'down' && g.light && g.stepped, 'three slow windows in a row turn it on, said once');
+  ok(feed(g, 60, 300) === null && g.light, 'and it stays on without saying it again');
+  g = new PointerGovernor();
+  feed(g, 60, 60); feed(g, 16.7, 30);
+  ok(feed(g, 60, 60) === null && !g.light, 'a fast window in between starts the count again');
+  g = new PointerGovernor();
+  ok(feed(g, 2000, 500) === null && !g.light, 'a long stall (a file opening) is not counted as a slow pointer');
+  g = new PointerGovernor({ mode: 'off' });
+  ok(feed(g, 80, 500) === null && !g.light, 'off: never');
+  g = new PointerGovernor({ mode: 'on' });
+  ok(g.light, 'on: always');
+  g = new PointerGovernor({ mode: 'auto', stepped: true });
+  ok(g.light, 'automatic remembers that it turned it on');
+  g.setMode('auto');
+  ok(!g.light && !g.stepped, 'choosing the setting again starts the watching again');
+  ok(new PointerGovernor({ mode: 'nonsense' }).mode === 'auto', 'an unknown mode reads as automatic');
+}
+
+section('0.10.1 inbox fixes: ARRAY takes P for polar (FIX-0101-ARRAY-P); GRID sets spacing and major lines (FIX-0101-GRID-SPEC; gridspec.js)');
+{
+  const h = harness();
+  await h.type('L', '0,0', '10,0', '');
+  await h.type('ARRAY', 'ALL', '', 'P');
+  ok(h.eng.running === 'ARRAY' && h.eng.expects === 'point' && h.host.lastPrompt.startsWith(EN('cmd.array.center')), 'ARRAY: a lone P answers the type prompt as POlar (asks for the centre)', h.eng.expects);
+  await h.type('50,50', '');
+  ok(h.doc.count() >= 6, 'ARRAY: P then centre, Enter: the polar copies are made', h.doc.count());
+  const h2 = harness();
+  await h2.type('L', '0,0', '10,0', '');
+  await h2.type('ARRAY', 'ALL', '', 'PO', '50,50', '');
+  ok(h2.doc.count() === h.doc.count(), 'ARRAY: PO still works and gives the same result');
+  const h3 = harness();
+  await h3.type('L', '0,0', '10,0', '');
+  await h3.type('ARRAY', 'ALL', '', 'R');
+  ok(h3.eng.expects !== 'point', 'ARRAY: R is still rectangular (no centre asked)');
+}
+{
+  const Gs = await load('gridspec.js');
+  ok(!Gs.gridOf({}).set && Gs.gridOf({}).major === 5, 'grid: no spacing of its own = automatic, every 5th line major');
+  ok(Gs.gridOf({ grid: { step: 0.2, major: 10 } }).set && Gs.gridOf({ grid: { step: 0.2, major: 10 } }).major === 10, 'grid: 0.2 with every 10th line is read');
+  ok(!Gs.gridOf({ grid: { step: -1 } }).set && !Gs.gridOf({ grid: { step: 'x' } }).set && !Gs.gridOf({ grid: { step: Infinity } }).set, 'grid: a bad spacing from a file reads as automatic');
+  ok(Gs.gridOf({ grid: { step: 1, major: 2.5 } }).major === 5 && Gs.gridOf({ grid: { step: 1, major: 0 } }).major === 5, 'grid: a bad major interval reads as 5');
+  ok(Gs.gridPatch({}, { major: 10 }) === null && Gs.gridPatch({}, { step: 0 }) === null && Gs.gridPatch({}, { step: 1, major: 1.5 }) === null, 'grid: a major interval without a spacing, a zero spacing and a fractional interval are refused');
+  const h = harness();
+  await h.type('GRID', '0.2');
+  ok(h.doc.meta.grid && h.doc.meta.grid.step === 0.2 && h.doc.meta.grid.major === 5, 'GRID 0.2 sets the spacing (major stays 5)', JSON.stringify(h.doc.meta.grid));
+  ok(h.doc.undoStack.length === 1, 'GRID is one undo step');
+  await h.type('GRID', 'M', '10');
+  ok(h.doc.meta.grid.step === 0.2 && h.doc.meta.grid.major === 10, 'GRID, Major, 10: every 10th line is a major line, spacing kept', JSON.stringify(h.doc.meta.grid));
+  await h.type('GRID', '-3');
+  ok(h.doc.meta.grid.step === 0.2 && h.log.includes(EN('cmd.grid.bad')), 'GRID: a negative spacing is refused and said so');
+  await h.type('');
+  await h.type('GRID', 'A');
+  ok(!Gs.gridOf(h.doc.meta).set, 'GRID, Auto: back to the automatic grid');
+  h.doc.undo();
+  ok(h.doc.meta.grid && h.doc.meta.grid.major === 10, 'undo steps back through GRID Auto');
+  const h4 = harness();
+  await h4.type('GRID', 'M');
+  ok(h4.log.includes(EN('cmd.grid.needstep')) && !h4.doc.meta.grid, 'GRID, Major with no spacing yet: says to give one first');
+}
+
+section('OPT.1: option letters (optionkeys.js): unambiguous short forms, letters of your own, scripts keep the English ones');
+{
+  const Ok = await load('optionkeys.js');
+  const { lookup } = await load('commands.js');
+  const opts = [{ key: 'COU', label: 'Count', en: 'Count' }, { key: 'COL', label: 'Columns', en: 'Columns' }, { key: 'S', label: 'Spacing', en: 'Spacing' }, { key: 'ROT', label: 'Rotate items', en: 'Rotate items' }, { key: 'X', label: 'eXit', en: 'eXit' }, { key: 'Z', label: 'Zed', en: 'Zed', hidden: true }];
+  try {
+    Ok.applyOptionKeys('', { lookup });
+    // the matcher
+    ok(Ok.matchOption('cou', opts)?.key === 'COU' && Ok.matchOption('Spac', opts)?.key === 'S' && !Ok.matchOption('C', opts) && !Ok.matchOption('RO', opts), 'built-in letters as before: exact, or the word at least as long as the letters');
+    ok(Ok.guessOption('RO', opts)?.option?.key === 'ROT' && Ok.guessOption('ro', opts)?.option?.key === 'ROT', 'a short form that can mean one option only is that option (RO = ROTate)');
+    ok(Ok.guessOption('C', opts)?.ambiguous?.map((o) => o.key).join() === 'COU,COL' && Ok.guessOption('CO', opts)?.ambiguous?.length === 2, 'a short form two options share is ambiguous, and both are named');
+    ok(Ok.guessOption('Q', opts) === null && Ok.guessOption('Z', opts) === null, 'no candidate, or only a hidden option: no guess');
+    ok(Ok.guessOption('3', [{ key: '3P', label: '3P', en: '3P' }]) === null && Ok.guessOption('2x', opts) === null && Ok.guessOption('', opts) === null, 'digits are never guessed (3 at a point prompt is not 3P)');
+    // the file
+    const r = Ok.parseOptionKeys(['; note', 'ARRAY.PO, P', 'AR.R, q   ; alias of ARRAY', '*.X, Q', 'NOPE.X, Q', 'ARRAY PO P', 'ARRAY.PO, a b', 'ARRAY.PO, P!', 'ARRAY.R, P', 'array.po, p', '*.C, З'].join('\n'), { lookup });
+    ok(r.entries.length === 4 && r.entries[0].command === 'ARRAY' && r.entries[0].option === 'PO' && r.entries[0].key === 'P', 'file: COMMAND.OPTION, LETTERS is read (upper case)', JSON.stringify(r.entries));
+    ok(r.entries[1].command === 'ARRAY' && r.entries[1].key === 'Q', 'file: a command alias is kept as the command (AR.R = ARRAY.R)');
+    ok(r.entries[2].command === '*' && r.entries[3].key === 'З', 'file: * is every command; letters of another script are taken');
+    ok(r.errors.map((e) => e.line).join() === '5,6,7,8,9', 'file: an unknown command, a bad line, bad letters and letters used twice are errors by line; the same line twice is not', JSON.stringify(r.errors));
+    ok(r.errors[0].msg === EN('optkeys.err.command', { command: 'NOPE' }) && r.errors[4].msg === EN('optkeys.err.twice', { key: 'P', command: 'ARRAY', first: 'PO', line: 2 }), 'file: the errors say what is wrong');
+    // the person's letters in a real command
+    Ok.applyOptionKeys('ARRAY.PO, Q\n*.X, K\nARRAY.R, П', { lookup });
+    ok(Ok.ownCount() === 3 && Ok.ownKey('ARRAY', 'PO') === 'Q' && Ok.ownKey('LINE', 'X') === 'K' && Ok.ownKey('LINE', 'PO') === null, 'applied: a command\'s own line and a * line');
+    const h = harness();
+    await h.type('L', '0,0', '10,0', '');
+    await h.type('ARRAY', 'ALL', '');
+    ok(/\(Q\)/.test(h.host.lastPrompt) && /\(П\)/.test(h.host.lastPrompt), 'the prompt shows the person\'s letters after the option', h.host.lastPrompt);
+    await h.type('q');
+    ok(h.eng.running === 'ARRAY' && h.eng.expects === 'point', 'ARRAY: the person\'s Q answers POlar', h.eng.expects);
+    await h.type('50,50');
+    const n0 = h.doc.count();
+    await h.type('k');
+    ok(!h.eng.running && h.doc.count() >= 6 && h.doc.count() > n0 - 1, 'a * line: K answers eXit and the array is made', h.doc.count());
+    const h2 = harness();
+    await h2.type('L', '0,0', '10,0', '');
+    await h2.type('ARRAY', 'ALL', '', 'п');
+    ok(h2.eng.running === 'ARRAY' && h2.eng.expects !== 'point' && h2.host.lastPrompt !== undefined && !h2.host.lastPrompt.startsWith(EN('cmd.array.type')), 'letters of another script answer their option (П = Rectangular)', h2.host.lastPrompt);
+    await h2.type('PO');   // not an option of the rectangular loop
+    ok(h2.eng.running === 'ARRAY', 'the built-in letters keep working beside the person\'s (still in ARRAY)');
+    // scripts, LISP and macros: the built-in English letters only
+    const h3 = harness();
+    await h3.type('L', '0,0', '10,0', '');
+    await h3.type('ARRAY', 'ALL', '');
+    h3.eng.text('Q', { script: true }); await h3.tick();
+    ok(h3.eng.expects !== 'point' && h3.log.includes(EN('cmd.invalid.keyword')) && !h3.log.includes(EN('optkeys.hint')), 'script input: the person\'s letters are not read (and no tip is printed)', h3.eng.expects);
+    h3.eng.text('PO', { script: true }); await h3.tick();
+    ok(h3.eng.expects === 'point', 'script input: the built-in letters work');
+    const h4 = harness();
+    await h4.type('L', '0,0', '10,0', '');
+    await h4.type('ARRAY', 'ALL', '', '_PO');
+    ok(h4.eng.expects === 'point', 'a leading underscore reads the built-in letters (_PO)');
+    const h5 = harness();
+    await h5.type('L', '0,0', '10,0', '');
+    await h5.type('ARRAY', 'ALL', '', '_Q');
+    ok(h5.eng.expects !== 'point', 'a leading underscore never reads the person\'s letters (_Q)');
+    // short forms in a real command, and the tip
+    Ok.applyOptionKeys('', { lookup });
+    ok(Ok.ownCount() === 0, 'an emptied file clears the letters');
+    const h6 = harness();
+    await h6.type('L', '0,0', '10,0', '');
+    await h6.type('ARRAY', 'ALL', '', 'R');
+    const before = h6.host.lastPrompt;
+    await h6.type('C');
+    ok(h6.log.some((l) => l === EN('optkeys.ambiguous', { typed: 'C', list: 'COUnt, COLumns' }) || /^C could be /.test(l)) && h6.host.lastPrompt === before, 'ARRAY rectangular: C names COUnt and COLumns and asks again', h6.log.slice(-2).join(' | '));
+    await h6.type('CO');
+    ok(h6.eng.running === 'ARRAY' && h6.host.lastPrompt === before, 'CO is still ambiguous');
+    await h6.type('Q');
+    ok(h6.log.includes(EN('cmd.invalid.keyword')) && h6.log.filter((l) => l === EN('optkeys.hint')).length === 1, 'letters no option has: refused, with the OPTIONKEYS tip');
+    await h6.type('QQ');
+    ok(h6.log.filter((l) => l === EN('optkeys.hint')).length === 1, 'the tip is printed once a session');
+    await h6.type('A');
+    ok(h6.eng.running === 'ARRAY' && h6.log.some((l) => l === EN('arrays.assoc.on') || l === EN('arrays.assoc.off')), 'A can only be ASsociative: taken', h6.log.slice(-1)[0]);
+    const seen = h6.eng.optionPrompts();
+    ok(seen[0]?.command === 'ARRAY' && seen[0].options.some((o) => o.key === 'PO') && seen[0].options.some((o) => o.key === 'COU'), 'the options met are remembered for the editor (ARRAY.PO, ARRAY.COU)', JSON.stringify(seen[0]));
+    const h7 = harness();
+    await h7.type('CIRCLE');
+    const cp = h7.host.lastPrompt;
+    await h7.type('3');
+    ok(h7.eng.running === 'CIRCLE' && h7.host.lastPrompt === cp, 'CIRCLE: a lone 3 is not taken as 3P');
+    Ok.applyOptionKeys('ARRAY.PO, P\n*.X, Q', { lookup });
+    ok(/ARRAY\.PO,\s+P\r\n/.test(Ok.optionKeysExport()) && /\*\.X,\s+Q\r\n/.test(Ok.optionKeysExport()), 'export: the letters as a file to share');
+    ok(lookup('OPTIONKEYS') && lookup('OPTKEYS')?.name === 'OPTIONKEYS', 'OPTIONKEYS (OPTKEYS) is a command');
+    const h8 = harness();
+    await h8.type('OPTIONKEYS');
+    ok(h8.log.includes(EN('optkeys.nodialog')), 'OPTIONKEYS with no window says so');
+  } finally { Ok.applyOptionKeys('', { lookup: null }); }
+}
+
+section('OPT.3: the full list of commands and their options (option-catalog.js, made from the command code)');
+{
+  const Cat = (await load('option-catalog.js')).default;
+  const { lookup } = await load('commands.js');
+  const { execFileSync } = await import('node:child_process');
+  let fresh = '';
+  try { fresh = execFileSync('node', [path.join(ROOT, 'tools/cadcraft-test/make-option-catalog.mjs'), '--check'], { encoding: 'utf8' }); } catch (e) { fresh = String(e.stdout || e.message); }
+  ok(/up to date/.test(fresh), 'option-catalog.js is what the command code says today (node tools/cadcraft-test/make-option-catalog.mjs)', fresh.trim());
+  const names = Object.keys(Cat.commands);
+  const mapNames = new Set([...fs.readFileSync(path.join(APP, 'help/command-map.md'), 'utf8').matchAll(/^\| `([^`]+)` \|/gm)].map((m) => m[1]));   // every command the page registers (the command map is made from the registry)
+  ok(names.length >= 150 && names.every((n) => mapNames.has(n) || lookup(n)), 'every listed command is a real command', names.filter((n) => !mapNames.has(n) && !lookup(n)).join(' '));
+  const arr = new Map(Cat.commands.ARRAY || []);
+  ok(arr.get('PO') === 'POlar' && arr.get('R') === 'Rectangular' && arr.has('COU') && arr.has('ROT') && arr.has('X'), 'ARRAY lists its options, through the function it shares with ARRAYRECT and ARRAYPOLAR', JSON.stringify(Cat.commands.ARRAY));
+  ok(new Map(Cat.commands.LINE).get('C') === 'Close' && new Map(Cat.commands.CIRCLE).has('3P') && new Map(Cat.commands.FILLET).get('R') === 'Radius', 'LINE, CIRCLE and FILLET list theirs');
+  ok(Object.values(Cat.commands).every((l) => l.length && l.every(([k, w]) => /^[\p{L}\p{N}?]{1,32}$/u.test(k) && typeof w === 'string' && w.length)), 'every option has letters and a word');
+  ok(Cat.every.X?.includes('eXit') && Cat.every.U?.includes('Undo') && Object.keys(Cat.every).length >= 50, 'the every-command list has each distinct option (X = eXit, U = Undo)');
+  const Okk = await load('optionkeys.js');
+  const all = Object.entries(Cat.commands).flatMap(([c, l]) => l.map(([k], i) => c + '.' + k + ', ZZ' + i));
+  const pr = Okk.parseOptionKeys(all.join('\n'), { lookup: (n) => (mapNames.has(n) || lookup(n) ? { name: n } : null) });
+  ok(pr.entries.length === all.length && !pr.errors.length, 'every listed command.option can be given letters (' + all.length + ' lines read without an error)', JSON.stringify(pr.errors.slice(0, 2)));
+}
+
+section('OPT.3: letters of your own never collide with what a prompt already reads');
+{
+  const Ok = await load('optionkeys.js');
+  const Cat = (await load('option-catalog.js')).default;
+  const { lookup } = await load('commands.js');
+  try {
+    const r = Ok.parseOptionKeys('ARRAY.PO, END\nARRAY.PO, mid\nARRAY.PO, ALL\nARRAY.PO, LAST\nARRAY.PO, PERP\nARRAY.PO, EN\nARRAY.PO, L\nARRAY.PO, ENDX', { lookup });
+    ok(r.errors.map((e) => e.line).join() === '1,2,3,4,5' && r.entries.map((e) => e.key).join() === 'EN,L,ENDX', 'object snap words and ALL / LAST are refused as letters; shorter or other words are fine', JSON.stringify(r.errors.map((e) => e.line)));
+    ok(r.errors[0].msg === EN('optkeys.err.reserved', { key: 'END' }), 'and the line says why');
+    ok(['end', 'mid', 'cen', 'qua', 'int', 'per', 'tan', 'nea', 'nod', 'ins', 'non', 'endp', 'perp', 'quad', 'near', 'all', 'last'].every((w) => Ok.reservedWord(w)) && !Ok.reservedWord('p') && !Ok.reservedWord('po') && !Ok.reservedWord('x'), 'the reserved words are the snap words (three letters or more of the name) and ALL, LAST');
+    const snapMod = await load('commands.js');
+    ok(['end', 'mid', 'cen', 'qua', 'int', 'per', 'tan', 'nea', 'nod', 'ins', 'non', 'quad', 'perp', 'near'].every((w) => !snapMod.snapWord(w) || Ok.reservedWord(w)), 'every word the command line takes as an object snap is reserved');
+    const cl = Ok.optionKeyClashes([{ command: 'ARRAY', option: 'PO', key: 'R', line: 3 }, { command: 'ARRAY', option: 'PO', key: 'P', line: 4 }, { command: '*', option: 'X', key: 'R', line: 5 }, { command: 'ARRAY', option: 'R', key: 'R', line: 6 }], Cat);
+    ok(cl.length === 1 && cl[0].line === 3 && cl[0].msg === EN('optkeys.add.taken', { key: 'R', word: 'Rectangular', command: 'ARRAY' }), 'against the full list: letters that are another option\'s built-in letters in that command are named', JSON.stringify(cl));
+    // at the prompt itself: the built-in letters of the options offered always win
+    const opts = [{ key: 'R', label: 'Rectangular', en: 'Rectangular' }, { key: 'PO', label: 'POlar', en: 'POlar' }, { key: 'W', label: 'Window', en: 'Window', hidden: true }];
+    Ok.applyOptionKeys('ARRAY.PO, R\nARRAY.PO, W\nARRAY.PO, Q\nARRAY.PO, LL', { lookup });
+    ok(Ok.matchOption('R', opts, { command: 'ARRAY' })?.key === 'R' && Ok.matchOption('W', opts, { command: 'ARRAY' })?.key === 'W', 'letters that are another option\'s built-in letters in this prompt (shown or hidden) stay that option');
+    ok(Ok.matchOption('Q', opts, { command: 'ARRAY' })?.key === 'PO', 'other letters of your own answer your option');
+    ok(Ok.matchOption('LL', opts, { command: 'ARRAY', reserved: (u) => u === 'LL' }) === undefined && Ok.matchOption('LL', opts, { command: 'ARRAY' })?.key === 'PO', 'a word the prompt reserves is never read as your letters');
+    const h = harness();
+    await h.type('L', '0,0', '10,0', '');
+    await h.type('ARRAY', 'ALL', '', 'R');
+    ok(h.eng.running === 'ARRAY' && h.eng.expects !== 'point', 'in ARRAY, with PO mapped to R by hand, R is still Rectangular');
+  } finally { Ok.applyOptionKeys('', { lookup: null }); }
+}
+
+section('OPT.2: a kept file follows the account (account-keep.js): one section of the account settings document, newest wins');
+{
+  const K = await load('account-keep.js');
+  const KEY = 'cadcraft.optionkeys', SEC = 'keep:' + KEY;
+  const mem = (init = {}) => { const m = new Map(Object.entries(init)); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: (k) => { m.delete(k); }, m }; };
+  // a stand-in for /api/v1/prefs with Prefs::merge's rule: per section the newer `at` wins, the loser is kept once as `previous`
+  const server = (sections = {}) => {
+    const srv = { sections, calls: [], fail: null };
+    srv.fetch = async (url, init) => {
+      srv.calls.push([init.method, url, init.headers.Authorization]);
+      if (srv.fail === 'offline') throw new Error('offline');
+      if (srv.fail) return { ok: false, status: srv.fail, json: async () => ({}) };
+      if (init.method === 'PUT') {
+        const doc = JSON.parse(init.body);
+        for (const [n, b] of Object.entries(doc.sections)) {
+          const a0 = srv.sections[n];
+          if (!a0) srv.sections[n] = b;
+          else if (JSON.stringify(a0.keys) !== JSON.stringify(b.keys)) { const [w, l] = b.at >= a0.at ? [b, a0] : [a0, b]; srv.sections[n] = { at: w.at, keys: w.keys, previous: { at: l.at, keys: l.keys } }; }
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({ data: { prefs: { format: K.FORMAT, version: 1, sections: srv.sections } } }) };
+    };
+    return srv;
+  };
+  let clock = '2026-11-19T10:00:00Z';
+  const make = (storage, srv, acc = { token: 'ccu_' + 'a'.repeat(24), base: '' }) => K.createKeep({ account: () => acc, storage, keys: [KEY], now: () => clock, fetch: srv.fetch });
+
+  // signed out: nothing is asked, nothing changes
+  { const st = mem({ [KEY]: 'ARRAY.PO, P' }), srv = server(); const r = await make(st, srv, { token: '' }).sync();
+    ok(!r.ok && r.code === 'signed-out' && !srv.calls.length && st.getItem(KEY) === 'ARRAY.PO, P', 'signed out: no request, the file stays here'); }
+  // the first copy goes up, dated now
+  const A = mem({ [KEY]: 'ARRAY.PO, P' }), srv = server(), keepA = make(A, srv);
+  keepA.touch(KEY);
+  let r = await keepA.sync();
+  ok(r.ok && r.sent.join() === KEY && srv.sections[SEC]?.keys[KEY] === 'ARRAY.PO, P' && srv.sections[SEC].at === clock, 'the first copy is sent as its own section, keep:<key>', JSON.stringify(srv.sections));
+  ok(srv.calls[0][2].startsWith('Bearer ccu_') && srv.calls[0][1] === '/api/v1/prefs' && Object.keys(JSON.parse('{}')).length === 0, 'it asks /api/v1/prefs with the tab\'s key');
+  ok(keepA.status().state === 'saved', 'status says saved');
+  // another device with no file gets it
+  const B = mem(), keepB = make(B, srv);
+  r = await keepB.sync();
+  ok(r.ok && r.written.join() === KEY && B.getItem(KEY) === 'ARRAY.PO, P' && !r.sent.length, 'a device with no file takes the account\'s copy');
+  r = await keepB.sync();
+  ok(r.ok && !r.written.length && !r.sent.length && srv.calls.filter((c) => c[0] === 'PUT').length === 1, 'the same copy on both sides: nothing moves');
+  // B changes it later: B's wins everywhere, A's copy is kept once
+  clock = '2026-11-19T11:00:00Z';
+  B.setItem(KEY, 'ARRAY.PO, Q'); keepB.touch(KEY);
+  r = await keepB.sync();
+  ok(r.sent.join() === KEY && srv.sections[SEC].keys[KEY] === 'ARRAY.PO, Q' && srv.sections[SEC].previous?.keys[KEY] === 'ARRAY.PO, P', 'a newer copy replaces the account\'s, which keeps the older one once');
+  r = await keepA.sync();
+  ok(r.written.join() === KEY && A.getItem(KEY) === 'ARRAY.PO, Q' && A.getItem(KEY + '.previous') === 'ARRAY.PO, P', 'the other device takes the newer copy and keeps its own beside it');
+  // A edits while offline; B edits later; A comes back: B's (newer) wins, A's edit is kept here and on the account
+  clock = '2026-11-19T12:00:00Z';
+  A.setItem(KEY, 'ARRAY.PO, A1'); keepA.touch(KEY);
+  srv.fail = 'offline';
+  r = await keepA.sync();
+  ok(!r.ok && r.code === 'offline' && keepA.status().state === 'offline' && A.getItem(KEY) === 'ARRAY.PO, A1', 'offline: the edit stays here');
+  srv.fail = null;
+  clock = '2026-11-19T13:00:00Z';
+  B.setItem(KEY, 'ARRAY.PO, B2'); keepB.touch(KEY); await keepB.sync();
+  clock = '2026-11-19T14:00:00Z';
+  r = await keepA.sync();
+  ok(r.written.join() === KEY && A.getItem(KEY) === 'ARRAY.PO, B2' && A.getItem(KEY + '.previous') === 'ARRAY.PO, A1', 'two edits: the later one wins; the earlier is kept beside it');
+  // an edit made here after the account's copy wins the other way
+  clock = '2026-11-19T15:00:00Z';
+  A.setItem(KEY, 'ARRAY.PO, A3'); keepA.touch(KEY);
+  r = await keepA.sync();
+  ok(r.sent.join() === KEY && srv.sections[SEC].keys[KEY] === 'ARRAY.PO, A3', 'a later edit here wins over the account\'s copy');
+  // a file never dated here (written before the sync existed) loses to the account's copy but is kept
+  const C = mem({ [KEY]: 'OLD' });
+  r = await make(C, srv).sync();
+  ok(r.written.join() === KEY && C.getItem(KEY) === 'ARRAY.PO, A3' && C.getItem(KEY + '.previous') === 'OLD', 'a copy with no time loses to the account\'s, and is kept beside it');
+  // the times are written under both keys, and a released SuperCad wiping its key loses nothing
+  ok(JSON.parse(A.getItem(K.STAMP_KEY))[SEC] === '2026-11-19T15:00:00Z' && JSON.parse(A.getItem(K.OWN_STAMP_KEY))[SEC] === '2026-11-19T15:00:00Z', 'the time is kept under SuperCad\'s key and our own');
+  A.setItem(K.STAMP_KEY, '{}');
+  clock = '2026-11-19T16:00:00Z';
+  B.setItem(KEY, 'ARRAY.PO, B4'); keepB.touch(KEY); await keepB.sync();
+  A.setItem(K.STAMP_KEY, JSON.stringify({ window: '2026-11-01T00:00:00Z' }));
+  r = await keepA.sync();
+  ok(A.getItem(KEY) === 'ARRAY.PO, B4' && JSON.parse(A.getItem(K.STAMP_KEY)).window === '2026-11-01T00:00:00Z', 'SuperCad\'s other times in its key are left as they are');
+  // a refused key, a bad answer
+  srv.fail = 401;
+  r = await keepA.sync();
+  ok(!r.ok && r.code === 'auth' && keepA.status().state === 'local', 'a refused key reads as signed out');
+  srv.fail = 500;
+  r = await keepA.sync();
+  ok(!r.ok && r.code === 'server' && keepA.status().state === 'error', 'a server error is an error, nothing changed');
+  srv.fail = null;
+  // only the listed keys are ever touched
+  const D = mem({ 'cadcraft.settings': '{"x":1}' }), srvD = server({ 'app:cadcraft': { at: '2026-11-19T09:00:00Z', keys: { 'cadcraft.settings': '{"x":2}' } } });
+  await make(D, srvD).sync();
+  ok(D.getItem('cadcraft.settings') === '{"x":1}' && srvD.sections['app:cadcraft'].keys['cadcraft.settings'] === '{"x":2}' && !srvD.calls.some((c) => c[0] === 'PUT'), 'other sections of the account document are never read into here or written');
 }
 
 // DWG saving, read back by three other programs' readers (LibreDWG, libdxfrw, ODA) and by CadCraft again

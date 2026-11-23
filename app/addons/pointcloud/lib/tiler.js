@@ -27,10 +27,13 @@
  */
 import { fail, PcError, dep, jsonBytes, parseJson, throwIfAborted, reporter, MAX_DEPTH } from './util.js';
 import { encodeNode, decodeNode, encodeTable, openCloud } from './octree.js';
+import { scanLazChunks } from './laz-stream.js';
+import { createTilePool } from './tile-pool.js';
+import { binPath, makeBinBuilder, loadBin, REC_BYTES } from './tile-bin.js';
 
 export const TILER_VERSION = 1;
-const REC_BYTES = 20;
 
+const hardwareThreads = () => (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || (typeof process !== 'undefined' && process.availableParallelism && process.availableParallelism()) || 2;
 const isBlob = (s) => s && typeof s.slice === 'function' && typeof s.size === 'number';
 
 export async function inspect(source) {
@@ -60,7 +63,16 @@ async function openSource(source) {
     const las = dep('las'), info = await inspect(source), h = await las.readLasHeader(source);
     return {
       info, count: h.available,
-      run: (onPoint, o) => las.scanPoints(source, h, (x, y, z, c) => onPoint(x, y, z, c, null), o),
+      // LAZ: chunk by chunk (laz-stream.js, PERF.25) so the heap holds one chunk, not the file; what that cannot read (variable chunks,
+      // layered formats, no ChunkDecoder) fails BEFORE the first point and falls back to the app's whole-file reader.
+      run: async (onPoint, o) => {
+        const cb = (x, y, z, c) => onPoint(x, y, z, c, null);
+        if (h.compressed && typeof las.lazPerf === 'function' && !(o && o.wholeFile)) {
+          try { return await scanLazChunks(source, h, cb, { ...o, lazPerf: () => las.lazPerf(), threads: o && o.lazThreads != null ? o.lazThreads : 1, workerInit: o && o.lazWorkerInit || null, spawnWorker: o && o.lazSpawnWorker || null }); }
+          catch (e) { if (e.code !== 'laz_stream_unsupported') throw e; }
+        }
+        return las.scanPoints(source, h, cb, o);
+      },
       srcDesc: { name: info.name, size: info.size, kind: info.kind, mtime: source.lastModified || null },
     };
   }
@@ -109,118 +121,7 @@ function plan(info, nodeCap) {
   return { G, scale, origin, size, d0 };
 }
 
-const binPath = (idx, d0) => {
-  const B = 2 ** d0, bx = idx % B, by = Math.floor(idx / B) % B, bz = Math.floor(idx / (B * B));
-  let s = 'r';
-  for (let l = d0 - 1; l >= 0; l--) s += ((bx >> l) & 1) | (((by >> l) & 1) << 1) | (((bz >> l) & 1) << 2);
-  return s;
-};
-const cubeOfPath = (path, cube0, size0) => {   // cube in file units
-  const min = cube0.slice(); let size = size0;
-  for (let k = 1; k < path.length; k++) { size /= 2; const o = path.charCodeAt(k) - 48; if (o & 1) min[0] += size; if (o & 2) min[1] += size; if (o & 4) min[2] += size; }
-  return { min, size };
-};
-
 // ------------------------------------------------------------------ one bin
-
-function makeBinBuilder(P) {
-  const { G, scale, origin, size, d0, nodeCap, hasRgb, hasInt } = P;
-  const best = new Int32Array(G * G * G).fill(-1), bd = new Float32Array(G * G * G);
-  return function buildBin(binIdx, A, quotas) {
-    const n = A.n, taken = new Uint8Array(n), nodes = [], ups = [];
-    const path = binPath(binIdx, d0);
-
-    function pick(ids, cminU, sizeU, quota) {
-      const inv0 = G / sizeU[0], inv1 = G / sizeU[1], inv2 = G / sizeU[2], g1 = G - 1;
-      const touched = [];
-      for (let q = 0; q < ids.length; q++) {
-        const i = ids[q];
-        const fx = (A.x[i] - cminU[0]) * inv0, fy = (A.y[i] - cminU[1]) * inv1, fz = (A.z[i] - cminU[2]) * inv2;
-        let ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
-        if (ix < 0) ix = 0; else if (ix > g1) ix = g1; if (iy < 0) iy = 0; else if (iy > g1) iy = g1; if (iz < 0) iz = 0; else if (iz > g1) iz = g1;
-        const key = ix + G * (iy + G * iz);
-        const dx = fx - ix - 0.5, dy = fy - iy - 0.5, dz = fz - iz - 0.5, d = Math.fround(dx * dx + dy * dy + dz * dz);
-        const j = best[key];
-        if (j < 0) { best[key] = i; bd[key] = d; touched.push(key); } else if (d < bd[key]) { best[key] = i; bd[key] = d; }
-      }
-      let win = new Array(touched.length), wd = new Array(touched.length);
-      for (let t = 0; t < touched.length; t++) { const k = touched[t]; win[t] = best[k]; wd[t] = bd[k]; best[k] = -1; }
-      if (win.length > quota) {
-        const ord = win.map((_, t) => t).sort((a, b) => wd[a] - wd[b] || win[a] - win[b]).slice(0, quota);
-        win = ord.map((t) => win[t]);
-      }
-      for (const i of win) taken[i] = 1;
-      const rest = new Int32Array(ids.length - win.length);
-      let r = 0;
-      for (let q = 0; q < ids.length; q++) if (!taken[ids[q]]) rest[r++] = ids[q];
-      return { win: Int32Array.from(win), rest };
-    }
-
-    function encode(ids) {
-      const m = ids.length, a = { n: m, x: new Int32Array(m), y: new Int32Array(m), z: new Int32Array(m), cls: new Uint8Array(m), flags: new Uint8Array(m), inten: hasInt ? new Uint16Array(m) : null, rgb: hasRgb ? new Uint8Array(3 * m) : null };
-      let minZ = Infinity, maxZ = -Infinity;
-      for (let q = 0; q < m; q++) {
-        const i = ids[q];
-        a.x[q] = A.x[i]; a.y[q] = A.y[i]; a.z[q] = A.z[i]; a.cls[q] = A.cls[i]; a.flags[q] = A.flags[i];
-        if (hasInt) a.inten[q] = A.inten[i];
-        if (hasRgb) { a.rgb[3 * q] = A.rgb[3 * i]; a.rgb[3 * q + 1] = A.rgb[3 * i + 1]; a.rgb[3 * q + 2] = A.rgb[3 * i + 2]; }
-        if (a.z[q] < minZ) minZ = a.z[q]; if (a.z[q] > maxZ) maxZ = a.z[q];
-      }
-      return { bytes: encodeNode(a, hasRgb, hasInt), count: m, minZ: m ? minZ * scale[2] : 0, maxZ: m ? maxZ * scale[2] : 0 };
-    }
-
-    const unitsOf = (cube) => ({ cminU: [(cube.min[0] - origin[0]) / scale[0], (cube.min[1] - origin[1]) / scale[1], (cube.min[2] - origin[2]) / scale[2]], sizeU: [cube.size / scale[0], cube.size / scale[1], cube.size / scale[2]] });
-
-    let ids = new Int32Array(n);
-    for (let i = 0; i < n; i++) ids[i] = i;
-    // the levels above the bin
-    for (let e = 0; e < d0; e++) {
-      const anc = path.slice(0, 1 + e), cube = cubeOfPath(anc, origin, size), u = unitsOf(cube);
-      const { win, rest } = pick(ids, u.cminU, u.sizeU, quotas[e]);
-      if (win.length) ups.push({ anc, bytes: encode(win).bytes });
-      ids = rest;
-    }
-    // the bin's own subtree
-    const sub = (ids2, p, cube, depth) => {
-      const u = unitsOf(cube), cellSize = cube.size / G;
-      if (ids2.length <= nodeCap || depth >= MAX_DEPTH) { if (ids2.length) { const e = encode(ids2); nodes.push({ id: p, cellSize, ...e }); } return; }
-      const { win, rest } = pick(ids2, u.cminU, u.sizeU, nodeCap);
-      if (win.length) nodes.push({ id: p, cellSize, ...encode(win) });
-      const h0 = cube.size / 2, cx = u.cminU[0] + u.sizeU[0] / 2, cy = u.cminU[1] + u.sizeU[1] / 2, cz = u.cminU[2] + u.sizeU[2] / 2;
-      const cnt = new Int32Array(8);
-      const oct = new Uint8Array(rest.length);
-      for (let q = 0; q < rest.length; q++) { const i = rest[q]; const o = (A.x[i] >= cx ? 1 : 0) | (A.y[i] >= cy ? 2 : 0) | (A.z[i] >= cz ? 4 : 0); oct[q] = o; cnt[o]++; }
-      const parts = []; for (let o = 0; o < 8; o++) parts.push(new Int32Array(cnt[o]));
-      const fill = new Int32Array(8);
-      for (let q = 0; q < rest.length; q++) { const o = oct[q]; parts[o][fill[o]++] = rest[q]; }
-      for (let o = 0; o < 8; o++) {
-        if (!cnt[o]) continue;
-        const cm = cube.min.slice(); if (o & 1) cm[0] += h0; if (o & 2) cm[1] += h0; if (o & 4) cm[2] += h0;
-        sub(parts[o], p + o, { min: cm, size: h0 }, depth + 1);
-      }
-    };
-    sub(ids, path, cubeOfPath(path, origin, size), d0);
-    return { nodes, ups };
-  };
-}
-
-function loadBin(chunks, hasRgb, hasInt) {
-  let total = 0;
-  for (const c of chunks) total += c.length / REC_BYTES;
-  const A = { n: total, x: new Int32Array(total), y: new Int32Array(total), z: new Int32Array(total), cls: new Uint8Array(total), flags: new Uint8Array(total), inten: hasInt ? new Uint16Array(total) : null, rgb: hasRgb ? new Uint8Array(3 * total) : null };
-  let o = 0;
-  for (const c0 of chunks) {
-    const c = (c0.byteOffset & 3) ? new Uint8Array(c0) : c0, m = c.length / REC_BYTES;
-    const i32 = new Int32Array(c.buffer, c.byteOffset, m * 5), u16 = new Uint16Array(c.buffer, c.byteOffset, m * 10);
-    for (let k = 0; k < m; k++, o++) {
-      A.x[o] = i32[5 * k]; A.y[o] = i32[5 * k + 1]; A.z[o] = i32[5 * k + 2];
-      A.cls[o] = c[REC_BYTES * k + 12]; A.flags[o] = c[REC_BYTES * k + 13];
-      if (hasInt) A.inten[o] = u16[10 * k + 7];
-      if (hasRgb) { A.rgb[3 * o] = c[REC_BYTES * k + 16]; A.rgb[3 * o + 1] = c[REC_BYTES * k + 17]; A.rgb[3 * o + 2] = c[REC_BYTES * k + 18]; }
-    }
-  }
-  return A;
-}
 
 // ------------------------------------------------------------------ the build
 
@@ -304,7 +205,7 @@ export async function buildCloud(source, store, opts = {}) {
     };
     let err = null;
     try {
-      await src.run(onPoint, { signal, progress: (f) => { rep(f * 0.4, 'read'); if (opts.onSlice) opts.onSlice(seen); } });
+      await src.run(onPoint, { signal, wholeFile: !!opts.wholeFile, lazThreads: opts.lazThreads != null ? opts.lazThreads : (st.count >= 4e6 ? Math.min(4, Math.max(1, hardwareThreads() - 1)) : 1), lazWorkerInit: opts.lazWorkerInit, lazSpawnWorker: opts.lazSpawnWorker, progress: (f) => { rep(f * 0.4, 'read'); if (opts.onSlice) opts.onSlice(seen); } });
     } catch (e) { err = e; }
     if (!err) { try { throwIfAborted(signal); } catch (e) { err = e; } }
     if (!err && seen !== st.count) st.count = seen;   // a file cut short, or a header that is wrong: the points read are the truth
@@ -328,23 +229,50 @@ export async function buildCloud(source, store, opts = {}) {
     // quotas of the upper levels: nodeCap shared by the occupied bins under each ancestor
     const under = new Map();
     for (const b of binList) { const p = binPath(b, d0); for (let e = 0; e < d0; e++) { const a = p.slice(0, 1 + e); under.set(a, (under.get(a) || 0) + 1); } }
-    const hasRgb = st.hasRgb, hasInt = st.hasInt, build = makeBinBuilder({ G, scale, origin, size, d0, nodeCap, hasRgb, hasInt });
-    for (let bi = st.binsDone; bi < binList.length; bi++) {
-      throwIfAborted(signal);
+    const hasRgb = st.hasRgb, hasInt = st.hasInt, PT = { G, scale, origin, size, d0, nodeCap, hasRgb, hasInt };
+    // 0.10 PERF.25: the bins are independent, so they are tiled by a pool of workers (opts.workers; by default 1 to 4 for 4 M points or
+    // more, none below). Results are the same bytes either way; only the order they finish in differs, so binsDone (the resume point) only
+    // moves over a finished PREFIX of the list.
+    let pool = null, nWorkers = opts.workers != null ? opts.workers : (st.count >= 4e6 ? Math.min(4, Math.max(0, hardwareThreads() - 1)) : 0);
+    if (nWorkers >= 1 && binList.length - st.binsDone > 1) pool = await createTilePool(Math.min(nWorkers, binList.length - st.binsDone), opts.spawnWorker || null);
+    const build = pool ? null : makeBinBuilder(PT);
+    let writeChain = Promise.resolve();
+    const finished = new Set(); let prefix = st.binsDone, failed = null, lastShell = 0;
+    const doBin = async (bi) => {
       const b = binList[bi], path = binPath(b, d0);
       const chunks = [];
       for (const c of byBin.get(b).sort((p, q) => p.seq - q.seq)) chunks.push(await store.get(c.key));
-      const A = loadBin(chunks, hasRgb, hasInt);
       const quotas = []; for (let e = 0; e < d0; e++) quotas.push(Math.max(1, Math.floor(nodeCap / under.get(path.slice(0, 1 + e)))));
-      const out = build(b, A, quotas);
+      const out = pool ? await pool.run({ P: PT, b, path, chunks, quotas }) : build(b, loadBin(chunks, hasRgb, hasInt), quotas);
       const meta = [];
       for (const nd of out.nodes) { await store.put(P + 'n/' + nd.id + '.bin', nd.bytes); meta.push([nd.id, nd.count, nd.minZ, nd.maxZ, nd.cellSize, nd.bytes.length]); }
       for (const u of out.ups) await store.put(P + 'build/up/' + u.anc + '/' + b + '.bin', u.bytes);
       await store.put(P + 'build/meta/' + b + '.json', jsonBytes(meta));
-      st.binsDone = bi + 1;
-      await store.put(P + 'build/state.json', stateBytes());
-      if ((bi & 3) === 3 || bi === binList.length - 1) { await writeShell(); rep(0.4 + 0.55 * (bi + 1) / binList.length, 'tile'); }
-    }
+      finished.add(bi);
+      let moved = false;
+      while (finished.has(prefix)) { finished.delete(prefix); prefix++; moved = true; }
+      if (moved) {
+        st.binsDone = prefix;
+        // one writer at a time: a folder store writes to <key>.part and renames, so two puts of the same key at once would collide
+        const shell = prefix - lastShell >= 4 || prefix === binList.length;
+        if (shell) lastShell = prefix;
+        writeChain = writeChain.then(async () => { await store.put(P + 'build/state.json', stateBytes()); if (shell) { await writeShell(); rep(0.4 + 0.55 * prefix / binList.length, 'tile'); } });
+        await writeChain;
+      }
+    };
+    try {
+      let nextBin = st.binsDone;
+      const lanes = Math.max(1, pool ? pool.size : 1);
+      await Promise.all(Array.from({ length: lanes }, async () => {
+        while (!failed && nextBin < binList.length) {
+          throwIfAborted(signal);
+          const bi = nextBin++;
+          try { await doBin(bi); } catch (e) { failed = failed || e; }
+        }
+      }));
+    } finally { if (pool) pool.close(); }
+    if (failed) throw failed;
+    throwIfAborted(signal);
     st.phase = 'merge';
     await store.put(P + 'build/state.json', stateBytes());
   }
@@ -358,23 +286,44 @@ export async function buildCloud(source, store, opts = {}) {
   }
   const upKeys = await store.list(P + 'build/up/'), byAnc = new Map();
   for (const k of upKeys) { const r = k.slice((P + 'build/up/').length).split('/'); if (!byAnc.has(r[0])) byAnc.set(r[0], []); byAnc.get(r[0]).push({ bin: Number(r[1].replace('.bin', '')), key: k }); }
-  for (const [anc, list] of [...byAnc].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+  // 0.11 PERF.25: the upper nodes are independent of each other, so the merge (decode the parts, join, encode) runs in the same kind of worker pool
+  // as the tile pass; the bytes are the same either way (tested). Below 4 M points or with workers: 0 it runs in this thread as before.
+  const ancList = [...byAnc].sort((x, y) => (x[0] < y[0] ? -1 : 1));
+  const mergeWorkers = opts.workers != null ? opts.workers : (st.count >= 4e6 ? Math.min(4, Math.max(0, hardwareThreads() - 1)) : 0);
+  let mpool = null;
+  if (mergeWorkers >= 1 && ancList.length > 4) mpool = await createTilePool(Math.min(mergeWorkers, ancList.length), opts.spawnWorker || null);
+  const mergeOne = async ([anc, list]) => {
     list.sort((p, q) => p.bin - q.bin);
-    const parts = []; let total = 0;
-    for (const e of list) { const d = decodeNode(await store.get(e.key)); parts.push(d); total += d.n; }
     const hasRgb = st.hasRgb, hasInt = st.hasInt;
-    const a = { n: total, x: new Int32Array(total), y: new Int32Array(total), z: new Int32Array(total), cls: new Uint8Array(total), flags: new Uint8Array(total), inten: hasInt ? new Uint16Array(total) : null, rgb: hasRgb ? new Uint8Array(3 * total) : null };
-    let o = 0, minZ = Infinity, maxZ = -Infinity;
-    for (const d of parts) {
-      a.x.set(d.x, o); a.y.set(d.y, o); a.z.set(d.z, o); a.cls.set(d.cls, o); a.flags.set(d.flags, o);
-      if (hasInt) a.inten.set(d.inten, o); if (hasRgb) a.rgb.set(d.rgb, 3 * o);
-      for (let k = 0; k < d.n; k++) { if (d.z[k] < minZ) minZ = d.z[k]; if (d.z[k] > maxZ) maxZ = d.z[k]; }
-      o += d.n;
+    let total, bytes, minZ, maxZ;
+    if (mpool) {
+      const parts = [];
+      for (const e of list) parts.push(await store.get(e.key));
+      const r = await mpool.run({ kind: 'merge', parts, hasRgb, hasInt });
+      total = r.n; bytes = r.bytes; minZ = r.minZ; maxZ = r.maxZ;
+    } else {
+      const parts = []; total = 0;
+      for (const e of list) { const d = decodeNode(await store.get(e.key)); parts.push(d); total += d.n; }
+      const a = { n: total, x: new Int32Array(total), y: new Int32Array(total), z: new Int32Array(total), cls: new Uint8Array(total), flags: new Uint8Array(total), inten: hasInt ? new Uint16Array(total) : null, rgb: hasRgb ? new Uint8Array(3 * total) : null };
+      let o = 0; minZ = Infinity; maxZ = -Infinity;
+      for (const d of parts) {
+        a.x.set(d.x, o); a.y.set(d.y, o); a.z.set(d.z, o); a.cls.set(d.cls, o); a.flags.set(d.flags, o);
+        if (hasInt) a.inten.set(d.inten, o); if (hasRgb) a.rgb.set(d.rgb, 3 * o);
+        for (let k = 0; k < d.n; k++) { if (d.z[k] < minZ) minZ = d.z[k]; if (d.z[k] > maxZ) maxZ = d.z[k]; }
+        o += d.n;
+      }
+      bytes = encodeNode(a, hasRgb, hasInt);
     }
-    const bytes = encodeNode(a, hasRgb, hasInt);
     await store.put(P + 'n/' + anc + '.bin', bytes);
     rows.set(anc, { count: total, minZ: total ? minZ * scale[2] : 0, maxZ: total ? maxZ * scale[2] : 0, cellSize: size / 2 ** (anc.length - 1) / G, byteLength: bytes.length });
-  }
+  };
+  try {
+    let nextAnc = 0, mfail = null;
+    await Promise.all(Array.from({ length: mpool ? mpool.size : 1 }, async () => {
+      while (!mfail && nextAnc < ancList.length) { throwIfAborted(signal); try { await mergeOne(ancList[nextAnc++]); } catch (e) { mfail = mfail || e; } }
+    }));
+    if (mfail) throw mfail;
+  } finally { if (mpool) mpool.close(); }
   // every ancestor of a node is in the table
   for (const nid of [...rows.keys()]) for (let l = nid.length - 1; l >= 1; l--) { const a = nid.slice(0, l); if (!rows.has(a)) rows.set(a, { count: 0, minZ: 0, maxZ: 0, cellSize: size / 2 ** (a.length - 1) / G, byteLength: 0 }); }
   if (!rows.has('r')) rows.set('r', { count: 0, minZ: 0, maxZ: 0, cellSize: size / G, byteLength: 0 });
@@ -393,14 +342,15 @@ export async function buildCloud(source, store, opts = {}) {
   for (const [k, v] of Object.entries(st.classCounts)) cm[k] = v;
   const meta = {
     format: 'cct', version: 1, id, name: opts.name || info.name || id,
-    source: src.srcDesc, crs: info.crs || null, wkt: info.wkt || null, unit: info.unit || null, zUnit: info.zUnit || null,
+    source: src.srcDesc, crs: info.crs || null, wkt: info.wkt || null, unit: opts.unit || info.unit || (info.crs && info.crs.unit && info.crs.unit !== 'deg' ? info.crs.unit : null) || null, zUnit: info.zUnit || null,   // opts.unit (0.10 BK.8): what the person answered for a file that states none
     count: st.count, bounds: { min: st.min, max: st.max }, origin, scale, spacing: size / G, nodeCap, depth, gridCells: G, binDepth: d0,
     cube: { min: origin, size },
     attrs: { rgb: st.hasRgb, intensity: st.hasInt, class: true, returns: false, gpstime: false },
     classCounts: cm, clamped: st.clamped || 0, built: opts.now ? opts.now() : new Date().toISOString(), tilerVersion: TILER_VERSION,
   };
   await putJson('cloud.json', meta);
-  for (const k of await store.list(P + 'build/')) await store.delete(k);
+  // 0.11 PERF.25: the build folder holds every spilled chunk (20 bytes a point: 4.8 GB for 241 M points); deleting those one at a time took 26 s, 32 at a time is a few
+  { const old = await store.list(P + 'build/'); for (let i = 0; i < old.length; i += 32) await Promise.all(old.slice(i, i + 32).map((k) => store.delete(k))); }
   rep(1, 'merge');
   return openCloud(store, id, opts);
 }

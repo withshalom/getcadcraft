@@ -34,7 +34,7 @@ final class Help
     /** Variant dimensions → tokens → label. */
     public const VARIANTS = [
         'os'      => ['mac' => 'Mac', 'windows' => 'Windows', 'linux' => 'Linux'],
-        'browser' => ['chromium' => 'Chrome or Edge', 'firefox' => 'Firefox', 'safari' => 'Safari'],
+        'browser' => ['chromium' => 'Chrome or Edge', 'brave' => 'Brave', 'firefox' => 'Firefox', 'safari' => 'Safari'],
         'shell'   => ['web' => 'In the browser', 'desktop' => 'Desktop app'],
         'net'     => ['online' => 'Online', 'offline' => 'Offline'],
         'input'   => ['mouse' => 'Mouse', 'touch' => 'Touch'],
@@ -582,8 +582,8 @@ final class Help
                 if (!$size || !is_file(CC_PUBLIC . $dir . $s['video'])) continue;
                 // Click to play, never autoplays with sound (there is none); loops quietly once started, no data until asked.
                 $fig = '<figure class="hfig hfig-video"><video controls muted loop playsinline preload="none" poster="' . e($poster)
-                     . '" width="' . (int)$size[0] . '" height="' . (int)$size[1] . '" aria-label="' . e($s['alt']) . '"><source src="'
-                     . e($dir . $s['video']) . '" type="video/mp4"></video><figcaption>' . $cap . ' (short silent clip)</figcaption></figure>';
+                     . '" width="' . (int)$size[0] . '" height="' . (int)$size[1] . '" aria-label="' . e($s['alt']) . '">'
+                     . video_sources($dir . $s['video']) . '</video><figcaption>' . $cap . ' (short silent clip)</figcaption></figure>';
             } else {
                 $rel = $dir . ($s['file'] ?? '');
                 $size = @getimagesize(CC_PUBLIC . $rel);
@@ -623,7 +623,56 @@ final class Help
         return $html;
     }
 
+    private static array $forAppMemo = [];
+
+    /** PERF.13: read-only and derived from the build's files, so one answer per app per request (the pages ask two or three times). */
     public static function forApp(string $slug): ?array
+    {
+        if (!array_key_exists($slug, self::$forAppMemo)) self::$forAppMemo[$slug] = self::loadForApp($slug);
+        return self::$forAppMemo[$slug];
+    }
+
+    /**
+     * PERF.13: what the lists need from an app's help without reading all of it (the eight help.js files are 10 MB of JSON):
+     * {build, own: [topic slugs of this app's own scope, in order], whats_new: the whats-new topic|null}, or null without help.
+     * Kept on disk under a key made of the help files' sizes and mtimes and this class's mtime, so an edited or rebuilt help
+     * is read again at once. Pages that need the topics' bodies (a topic, a search) still use forApp().
+     */
+    public static function overview(string $slug): ?array
+    {
+        if (!Catalog::app($slug)) return null;
+        $sig = [(string)@filemtime(__FILE__), (string)AppBuilds::current($slug)];
+        foreach (array_unique(array_filter([AppBuilds::current($slug), AppBuilds::hasDev($slug) ? 'dev' : null])) as $b) {
+            $f = self::sourceDir($slug, $b) . '/help.js';
+            $sig[] = $b . ':' . @filesize($f) . ':' . @filemtime($f);
+        }
+        $key = 'help-overview-' . preg_replace('/[^a-z0-9]/i', '', $slug) . '-' . substr(sha1(implode('|', $sig)), 0, 20);
+        $r = Cache::remember($key, 86400 * 30, static function () use ($slug): array {
+            $found = self::forApp($slug);
+            if (!$found) return ['none' => true];
+            $own = [];
+            foreach ($found['data']['topics'] as $t) if ($t['scope'] === $slug) $own[] = $t['slug'];
+            return ['build' => $found['build'], 'own' => $own, 'whats_new' => self::topic($found['data'], 'whats-new', $slug)];
+        });
+        return isset($r['none']) ? null : $r;
+    }
+
+    /**
+     * The test build's help, for a signed-in person who may open that app's lab build (staff, lab access, or an active lab pass
+     * for its dev build): a topic written for something not released yet can then be read on the site (OPT.1, owner 2026-11-19:
+     * "put the help topic link in the email"). Anyone else: null, so the page 404s as before and nothing unreleased is announced.
+     * @return ?array{data: array, build: string}
+     */
+    public static function forLab(string $slug, ?array $user): ?array
+    {
+        if (!$user || !Catalog::app($slug) || !AppBuilds::hasDev($slug)) return null;
+        $scope = LabPass::scopeFor($user);   // null = every lab build
+        if ($scope !== null && !in_array('dev', $scope[$slug] ?? [], true)) return null;
+        $d = self::readModule(self::sourceDir($slug, 'dev') . '/help.js');
+        return $d ? ['data' => $d, 'build' => 'dev'] : null;
+    }
+
+    private static function loadForApp(string $slug): ?array
     {
         if (!Catalog::app($slug)) return null;
         $builds = [];
@@ -730,8 +779,18 @@ final class Help
     /** The shared basics for the site. */
     public static function common(): array
     {
-        return self::compileCommon()['data'];
+        // PERF.13: the Markdown of the shared basics was compiled on every call (several per page); now once per request, and kept on
+        // disk under a key made of the files' names, sizes and mtimes and of this class's own mtime, so an edited topic or a changed
+        // compiler is compiled again at once and nothing is ever served stale.
+        if (self::$commonMemo !== null) return self::$commonMemo;
+        $sig = [(string)@filemtime(__FILE__)];
+        foreach (glob(self::commonDir() . '/*.md') ?: [] as $f) $sig[] = basename($f) . ':' . @filesize($f) . ':' . @filemtime($f);
+        sort($sig);
+        $key = 'help-common-' . substr(sha1(implode('|', $sig)), 0, 20);
+        return self::$commonMemo = Cache::remember($key, 86400 * 30, static fn() => self::compileCommon()['data']);
     }
+
+    private static ?array $commonMemo = null;
 
     /** One topic of a compiled set. */
     public static function topic(array $data, string $slug, ?string $scope = null): ?array

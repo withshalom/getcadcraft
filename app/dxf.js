@@ -19,6 +19,7 @@
  * layout is kept as a block named CCLAYOUT_n that CadCraft reads back as a layout.
  */
 
+import { TextChunks } from './chunks.js';   // PERF.26: lib/textout/chunks.js copied to cadcraft/dev/chunks.js
 import { limitsFromHeader, limitsOf } from './limits.js';   // 0.8 D8.2
 import { unescapeText } from './dxf-decode.js';
 import { cleanScales } from './scales.js';
@@ -34,6 +35,8 @@ import { underlayParts } from './pdfmodel.js';   // PDF underlays (0.7 D7.24)
 function pushAll(arr, items) { for (let i = 0; i < items.length; i++) arr.push(items[i]); return arr; }
 import { TAU, normAngle, ellipsePoints, rad, deg, textLayout, mMul, mTranslate, mRotate, mApply, viewportCorners, explodeEntity, entityBounds, emptyBounds, validBounds, clipInfinite, attdefHidden, vpModelCentre, vpDcsCentre } from './geom.js';
 import { t } from './i18n.js';
+import { fromDxfGroups, gradFields } from './hatch-gradient.js';   // ORS.7: gradient fills
+import { clipFromXdata } from './vpclip.js';   // ORS.16: clipped viewports
 import { readDxfModel } from './dxf-model.js';
 import { patternOf } from './linetypes.js';
 import { isXrefRoot } from './xref.js';
@@ -42,7 +45,10 @@ import { forFile, parametricText, refKeyIn, isParamBlock, PARAM_BLOCK } from './
 import { isStyleBlock, payloadFrom, payloadStrings, STYLE_BLOCK } from './plotstyle.js';
 import { addonsPayload, addonsFromPayload, isAddonsBlock, ADDONS_BLOCK } from './addons-file.js';   // 0.8 AL.6
 import { laserPayload, laserFromPayload, isLaserBlock, LASER_BLOCK } from './laser-file.js';   // 0.7 SU.772: the Laser panel's settings, block CADCRAFT_LASER
+import { bparamsPayload, bparamsFromPayload, isBparamsBlock, BPARAMS_BLOCK } from './blockparams-file.js';   // 0.11 SU.1804 (cad-11): block parameters, block CADCRAFT_BPARAMS
 import { classesPayload, classesFromPayload, isClassesBlock, CLASSES_BLOCK } from './classes-file.js';   // 0.8 SU.912: block CADCRAFT_CLASSES
+import { tablesPayload, tablesFromPayload, isTablesBlock, TABLES_BLOCK } from './tables-file.js';   // ORS.1 / ORS.22: block CADCRAFT_TABLES
+import { dxfTableFields } from './tables-cad.js';   // ORS.1: a DXF's ACAD_TABLE
 import { isGeoBlock, geoFromPayload, geoPayload, GEO_BLOCK, fromDxfGroup, readGeo } from './geodwg.js';   // 0.6 GEO-DWG
 import { attdef, resolveAttribs, worldAttribs } from './attrs.js';
 import { nearestAci } from './doc.js';
@@ -51,9 +57,12 @@ import { matchPaper } from './sheets.js';
 import { forFile3d, read3dText, read3dView, isM3dBlock, M3D_BLOCK, split3d } from './model3d.js';
 import { vportRecords, vportsFrom } from './dwg-vports.js';
 import { trFrom, trWord, propsFromXdata, propsXdata, stFromCodes, stFromVars, ccDimFrom, dstyleItems, ccDimItems, r12DimstyleItems } from './dwg-props.js';
+import { dimFromCodes, dimxApply, dimxItems, dimR12, moreUsable } from './dims-file.js';   // ORS.6: ordinate, arc length and jogged dimensions; a dimension's extras
 import { pictureRefs } from './pictures.js';
 import { clipFromFilter } from './xclip.js';
 import { planMatrix, toPlan, isFlipped } from './ocs.js';   // 0.6 DF.1: objects in their own coordinate system
+import { linesOf, startsWithText, lengthOf, partsOf, V8_MAX_STRING } from './textin.js';   // 0.10 PERF.20: the text may come as parts, never one file-sized string
+import { fileGroupFromDxf, applyFileGroups } from './groups.js';   // ORS.8: a file's GROUP objects become CadCraft groups
 
 const UNITS = { 0: '', 1: 'inches', 2: 'feet', 3: 'miles', 4: 'millimeters', 5: 'centimeters', 6: 'meters', 7: 'kilometers', 8: 'microinches', 9: 'mils', 10: 'yards' };
 const UNIT_CODES = Object.fromEntries(Object.entries(UNITS).filter(([, v]) => v).map(([k, v]) => [v, +k]));
@@ -68,13 +77,22 @@ const HEADER_DIMVARS = { $DIMSCALE: 'scale', $DIMASZ: 'asz', $DIMEXO: 'exo', $DI
 
 export function readDxf(text) {
   dxfCodepage = '';
-  if (text.startsWith(t('dxf.autocad_binary_dxf'))) throw new Error(t('dxf.binary_dxf_save_ascii'));
-  const raw = text.split(/\r?\n/);
+  if (startsWithText(text, t('dxf.autocad_binary_dxf'))) throw new Error(t('dxf.binary_dxf_save_ascii'));
+  // 0.10 PERF.20: `text` is a string or the parts of a big file (textin.js TextParts); the lines are read one at a time and only the
+  // [code, value] pairs are kept (the old line array was a second copy of every line while the pairs were being made)
   const pairs = [];
-  for (let i = 0; i + 1 < raw.length; i += 2) {
-    const code = parseInt(raw[i], 10);
-    if (Number.isNaN(code)) throw new Error(t('dxf.read.bad_group_code', { line: i + 1 }));
-    pairs.push([code, raw[i + 1]]);
+  let hasExtras = false, hasSolids = false, pend = null, lineNo = 0;
+  for (const ln of linesOf(text)) {
+    lineNo++;
+    if (pend === null) { pend = ln; continue; }
+    const code = parseInt(pend, 10);
+    if (Number.isNaN(code)) throw new Error(t('dxf.read.bad_group_code', { line: lineNo - 1 }));
+    pairs.push([code, ln]);
+    if (code === 0) {
+      if (ln === 'MULTILEADER' || ln === 'IMAGE' || ln === 'WIPEOUT') hasExtras = true;
+      else if (ln === '3DSOLID' || ln === 'REGION' || ln === 'BODY') hasSolids = true;
+    }
+    pend = null;
   }
 
   const out = { entities: [], layers: [], blocks: [], layouts: [], dimStyle: { ...DIM_DEFAULTS }, meta: { units: '', version: '' }, report: { read: 0, skipped: {}, paperSpace: 0, notes: [] } };
@@ -90,6 +108,7 @@ export function readDxf(text) {
   const noPlot = new Set();               // layer names (upper case) CadCraft wrote as not plotting
   const layerByH = new Map();             // layer handle (upper case) → name, for viewports' frozen layers (VP.1, group 331)
   const dictByH = new Map(), filterByH = new Map();   // DICTIONARY entries and SPATIAL_FILTERs by handle (XCLIP, WL.16)
+  const groupObjs = [];                   // ORS.8: GROUP objects (groups.js fileGroupFromDxf)
   let geoOwn = null, geodata = null;      // CadCraft's block CADCRAFT_GEO; the model space's GEODATA (0.6 GEO-DWG, geodwg.js)
   const ctx = { dimStyles, out };
   let i = 0;
@@ -109,6 +128,7 @@ export function readDxf(text) {
     } else if (c === 0 && v.trim() === 'EOF') break;
     else i++;
   }
+  applyFileGroups([...out.entities, ...(paperRaw || [])], groupObjs, dictByH);   // ORS.8: members named by handle get their groups
   {
     // every $DIM… header variable CadCraft has a key for (dwg-props.js), on top of the ones read above
     const vars = {};
@@ -143,9 +163,9 @@ export function readDxf(text) {
     if ((x || y) && (ox || oy || Math.abs(Math.atan2(y, x)) > 1e-12)) (out.ucs ||= { current: null, named: [] }).current = { x: ox, y: oy, ang: Math.atan2(y, x) };
   }
   // 0.4 C6: multileaders, pictures and wipeouts come through the drawing model the DWG import uses (dxf-model.js)
-  if (/\n\s*0\r?\n(MULTILEADER|IMAGE|WIPEOUT)\r?\n/.test(text)) mergeExtras();
+  if (hasExtras) mergeExtras();
   if (out.report.xrefs) out.report.notes.push(t('dwg.read.xrefs', { n: out.report.xrefs }));
-  if (/\n\s*0\r?\n(3DSOLID|REGION|BODY)\r?\n/.test(text)) {   // other programs' 3D solids (0.7 D7.25, acis-cad.js): kept for the 3D tab and Save
+  if (hasSolids) {   // other programs' 3D solids (0.7 D7.25, acis-cad.js): kept for the 3D tab and Save
     const s = keptFromDxf(pairs);
     if (s.kept.length) {
       out.solids = s.kept;
@@ -159,7 +179,9 @@ export function readDxf(text) {
 
   function mergeExtras() {
     let x;
-    try { x = extrasFrom(readDxfModel(text)); } catch (err) { out.report.notes.push(String(err?.message || err)); return; }
+    // dxf-model.js (copied into other apps) reads one string: a file too big for one string keeps its main drawing, and says so
+    if (lengthOf(text) > V8_MAX_STRING) { out.report.notes.push(t('dxf.read.extras_big')); return; }
+    try { x = extrasFrom(readDxfModel(typeof text === 'string' ? text : partsOf(text).join(''))); } catch (err) { out.report.notes.push(String(err?.message || err)); return; }
     for (const t of EXTRA_TYPES) delete out.report.skipped[t];
     const names = new Set(out.blocks.map((b) => b.name.toUpperCase()));
     for (const b of x.anon) if (!names.has(b.name.toUpperCase())) out.blocks.push(b);
@@ -289,6 +311,8 @@ export function readDxf(text) {
           continue;
         }
         if (isClassesBlock(name)) { const cl = classesFromPayload(ents); if (cl) out.classes = cl; continue; }   // classes (0.8 SU.912)
+        if (isBparamsBlock(name)) { const bq = bparamsFromPayload(ents); if (bq) out.bparams = bq; continue; }   // block parameters (0.11 SU.1804)
+        if (isTablesBlock(name)) { const td = tablesFromPayload(ents); if (td) out.tablesData = td; continue; }   // ORS.1 / ORS.22 (tables-file.js)
         if (isGeoBlock(name)) { geoOwn = geoFromPayload(ents); continue; }   // the coordinate system and map layers (0.6 GEO-DWG)
         if (isM3dBlock(name)) { const t = read3dText(ents); if (t) out.model3d = t; const v = read3dView(ents); if (v) out.view3d = v; continue; }   // CadCraft's 3D model and its view (model3d.js)
         if (/^\*paper_space\d+$/i.test(name)) { paperBlocks.set(name.toUpperCase(), ents); continue; }
@@ -328,6 +352,9 @@ export function readDxf(text) {
         i++;
         const got = fromDxfGroup(group(), decodeText);
         if (got && (!geodata || /^\*model_space$/i.test(blockRecords.get(got.host) || ''))) geodata = got;
+      } else if (at()[0] === 0 && at()[1].trim() === 'GROUP') {   // ORS.8: a named object group
+        i++;
+        groupObjs.push(fileGroupFromDxf(group(), decodeText));
       } else if (at()[0] === 0 && (at()[1].trim() === 'DICTIONARY' || at()[1].trim() === 'SPATIAL_FILTER')) {
         const type = at()[1].trim();
         i++;
@@ -425,6 +452,7 @@ export function readDxf(text) {
       if (!made) continue;
       if (!Array.isArray(made) && g.some(([c]) => c === 1001)) { const k = refKeyIn((xdata(g).CADCRAFT || []).map(([, v]) => v)); if (k) made.ccref = k; }
       if (made.type === 'attdef' && !inBlock) { skip(rep, t('dxf.attdef_outside_block')); continue; }
+      if (top) { const hd = String(val(g, 5) ?? '').trim().toUpperCase(); const first = [].concat(made)[0]; if (first && /^[0-9A-F]{1,12}$/.test(hd)) first.handle = hd; }   // FX.240: the file's own name for the object (dxf2000.js writes it back)
       for (const e of [].concat(made)) (inPaper ? paper : model).push(e);
       if (inPaper) rep.paperSpace++; else rep.read++;
     }
@@ -656,6 +684,7 @@ function entityFrom(type, g, follow, rep, ctx) {
   const one = list[0];
   if (!one || one.type === 'attdef' || one.type === 'face3d') return made;
   const add = g.some(([c]) => c === 1001) ? propsFromXdata(xdata(g)) : {};
+  if (one.xd && add.xd) add.xd = { ...add.xd, ...one.xd };   // ORS.7: a gradient read from the file's own groups wins over our extended data
   if (one.type !== 'hatch') { delete add.bg; delete add.ox; delete add.oy; delete add.assoc; }
   const z = { LINE: 0, CIRCLE: 30, ARC: 30, POINT: 30, ELLIPSE: 30, INSERT: 30, MTEXT: 30, TEXT: 30, ATTRIB: 30, LWPOLYLINE: 38, POLYLINE: 30, HATCH: 30 }[type];
   if (z && num(g, z)) add.z = OCS_DXF.has(type) && planMatrix(extrusion(g)) ? (isFlipped(extrusion(g)) ? -num(g, z) : 0) : num(g, z);   // a tilted plane's elevation is no height
@@ -687,6 +716,7 @@ function entityFrom(type, g, follow, rep, ctx) {
     if (stt & 16384) add.locked = true;
     if (stt & 131072 || val(g, 68) === '0') add.on = false;
     const cc = (xdata(g).CADCRAFT || []).map(([, v]) => v);
+    const vclip = clipFromXdata(xdata(g)); if (vclip) add.clip = vclip;   // ORS.16: its outline
     if (cc.includes('CCVPLOCK')) add.locked = true;
   }
   for (const e of list) {
@@ -698,25 +728,20 @@ function entityFrom(type, g, follow, rep, ctx) {
   return made;
 }
 
-function entityFrom0(type, g, follow, rep, ctx) {
-  const base = common(g);
-  // OCS types come out in their own coordinates; inPlan() maps them to the plan (ocs.js; text and attributes here)
-  const xd = g.some(([c]) => c === 1001) ? xdata(g) : {};
-  const cc = xd.CADCRAFT ? xd.CADCRAFT.map(([, v]) => v) : null;
-  const pt = (c) => ({ x: num(g, c), y: num(g, c + 10) });
-  switch (type) {
-    case 'LINE': return { type: 'line', ...base, x1: num(g, 10), y1: num(g, 20), x2: num(g, 11), y2: num(g, 21) };
-    case 'POINT': return { type: 'point', ...base, x: num(g, 10), y: num(g, 20), ...(cc ? { cc } : {}) };
-    case 'XLINE': case 'RAY': {   // 0.5 DR.7: point (10) and unit direction (11)
+// entityFrom0's entity types → their readers (0.11 PERF.78, perf-finish-11 cadcraft: the switch of 21 cases as a table; the bodies are the cases' own text;
+// types that shared a case share a reader)
+const DXF_ENTITY = Object.assign(Object.create(null), {
+  "LINE"(type, g, follow, rep, ctx, base, xd, cc, pt) { { return { type: 'line', ...base, x1: num(g, 10), y1: num(g, 20), x2: num(g, 11), y2: num(g, 21) }; } },
+  "POINT"(type, g, follow, rep, ctx, base, xd, cc, pt) { { return { type: 'point', ...base, x: num(g, 10), y: num(g, 20), ...(cc ? { cc } : {}) }; } },
+  "XLINE"(type, g, follow, rep, ctx, base, xd, cc, pt) { {   // 0.5 DR.7: point (10) and unit direction (11)
       const dx = num(g, 11), dy = num(g, 21), n = Math.hypot(dx, dy);
       if (!(n > 1e-12)) { skip(rep, type); return null; }
       return { type: type === 'XLINE' ? 'xline' : 'ray', ...base, x: num(g, 10), y: num(g, 20), dx: dx / n, dy: dy / n };
-    }
-    // the 3D tab's faces (model3d.js split3d takes them out of the 2D drawing)
-    case '3DFACE': return { type: 'face3d', ...base, pts: [0, 1, 2, 3].map((k) => [num(g, 10 + k), num(g, 20 + k), num(g, 30 + k)]) };
-    case 'CIRCLE': return { type: 'circle', ...base, cx: num(g, 10), cy: num(g, 20), r: num(g, 40) };
-    case 'ARC': return { type: 'arc', ...base, cx: num(g, 10), cy: num(g, 20), r: num(g, 40), a0: normAngle(rad(num(g, 50))), a1: normAngle(rad(num(g, 51))) };
-    case 'LWPOLYLINE': {
+    } },
+  "3DFACE"(type, g, follow, rep, ctx, base, xd, cc, pt) { { return { type: 'face3d', ...base, pts: [0, 1, 2, 3].map((k) => [num(g, 10 + k), num(g, 20 + k), num(g, 30 + k)]) }; } },
+  "CIRCLE"(type, g, follow, rep, ctx, base, xd, cc, pt) { { return { type: 'circle', ...base, cx: num(g, 10), cy: num(g, 20), r: num(g, 40) }; } },
+  "ARC"(type, g, follow, rep, ctx, base, xd, cc, pt) { { return { type: 'arc', ...base, cx: num(g, 10), cy: num(g, 20), r: num(g, 40), a0: normAngle(rad(num(g, 50))), a1: normAngle(rad(num(g, 51))) }; } },
+  "LWPOLYLINE"(type, g, follow, rep, ctx, base, xd, cc, pt) { {
       const pts = [];
       let wide = false;
       for (const [c, v] of g) {
@@ -729,8 +754,8 @@ function entityFrom0(type, g, follow, rep, ctx) {
       const cw = num(g, 43);
       const f70 = parseInt(val(g, 70) ?? '0', 10) | 0;   // 1 closed, 128 linetype generation (off: the pattern starts again at every vertex)
       return pts.length >= 2 ? { type: 'poly', ...base, pts, closed: (f70 & 1) === 1, ...(cw > 0 && !wide ? { w: cw } : {}), ...(f70 & 128 ? {} : { lgen: false }) } : null;
-    }
-    case 'POLYLINE': {
+    } },
+  "POLYLINE"(type, g, follow, rep, ctx, base, xd, cc, pt) { {
       const flags = parseInt(val(g, 70) ?? '0', 10);
       if (flags & (16 | 64)) { skip(rep, 'POLYLINE (mesh)'); return null; }
       const dsw = num(g, 40), dew = num(g, 41);   // the polyline's default widths; a vertex may have its own
@@ -739,8 +764,8 @@ function entityFrom0(type, g, follow, rep, ctx) {
       const wide = pts.some((p) => p.sw > 0 || p.ew > 0), one = wide && pts.every((p) => p.sw === pts[0].sw && p.ew === pts[0].sw);
       for (const p of pts) { if (!wide || one) { delete p.sw; delete p.ew; } }
       return pts.length >= 2 ? { type: 'poly', ...base, pts, closed: (flags & 1) === 1, ...(one ? { w: dsw || num(follow.find((s) => s.type === 'VERTEX')?.g || [], 40) } : {}), ...(cc ? { cc } : {}) } : null;
-    }
-    case 'TEXT': case 'ATTRIB': case 'ATTDEF': {
+    } },
+  "TEXT"(type, g, follow, rep, ctx, base, xd, cc, pt) { {
       const h72 = parseInt(val(g, 72) ?? '0', 10), v73 = parseInt(val(g, type === 'TEXT' ? 73 : 74) ?? '0', 10);
       const aligned = h72 !== 0 || v73 !== 0;
       const ha = h72 === 1 || h72 === 4 ? 'center' : h72 === 2 ? 'right' : 'left';
@@ -760,8 +785,8 @@ function entityFrom0(type, g, follow, rep, ctx) {
       }
       if (!s) return null;
       return t;
-    }
-    case 'MTEXT': {
+    } },
+  "MTEXT"(type, g, follow, rep, ctx, base, xd, cc, pt) { {
       let s = '';
       for (const [c, v] of g) if (c === 3) s += v;
       s += val(g, 1) ?? '';
@@ -779,12 +804,12 @@ function entityFrom0(type, g, follow, rep, ctx) {
         ...maskOf({ backgroundFlags: parseInt(val(g, 90) ?? '0', 10), backgroundScale: num(g, 45, 1.5),
           backgroundColor: val(g, 421) !== undefined ? { rgb: parseInt(val(g, 421), 10) } : { index: parseInt(val(g, 63) ?? '7', 10) } }),   // background mask (WL.8)
       };
-    }
-    case 'ELLIPSE': {
+    } },
+  "ELLIPSE"(type, g, follow, rep, ctx, base, xd, cc, pt) { {
       const t0 = num(g, 41, 0), t1 = num(g, 42, TAU);
       return { type: 'ellipse', ...base, cx: num(g, 10), cy: num(g, 20), mx: num(g, 11), my: num(g, 21), ratio: num(g, 40, 1), t0, t1 };
-    }
-    case 'SPLINE': {   // a real spline (0.7 D7.10, spline.js)
+    } },
+  "SPLINE"(type, g, follow, rep, ctx, base, xd, cc, pt) { {   // a real spline (0.7 D7.10, spline.js)
       const pt = (c) => { const out = []; for (let k = 0; k < g.length; k++) if (g[k][0] === c) { let y = 0; for (let m = k + 1; m < g.length && m <= k + 2; m++) if (g[m][0] === c + 10) { y = parseFloat(g[m][1]); break; } out.push({ x: parseFloat(g[k][1]), y }); } return out; };
       const flags = parseInt(val(g, 70) ?? '0', 10);
       const sp = splineFromFile({ degree: parseInt(val(g, 71) ?? '3', 10), closed: !!(flags & 1), periodic: !!(flags & 2), ctrl: pt(10), fit: pt(11),
@@ -793,19 +818,20 @@ function entityFrom0(type, g, follow, rep, ctx) {
       if (!sp) { skip(rep, 'SPLINE'); return null; }
       rep.splines = (rep.splines || 0) + 1;
       return { ...sp, ...base };
-    }
-    case 'SOLID': case 'TRACE': {
+    } },
+  "SOLID"(type, g, follow, rep, ctx, base, xd, cc, pt) { {
       const c = [[10, 20], [11, 21], [13, 23], [12, 22]].map(([a, b]) => [num(g, a), num(g, b)]);
       return { type: 'hatch', ...base, solid: true, loops: [[...c.flat(), ...c[0]]] };
-    }
-    case 'HATCH': {
+    } },
+  "HATCH"(type, g, follow, rep, ctx, base, xd, cc, pt) { {
       const loops = hatchLoops(g, rep);
       if (!loops.length) return null;
       const h = { type: 'hatch', ...base, solid: val(g, 70) === '1', pattern: val(g, 2) || '', loops };
       if (!h.solid) Object.assign(h, hatchPattern(g));
+      else if (g.some(([c]) => c === 450)) Object.assign(h, gradFields(fromDxfGroups(g)));   // ORS.7: a gradient hatch (DXF 2004 and later)
       return h;
-    }
-    case 'INSERT': {
+    } },
+  "INSERT"(type, g, follow, rep, ctx, base, xd, cc, pt) { {
       const name = val(g, 2);
       if (!name) return null;
       const ins = { type: 'insert', ...base, block: name, x: num(g, 10), y: num(g, 20), sx: num(g, 41, 1), sy: num(g, 42, 1), rot: normAngle(rad(num(g, 50))) };
@@ -819,8 +845,8 @@ function entityFrom0(type, g, follow, rep, ctx) {
       out[0]._attribs = [];
       for (const a of follow || []) if (a.type === 'ATTRIB') { const t = entityFrom('ATTRIB', a.g, null, rep); if (t) out[0]._attribs.push(t); }
       return out;
-    }
-    case 'DIMENSION': {
+    } },
+  "DIMENSION"(type, g, follow, rep, ctx, base, xd, cc, pt) { {
       // parametric (dynamic) constraints look like dimensions but are editing aids: never plotted
       if (/^\*LayerNameForDynamicConstraint$/i.test(base.layer)) { skip(rep, t('dxf.dimension_parametric_constraint')); return null; }
       const blockName = val(g, 2);
@@ -843,27 +869,28 @@ function entityFrom0(type, g, follow, rep, ctx) {
       else if (kind === 4) d = { kind: 'radius', c: pt(10), p1: pt(15), loc: pt(11) };
       else if (kind === 3) { const a = pt(15), b = pt(10); d = { kind: 'diameter', c: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, p1: a, loc: pt(11) }; }
       else if (kind === 5) d = { kind: 'angular', c: pt(15), p1: pt(13), p2: pt(14), loc: pt(10) };
+      else if (kind === 6) d = dimFromCodes(parseInt(val(g, 70) ?? '0', 10), pt, (c) => num(g, c));   // ORS.6: ordinate (dims-file.js)
       else if (kind === 2) {
         const L = (a, b) => ({ x1: num(g, a), y1: num(g, a + 10), x2: num(g, b), y2: num(g, b + 10) });
         const r = angularFromLines(L(13, 14), L(15, 10), pt(16));
         if (r) d = { kind: 'angular', ...r, loc: pt(16) };
       }
       const trot = st._trot; delete st._trot;   // R12 has no text rotation field: CadCraft keeps it in CADCRAFT xdata
-      if (d && dimUsable(d)) return { type: 'dim', ...base, ...d, text, st, ...(blockName ? { block: blockName } : {}), ...(trot ? { trot } : {}) };
+      if (d && dimUsable(d)) return dimxApply(cc ? cc.map(String) : null, { type: 'dim', ...base, ...d, text, st, ...(blockName ? { block: blockName } : {}), ...(trot ? { trot } : {}) });   // ORS.6: + its CCDIMX extras
       if (!blockName) { skip(rep, 'DIMENSION'); return null; }
       return { type: 'insert', ...base, block: blockName, x: 0, y: 0, sx: 1, sy: 1, rot: 0, dim: true };
-    }
-    case 'OLE2FRAME': {   // an embedded object (0.7 D7.23): its corners and OLE2 data; resolved to a frame (resolveOle)
+    } },
+  "OLE2FRAME"(type, g, follow, rep, ctx, base, xd, cc, pt) { {   // an embedded object (0.7 D7.23): its corners and OLE2 data; resolved to a frame (resolveOle)
       const hex = g.filter(([c]) => c === 310).map(([, v]) => v.trim()).join('');
       if (!hex || !/^[0-9a-fA-F]+$/.test(hex) || hex.length % 2 || hex.length > 128e6) { skip(rep, 'OLE2FRAME'); return null; }
       return { type: 'oleraw', ...base, p1: { x: num(g, 10), y: num(g, 20) }, p2: { x: num(g, 11), y: num(g, 21) }, kind: parseInt(val(g, 71) ?? '2', 10), tile: parseInt(val(g, 72) ?? '0', 10), title: decodeText(val(g, 3) || ''), hex };
-    }
-    case 'PDFUNDERLAY': {   // 0.7 D7.24: resolved with its PDFDEFINITION once the OBJECTS are read (resolvePdfs)
+    } },
+  "PDFUNDERLAY"(type, g, follow, rep, ctx, base, xd, cc, pt) { {   // 0.7 D7.24: resolved with its PDFDEFINITION once the OBJECTS are read (resolvePdfs)
       const clip = [];
       for (let k = 0; k + 1 < g.length; k++) if (g[k][0] === 11 && g[k + 1][0] === 21) clip.push({ x: parseFloat(g[k][1]), y: parseFloat(g[k + 1][1]) });
       return { type: 'pdfraw', ...base, def: (val(g, 340) || '').toUpperCase(), insertion: { x: num(g, 10), y: num(g, 20) }, scale: { x: num(g, 41, 1) || 1, y: num(g, 42, 1) || 1 }, rotation: rad(num(g, 50, 0)), flags: parseInt(val(g, 280) ?? '2', 10), contrast: num(g, 281, 50), fade: num(g, 282, 0), clip };
-    }
-    case 'VIEWPORT': {
+    } },
+  "VIEWPORT"(type, g, follow, rep, ctx, base, xd, cc, pt) { {
       const v = { type: 'viewport', ...base, x: num(g, 10), y: num(g, 20), w: num(g, 40), h: num(g, 41), id: parseInt(val(g, 69) ?? '0', 10) };
       let vc = null, vh = 0;
       // the view centre is in display coordinates, turned by the twist (geom.js vpModelCentre, CAD-TWIST-SAVE)
@@ -886,15 +913,30 @@ function entityFrom0(type, g, follow, rep, ctx) {
       if (Math.abs(twc) > 1e-12) v.tw = twc;   // its twist (DR.8)
       if (cc && cc[0] === 'LAYOUT') { v.overall = true; v.cc = { name: decodeText(cc[1] || ''), unit: cc[2] === 'in' ? 'in' : 'mm', key: cc[3], x0: +cc[4], y0: +cc[5], w: +cc[6], h: +cc[7], noplot: cc[8] === 'NOPLOT' ? cc.slice(9) : [] }; }
       return v;
-    }
-    default: skip(rep, type); return null;
-  }
+    } },
+  "ACAD_TABLE"(type, g, follow, rep, ctx, base, xd, cc, pt) { { const tf = dxfTableFields(g); if (!tf) { skip(rep, type); return null; } return { type: 'insert', ...base, ...tf }; } },
+});
+DXF_ENTITY["RAY"] = DXF_ENTITY["XLINE"];
+DXF_ENTITY["ATTRIB"] = DXF_ENTITY["TEXT"];
+DXF_ENTITY["ATTDEF"] = DXF_ENTITY["TEXT"];
+DXF_ENTITY["TRACE"] = DXF_ENTITY["SOLID"];
+
+function entityFrom0(type, g, follow, rep, ctx) {
+  const base = common(g);
+  // OCS types come out in their own coordinates; inPlan() maps them to the plan (ocs.js; text and attributes here)
+  const xd = g.some(([c]) => c === 1001) ? xdata(g) : {};
+  const cc = xd.CADCRAFT ? xd.CADCRAFT.map(([, v]) => v) : null;
+  const pt = (c) => ({ x: num(g, c), y: num(g, c + 10) });
+  const read = DXF_ENTITY[type];
+  if (!read) { skip(rep, type); return null; }
+  return read(type, g, follow, rep, ctx, base, xd, cc, pt);
 }
 
 function skip(rep, t) { rep.skipped[t] = (rep.skipped[t] || 0) + 1; }
 
 /** Can CadCraft draw this dimension itself (finite points, something to measure)? */
 function dimUsable(d) {
+  if (d.kind === 'ordinate' || d.kind === 'arc' || d.kind === 'jogged') return moreUsable(d);   // ORS.6
   const pts = ['p1', 'p2', 'c', 'loc'].filter((k) => d[k]).map((k) => d[k]);
   if (!pts.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))) return false;
   const far = (a, b) => Math.hypot(b.x - a.x, b.y - a.y) > 1e-12;
@@ -1026,8 +1068,8 @@ export function writeDxf(doc) {
     extents = validBounds(b) && (b.maxX > b.minX || b.maxY > b.minY) ? b : { minX: -100, minY: -100, maxX: 100, maxY: 100 };
     return extents;
   };
-  const lines = [];
-  const w = (code, v) => { lines.push(String(code).padStart(3, ' ')); lines.push(String(v)); };
+  const out = new TextChunks('\r\n');   // PERF.26: kept as parts (a Blob, a file stream), never one string
+  const w = (code, v) => { out.add(String(code).padStart(3, ' ')); out.add(String(v)); };
   const f = (n) => (Math.abs(n) < 1e-12 ? '0.0' : Number(n.toPrecision(15)).toString());
   const xy = (c, p) => { w(c, f(p.x)); w(c + 10, f(p.y)); w(c + 20, '0.0'); };
 
@@ -1083,6 +1125,10 @@ export function writeDxf(doc) {
   if (adPts) used.add(ADDONS_BLOCK);
   const clPts = classesPayload(doc);   // classes, design layers, viewport class overrides (0.8 SU.912): block CADCRAFT_CLASSES
   if (clPts) used.add(CLASSES_BLOCK);
+  const bqPts = bparamsPayload(doc);   // block parameters (0.11 SU.1804, blockparams-file.js): block CADCRAFT_BPARAMS
+  if (bqPts) used.add(BPARAMS_BLOCK);
+  const tbPts = tablesPayload(doc);   // ORS.1 / ORS.22: table styles, data links, custom properties (tables-file.js): block CADCRAFT_TABLES
+  if (tbPts) used.add(TABLES_BLOCK);
   const geoPts = geoPayload(doc);   // the coordinate system and map layers (0.6 GEO-DWG): block CADCRAFT_GEO (R12 has no GEODATA)
   if (geoPts) used.add(GEO_BLOCK);
   const m3 = forFile3d(doc);   // the 3D model (model3d.js): 3DFACEs on layer CC-3D + its exact copy in block CADCRAFT_3D
@@ -1267,8 +1313,14 @@ export function writeDxf(doc) {
   if (adPts) block(ADDONS_BLOCK, { x: 0, y: 0 }, [], () => {   // 0.8 AL.6
     for (const strs of adPts) { w(0, 'POINT'); w(8, '0'); w(10, '0.0'); w(20, '0.0'); w(30, '0.0'); w(1001, 'CADCRAFT'); for (const t of strs) w(1000, t); }
   });
+  if (tbPts) block(TABLES_BLOCK, { x: 0, y: 0 }, [], () => {   // ORS.1 / ORS.22
+    for (const strs of tbPts) { w(0, 'POINT'); w(8, '0'); w(10, '0.0'); w(20, '0.0'); w(30, '0.0'); w(1001, 'CADCRAFT'); for (const t of strs) w(1000, t); }
+  });
   if (clPts) block(CLASSES_BLOCK, { x: 0, y: 0 }, [], () => {   // 0.8 SU.912
     for (const strs of clPts) { w(0, 'POINT'); w(8, '0'); w(10, '0.0'); w(20, '0.0'); w(30, '0.0'); w(1001, 'CADCRAFT'); for (const t of strs) w(1000, t); }
+  });
+  if (bqPts) block(BPARAMS_BLOCK, { x: 0, y: 0 }, [], () => {   // 0.11 SU.1804
+    for (const strs of bqPts) { w(0, 'POINT'); w(8, '0'); w(10, '0.0'); w(20, '0.0'); w(30, '0.0'); w(1001, 'CADCRAFT'); for (const t of strs) w(1000, t); }
   });
   if (m3) block(M3D_BLOCK, { x: 0, y: 0 }, [], () => {
     for (const strs of m3.points) { w(0, 'POINT'); w(8, '0'); w(10, '0.0'); w(20, '0.0'); w(30, '0.0'); w(1001, 'CADCRAFT'); for (const t of strs) w(1000, t); }
@@ -1325,7 +1377,8 @@ export function writeDxf(doc) {
   if (report.counts.material) report.notes.push(t('dwg.save.material'));
   if (m3) { report.counts.face3d = m3.faces.length; report.notes.push(t('dxf.save.model3d', { n: m3.faces.length, layer: m3.layer, block: M3D_BLOCK })); }
   report.extents = ext;
-  return { text: lines.join('\r\n') + '\r\n', report };
+  out.finish(true);
+  return { get text() { return out.string(); }, chunks: out, report };   // `text` as before (a string, while it fits); `chunks.blob()` / `.pipe()` for any size
 
   function layoutXdata(l) {
     const p = l.paper;
@@ -1463,7 +1516,7 @@ export function writeDxf(doc) {
         if (e.text) w(1, encodeText(e.text));
         xy(13, e.p1); xy(14, e.p2); xy(15, e.c);
         break;
-      default: break;
+      default: dimR12(e, { xy, w, tp, text: encodeText }); break;   // ORS.6 (dims-file.js): ordinate, arc length, jogged radius
     }
     w(3, e.dimstyle && !/^standard$/i.test(e.dimstyle) ? r12Name(e.dimstyle) : 'STANDARD');
     // this dimension's own settings, as AutoCAD stores per-dimension overrides: every variable R12 has (dwg-props.js; its
@@ -1474,6 +1527,12 @@ export function writeDxf(doc) {
     w(1001, 'CADCRAFT'); w(1000, 'DIM'); w(1070, ds.dec | 0); w(1070, ds.adec | 0); w(1070, ds.zin | 0); w(1070, ds.lunit || 2);
     if (e.trot) w(1000, 'CCTROT:' + e.trot);
     for (const [, v] of ccDimItems(ds, { r12: true })) w(1000, encodeText(v));
+    for (const s of dimxItems(e)) w(1000, s);   // ORS.6: this dimension's extras (ASCII, already escaped)
+    if (e.ann) {   // 0.10 BK.10: an annotative dimension keeps its flag and the scale it is sized for (dwg-props.js)
+      const ax = propsXdata({ type: 'dim', ann: true, as: e.as, asl: e.asl });   // ORS.26: + its list of scales
+      for (const [, v] of ax.CADCRAFT || []) w(1000, encodeText(v));
+      w(1001, 'ACADANNOTATIVE'); for (const [code, v] of ax.AcadAnnotative) w(code, v);
+    }
     note('dims');
   }
   function entity(e, o) {

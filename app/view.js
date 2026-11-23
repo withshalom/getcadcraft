@@ -22,22 +22,28 @@
  * colours are darkened on paper and dark ones lightened on a dark screen so every layer reads.
  */
 
-import { limitsOf } from './limits.js';   // 0.8 D8.2: the grid stays inside the drawing limits
+import { limitsOf } from './limits.js';
+import { gridOf, MIN_PX } from './gridspec.js';   // 0.10.1: the drawing's own grid spacing and major interval   // 0.8 D8.2: the grid stays inside the drawing limits
 import {
-  entityBounds, validBounds, emptyBounds, growPt, distToEntity, inWindow, snapPoints, prims,
+  entityBounds, entityBoundsSteps, validBounds, emptyBounds, growPt, distToEntity, inWindow, snapPoints, prims,
   textLayout, ellipsePoints, intersect, grips as entityGrips, viewportCorners, viewportMatrix, dimParts, FONT_EM, TAU,
   UNBOUNDED, clipInfinite,
 } from './geom.js';
 import { resolveColor } from './doc.js';
-import { fillRichLine } from './mtext-draw.js';
+import { fillRichLine, fillPlainLine } from './mtext-draw.js';
 import { familyOf, setFontMeasure } from './font.js';
 import { resolveLw } from './linetypes.js';
-import { walk, frozenSet, frozenKey } from './walk.js';
+import { walkSteps, frozenSet, frozenKey } from './walk.js';
 import { leaderGeometry } from './leader.js';
 import { lwPixels } from './lwdisplay.js';
 import { paneRects, paneAt, paneCount, clampSplit } from './panes.js';
 import { drawPictures } from './pictures.js';
 import { dynGrips } from './dyngrips.js';
+import { shiftFill, paintGradient } from './hatch-gradient.js';   // ORS.7: gradient fills
+import { viewportOutline } from './vpclip.js';   // ORS.16: clipped viewports
+import { BoxGrid } from './pointer-perf.js';
+import { runNow, runSliced, ticker } from './slices.js';   // 0.11 PERF.9: the picture built in slices (prepareCache)
+import { affineMul as mul } from './geom-vec.js';   // shared helpers (0.11 PERF.74; tools/perf/util-copies.mjs)
 
 const SNAP_PRIORITY = { end: 0, int: 0, mid: 1, cen: 1, quad: 2, node: 0, ins: 1, perp: 2, tan: 2, near: 9 };
 /** Cursor sizes (Settings → Cursor): crosshair arm, pick box side and pick tolerance, in screen px. `full` (0.8 D8.14,
@@ -57,6 +63,17 @@ setFontMeasure((family, str) => {
 /** The History compare's mark colours (history-ui.js's legend uses the same ones, cadcraft.css). */
 export const COMPARE_COLORS = { added: '#1a9850', removed: '#d73027', changed: '#e08a00' };
 
+/** FX.157: a cache's paths are 32-bit. Distance from its origin to the view centre, in CSS px, past which a point may be a pixel off (6e-8 × 1.6e5 ≈ 0.01 px). */
+export const FAR_PX = 1.6e5;
+const farFrom = (o, f) => !!f && Number.isFinite(f.x) && Number.isFinite(f.y) && Number.isFinite(f.k) && Math.hypot(f.x - o.x, f.y - o.y) * f.k > FAR_PX;
+
+/** Drawings with at least this many objects find what is under the pointer through a grid (nearEntities). */
+const GRID_FROM = 400;
+
+const ORS_FILL_RUNS = 4000;   // ORS.4: how many in-order fill batches one cache keeps before it merges by look again
+const MOVE_SHOT_MS = 50;   // 0.11 PERF.17 / PERF.28: a full redraw slower than this → pans and wheel zooms move the last picture until they rest
+const MOVE_REST_MS = 160;   // …and this long after the last move the drawing is drawn in full again
+const ORS_RUNS_MAX = 256;   // ORS.4: how many draw-order runs one cache keeps (each is fills, lines, masks, texts); past it the rest share the last run (measured cad-11: 2,000 runs made a zoomed-in redraw of 100,000 objects 2 to 4 times slower)
 export class View {
   constructor(base, over, doc) {
     this.base = base; this.over = over; this.doc = doc;
@@ -76,6 +93,7 @@ export class View {
     this.grid = true;
     this.lwDisplay = false;       // status bar LWT / LWDISPLAY (cadcraft.js)
     this.cursorSize = 'medium';   // CURSOR_SIZES key (cadcraft.js, from Settings)
+    this.systemCursor = false;    // the light pointer (cadcraft.js, pointer-perf.js): the system's crosshair instead of a drawn one
     this.state = { cursor: null, snap: null, preview: [], selection: new Set(), hover: null, grips: [], hotGrip: null, box: null, crosshair: true };
     this.raf = 0; this.dirtyBase = true;
     this.shownSpace = doc.space;
@@ -139,7 +157,11 @@ export class View {
     if (!loaded && this.shownSpace) this.views.set(this.shownSpace, this.vs);
     this.shownSpace = this.doc.space;
     const v = !loaded && this.views.get(this.doc.space);
-    if (v) Object.assign(this, { tw: 0, ...v }); else { this.tw = loaded || !this.doc.inModel ? 0 : this.tw; if (loaded && this.panes) this.fitPanes(); else this.fit(); }
+    if (v) Object.assign(this, { tw: 0, ...v }); else {
+      this.tw = loaded || !this.doc.inModel ? 0 : this.tw;
+      if (loaded && this.holdFit) return;   // 0.11 PERF.9: a sliced open (open-ui.js) fits once its picture is built, not inside doc.load
+      if (loaded && this.panes) this.fitPanes(); else this.fit();
+    }
   }
 
   // ---- split screen (panes.js) ----
@@ -380,7 +402,7 @@ export class View {
     const ev = this.enteredViewport();
     if (!ev) return null;
     const A = affineOf(this.paperView(), this.w, this.h);
-    return viewportCorners(ev.vp).map((q) => ap(A, q.x, q.y));
+    return viewportOutline(ev.vp).map((q) => ap(A, q.x, q.y));   // ORS.16: the outline of a clipped one
   }
   /** Is screen point (local CSS px) inside the entered viewport's frame? */
   insideEntered(sx, sy) {
@@ -434,9 +456,11 @@ export class View {
     this.zoom = Math.min(1e9, Math.max(1e-9, this.zoom * f));
     const after = this.toWorld(sx, sy);
     this.cx += before.x - after.x; this.cy += before.y - after.y;
-    this.invalidate(true);
+    this.moved();
   }
-  panBy(dx, dy) { const d = this.unturn(dx / this.zoom, -dy / this.zoom); this.cx -= d.x; this.cy -= d.y; this.invalidate(true); }
+  panBy(dx, dy) { const d = this.unturn(dx / this.zoom, -dy / this.zoom); this.cx -= d.x; this.cy -= d.y; this.moved(); }
+  /** 0.11 PERF.17 / PERF.28 (perf-finish-11): the view only moved (a pan, a wheel zoom): a big drawing may show its last picture moved (moveShot). */
+  moved() { this._inMove = true; try { this.invalidate(true); } finally { this._inMove = false; } this._movePending = true; }
 
   extents() {
     const b = emptyBounds();
@@ -545,12 +569,26 @@ export class View {
   /** An object hidden from picking and snapping: its layer is frozen in the entered viewport (VP.4). */
   hiddenHere(e, frz) { return !!frz && frz.has(String(e.layer).toUpperCase()); }
 
-  pick(p, px = this.cursorSpec().pick) {
+  /**
+   * The objects whose box may come within r of p, in drawing order (0.9.1, pointer-perf.js): every object on a small
+   * drawing, as before; on a big one the few in the grid cells around p, so a pointer move does not walk 25,000 objects.
+   * Rays and construction lines are always among them. pick, pickAll and snap still test each one exactly.
+   */
+  nearEntities(p, r) {
+    const cache = this.ensureCache(), ents = this.doc.entities;
+    if (cache.bounds.size < GRID_FROM || !Number.isFinite(r)) return ents.values();
+    if (!cache.grid) cache.grid = new BoxGrid(cache.bounds, { always: (id) => { const e = ents.get(id); return !e || UNBOUNDED.has(e.type); } });
+    const out = [];
+    for (const id of cache.grid.near(p.x, p.y, r)) { const e = ents.get(id); if (e) out.push(e); }
+    return out;
+  }
+
+  pick(p, px = this.cursorSpec().pick, strict = false) {   // ORS.28: strict = never an object on a locked layer
     const tol = px / this.zoom, frz = this.enteredFrozen();
     let best = null, bd = tol;
     const bounds = this.ensureCache().bounds;
-    for (const e of this.doc.entities.values()) {
-      if (!this.doc.editable(e) || this.hiddenHere(e, frz)) continue;
+    for (const e of this.nearEntities(p, tol)) {
+      if (!this.orsPickable(e, strict) || this.hiddenHere(e, frz)) continue;
       const b = bounds.get(e.id);
       if (!b || (!UNBOUNDED.has(e.type) && (p.x < b.minX - tol || p.x > b.maxX + tol || p.y < b.minY - tol || p.y > b.maxY + tol))) continue;
       const d = distToEntity(e, p, this.doc.blocks);
@@ -559,11 +597,11 @@ export class View {
     return best;
   }
   /** Every editable object within the pick box of p, nearest first (Tab cycles through them). */
-  pickAll(p, px = this.cursorSpec().pick) {
+  pickAll(p, px = this.cursorSpec().pick, strict = false) {   // ORS.28
     const tol = px / this.zoom, hits = [], frz = this.enteredFrozen();
     const bounds = this.ensureCache().bounds;
-    for (const e of this.doc.entities.values()) {
-      if (!this.doc.editable(e) || this.hiddenHere(e, frz)) continue;
+    for (const e of this.nearEntities(p, tol)) {
+      if (!this.orsPickable(e, strict) || this.hiddenHere(e, frz)) continue;
       const b = bounds.get(e.id);
       if (!b || (!UNBOUNDED.has(e.type) && (p.x < b.minX - tol || p.x > b.maxX + tol || p.y < b.minY - tol || p.y > b.maxY + tol))) continue;
       const d = distToEntity(e, p, this.doc.blocks);
@@ -572,11 +610,11 @@ export class View {
     return hits.sort((a, b) => a[0] - b[0]).map((h) => h[1]);
   }
 
-  pickWindow(w, crossing) {
+  pickWindow(w, crossing, strict = false) {   // ORS.28
     const out = [], frz = this.enteredFrozen();
     const bounds = this.ensureCache().bounds;
     for (const e of this.doc.entities.values()) {
-      if (!this.doc.editable(e) || this.hiddenHere(e, frz)) continue;
+      if (!this.orsPickable(e, strict) || this.hiddenHere(e, frz)) continue;
       const b = bounds.get(e.id);
       if (!b || (!UNBOUNDED.has(e.type) && (b.maxX < w.minX || b.minX > w.maxX || b.maxY < w.minY || b.minY > w.maxY))) continue;
       if (inWindow(e, w, crossing, this.doc.blocks)) out.push(e.id);
@@ -590,7 +628,7 @@ export class View {
     const r = px / this.zoom;
     const bounds = this.ensureCache().bounds;
     const nearby = [], frz = this.enteredFrozen();
-    for (const e of this.doc.entities.values()) {
+    for (const e of this.nearEntities(p, r)) {
       if (!this.doc.visible(e) || this.hiddenHere(e, frz)) continue;
       const b = bounds.get(e.id);
       if (!b || (UNBOUNDED.has(e.type) ? distToEntity(e, p, null) > r : (p.x < b.minX - r || p.x > b.maxX + r || p.y < b.minY - r || p.y > b.maxY + r))) continue;
@@ -612,14 +650,15 @@ export class View {
       }
     }
     if (this.snapUnder) for (const c of this.snapUnder(p, r, kinds) || []) consider(c);   // a PDF underlay's own lines (0.7 D7.24)
+    if (this.snapWalls) for (const c of this.snapWalls(p, r, kinds, base, nearby) || []) consider(c);   // a plan wall's centre line (0.10.1, #1973: walls-snap.js)
     if (kinds.has('node') && this.snapExtra) { const c = this.snapExtra(p, r); if (c) consider(c); }   // a point cloud's points (SG.1)
     return best;
   }
 
   // ---- rendering ----
   invalidate(base = false) {
-    if (base) this.dirtyBase = true;
-    if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; this.render(); });
+    if (base) { this.dirtyBase = true; if (!this._inMove) this._otherBase = true; }
+    if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; this.beforeFrame?.(); this.render(); });   // beforeFrame: cadcraft.js applies a pointer move it kept for this frame
   }
 
   /**
@@ -649,12 +688,26 @@ export class View {
     return Math.hypot(this.T[0], this.T[1]) / (lay.paper?.unit === 'in' ? 25.4 : 1);
   }
 
+  /** What the view is centred on, for cacheOf (FX.157). */
+  focus() { return { x: this.cx, y: this.cy, k: this.zoom }; }
+
+  /** ORS.5 / ORS.28: what the picture depends on besides the drawing's version: the session's hidden objects (objhide.js) and the locked-layer fade (lockedlayers.js). */
+  orsKey() { return ':' + (this.doc.orsHiddenVersion || 0) + ':' + (this.orsLockFade || 0); }
+  /** ORS.28: may a click reach this object? What can be edited; and, when the setting allows it and no command is asking (`strict`), objects held back by a locked layer alone. */
+  orsPickable(e, strict = false) { return this.doc.editable(e) || (!strict && !!this.orsPickLocked && this.doc.lockedOnly(e)); }
+
   /** The cache of the open space. */
   ensureCache() { return this.cacheOf(this.doc.space); }
 
-  /** `frozen` (VP.1): a Set of upper-case layer names left out — the model as one viewport shows it, cached per set. */
-  cacheOf(map, frozen = null) {
-    const v = this.doc.version + ':' + (this.doc.pictureVersion || 0);   // pictures attached without an undo step (WL.14, cad-files) count too
+  /**
+   * `frozen` (VP.1): a Set of upper-case layer names left out — the model as one viewport shows it, cached per set.
+   * `focus` (0.9.1 FX.157): { x, y, k } the point the view is centred on and its CSS px per unit. A canvas Path2D keeps every point as a
+   * 32-bit float and the transform that draws it is one too, so a point's distance from the cache origin, times the zoom, is the
+   * size in pixels of what is lost: at a UTM coordinate with a stray object at 0,0 the origin lands millions of units from where you
+   * look and an edge moves tens of pixels as you zoom. Past FAR_PX the cache is built again around the focus.
+   */
+  cacheOf(map, frozen = null, focus = null) {
+    const v = this.doc.version + ':' + (this.doc.pictureVersion || 0) + this.orsKey();   // ORS.5 / ORS.28: hidden objects and the locked-layer fade count too; pictures attached without an undo step (WL.14, cad-files) count too
     const fk = frozenKey(frozen);
     let byKey = null;
     if (fk) {
@@ -662,19 +715,70 @@ export class View {
       byKey = this.frzCaches.get(map);
       if (!byKey || byKey.version !== v) { byKey = { version: v, caches: new Map() }; this.frzCaches.set(map, byKey); }
       const h = byKey.caches.get(fk);
-      if (h) return h;
+      if (h && !farFrom(h.origin, focus)) return h;
     }
     const hit = fk ? null : this.caches.get(map);
-    if (hit && hit.version === v) return hit;
+    if (hit && hit.version === v && !farFrom(hit.origin, focus)) return hit;
+    // 0.11 PERF.9: a sliced build of this very picture is under way (prepareCache): finish it now rather than build it twice
+    const pc = this.pendingCache;
+    if (pc && pc.map === map && pc.v === v && pc.fk === fk && !farFrom(pc.focus, focus)) { this.pendingCache = null; return runNow(pc.gen) || this.cacheOf(map, frozen, focus); }
+    return runNow(this.cacheSteps(map, frozen, focus, v, fk, byKey));
+  }
+
+  /**
+   * 0.11 PERF.9 / PERF.30 (perf-finish-11): build the open space's picture in slices of about `budget` ms (slices.js) before it is first
+   * drawn, so opening a big drawing never holds the page in one task for the cache (Plans.dwg: 0.85 to 1.7 s). The same steps as cacheOf
+   * (the same picture); a cacheOf that asks for it meanwhile finishes it at once. → the cache.
+   */
+  async prepareCache(map = this.doc.space, { budget = 40 } = {}) {
+    const v = this.doc.version + ':' + (this.doc.pictureVersion || 0) + this.orsKey(), focus = this.focus();
+    const hit = this.caches.get(map);
+    if (hit && hit.version === v && !farFrom(hit.origin, focus)) return hit;
+    const pc = { map, v, fk: '', focus, gen: this.cacheSteps(map, null, focus, v, '', null) };
+    this.pendingCache = pc;
+    try { await runSliced(pc.gen, { budget }); } finally { if (this.pendingCache === pc) this.pendingCache = null; this.invalidate(true); }
+    return this.caches.get(map);
+  }
+
+  *cacheSteps(map, frozen, focus, v, fk, byKey) {
+    const tick = ticker(32);
     const t0 = performance.now();
-    const paths = new Map(), fills = new Map(), texts = [], points = [], viewports = [], bounds = new Map(), pictures = [], pdfs = [], masks = [];
+    const points = [], viewports = [], bounds = new Map(), pictures = [], pdfs = [];
+    // ORS.4 (true draw order, cad-11): the picture is a list of runs, each drawn fills → lines → text masks → texts. An opaque item (a fill
+    // or a text's mask) that comes after lines or texts already in the run starts a new run, so it covers exactly what is before it in the
+    // drawing's order and is covered by what comes after. Lines and texts inside one run keep their batches (one Path2D per look), so a
+    // drawing without fills stays one run. After ORS_RUNS_MAX runs the rest share the last one (the old look: fills under the lines).
+    const runs = [];
+    let run = null, paths = null, fills = null, texts = null, masks = null;
+    // Only an opaque item that really lies over something drawn before it in the run splits it: the run keeps a coarse grid (GN × GN over the
+    // drawing's extents) of the cells its lines and texts touch; a fill or mask whose box touches none of them joins the run (nothing it
+    // could cover is in it). So a drawing whose hatches sit apart from the linework drawn before them stays one run.
+    const GN = 64, cells = new Uint8Array(GN * GN);
+    let gx0 = 0, gy0 = 0, gw = 1, gh = 1;   // set from the extents below, before the walk
+    const cl = (v, n) => (v < 0 ? 0 : v >= n ? n - 1 : v | 0);
+    const box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    const boxOfPts = (l, step = 2) => { box.x0 = box.y0 = Infinity; box.x1 = box.y1 = -Infinity; for (let i = 0; i + 1 < l.length; i += step) { const x = l[i], y = l[i + 1]; if (x < box.x0) box.x0 = x; if (x > box.x1) box.x1 = x; if (y < box.y0) box.y0 = y; if (y > box.y1) box.y1 = y; } return box; };
+    const touch = (b, mark) => {   // mark the cells of box b (mark) or say whether any is marked (test)
+      if (!(b.x1 >= b.x0) || !(b.y1 >= b.y0)) return false;
+      const i0 = cl(Math.floor((b.x0 - gx0) / gw), GN), i1 = cl(Math.floor((b.x1 - gx0) / gw), GN), j0 = cl(Math.floor((b.y0 - gy0) / gh), GN), j1 = cl(Math.floor((b.y1 - gy0) / gh), GN);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { if (mark) cells[j * GN + i] = 1; else if (cells[j * GN + i]) return true; }
+      return false;
+    };
+    const newRun = () => { run = { paths: new Map(), fills: new Map(), masks: [], texts: [], top: -1 }; ({ paths, fills, masks, texts } = run); runs.push(run); lastFill = null; cells.fill(0); };
+    const at = (cat, b = null) => {
+      if ((cat === 0 || cat === 2) && cat < run.top && runs.length < ORS_RUNS_MAX && (!b || touch(b, false))) newRun();
+      if (cat > run.top) run.top = cat;
+      if ((cat === 1 || cat === 3) && b) touch(b, true);
+    };
     const ext = emptyBounds();
     for (const e of map.values()) {
-      const b = entityBounds(e, this.doc.blocks);
+      const b = e.type === 'insert' ? yield* entityBoundsSteps(e, this.doc.blocks) : entityBounds(e, this.doc.blocks);   // 0.11 PERF.9: a big reference pauses too
       bounds.set(e.id, b);
       if (validBounds(b) && this.doc.visible(e)) { growPt(ext, b.minX, b.minY); growPt(ext, b.maxX, b.maxY); }
+      if (tick()) yield;
     }
-    const origin = validBounds(ext) ? { x: (ext.minX + ext.maxX) / 2, y: (ext.minY + ext.maxY) / 2 } : { x: 0, y: 0 };
+    let origin = validBounds(ext) ? { x: (ext.minX + ext.maxX) / 2, y: (ext.minY + ext.maxY) / 2 } : { x: 0, y: 0 };
+    if (farFrom(origin, focus)) origin = { x: focus.x, y: focus.y };   // the extents' centre is too far from what is on screen: build around the view
     // one Path2D per colour × lineweight (mm; below 0 = default) × alpha, drawn 1 px wide unless lineweights are shown.
     // walk.js may pass a 4th argument { alpha (0–1: transparency), wipe (a fill in the background colour) } (P.5, P.6)
     const alphaOf = (o) => (o && Number.isFinite(o.alpha) ? Math.max(0, Math.min(1, o.alpha)) : 1);
@@ -682,10 +786,18 @@ export class View {
       const w = Number.isFinite(lw) && lw >= 0 ? lw : -3, a = alphaOf(o), k = c + '|' + w + '|' + a;
       let p = paths.get(k); if (!p) { p = { path: new Path2D(), color: c, lw: w, alpha: a }; paths.set(k, p); } return p.path;
     };
+    let lastFill = null, fillRuns = 0;   // ORS.4
+    newRun();
     const fillFor = (c, solid, o = null) => {
       // nz: rings that add up (a wide polyline's bands, walk.js polyBands) — filled nonzero, so where they overlap nothing cancels
       const a = alphaOf(o), wipe = !!o?.wipe, nz = !!o?.nz, k = c + (solid ? '' : '~') + '|' + a + (wipe ? '|w' : '') + (nz ? '|nz' : '');
-      let p = fills.get(k); if (!p) { p = { path: new Path2D(), color: c, solid, alpha: a, wipe, nz }; fills.set(k, p); } return p;
+      // ORS.4 (draw order): fills come out in the objects' order — a new batch whenever the look changes (up to ORS_FILL_RUNS batches,
+      // then batches of one look merge as before) — so a fill brought to the front really covers the fill behind it
+      if (lastFill && lastFill.k === k) return lastFill.p;
+      let p = fillRuns < ORS_FILL_RUNS ? null : fills.get(k);
+      if (!p) { p = { path: new Path2D(), color: c, solid, alpha: a, wipe, nz }; fills.set(fillRuns < ORS_FILL_RUNS ? k + '#' + fillRuns++ : k, p); }
+      lastFill = { k, p };
+      return p;
     };
     const ring = (path, l) => { path.moveTo(l[0] - origin.x, l[1] - origin.y); for (let i = 2; i + 1 < l.length; i += 2) path.lineTo(l[i] - origin.x, l[i + 1] - origin.y); };
     // construction lines (DR.6) never go into the cached paths: drawCache clips each one to the screen every time
@@ -695,8 +807,16 @@ export class View {
       if (!this.doc.visible(e) || (frozen && frozen.has(String(e.layer).toUpperCase()))) continue;
       rays.push({ e, color: resolveColor(this.doc, e), lw: resolveLw(this.doc, e) });
     }
-    walk(this.doc, rest, {
+    yield;
+    if (validBounds(ext)) { gx0 = ext.minX; gy0 = ext.minY; gw = Math.max(ext.maxX - ext.minX, 1e-9) / GN; gh = Math.max(ext.maxY - ext.minY, 1e-9) / GN; }
+    const sink = {
       stroke(color, ps, lw, o) {
+        box.x0 = box.y0 = Infinity; box.x1 = box.y1 = -Infinity;
+        for (const q of ps) {
+          if (q.k === 'L') { box.x0 = Math.min(box.x0, q.x1, q.x2); box.x1 = Math.max(box.x1, q.x1, q.x2); box.y0 = Math.min(box.y0, q.y1, q.y2); box.y1 = Math.max(box.y1, q.y1, q.y2); }
+          else { box.x0 = Math.min(box.x0, q.cx - q.r); box.x1 = Math.max(box.x1, q.cx + q.r); box.y0 = Math.min(box.y0, q.cy - q.r); box.y1 = Math.max(box.y1, q.cy + q.r); }
+        }
+        at(1, box);
         const p = pathFor(color, lw, o);
         let lx = Infinity, ly = Infinity;   // (NaN would fail every comparison and skip the first moveTo)
         for (const q of ps) {
@@ -714,25 +834,95 @@ export class View {
         }
       },
       fill(color, loops, solid, o) {
+        const fb = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+        for (const l of loops) { const b = boxOfPts(l); fb.x0 = Math.min(fb.x0, b.x0); fb.y0 = Math.min(fb.y0, b.y0); fb.x1 = Math.max(fb.x1, b.x1); fb.y1 = Math.max(fb.y1, b.y1); }
+        at(0, fb);
+        if (!solid) touch(fb, true);   // its outline is linework too
         const f = fillFor(color, solid, o);
         for (const l of loops) { ring(f.path, l); f.path.closePath(); }
         if (!solid) { const p = pathFor(color, -3, o); for (const l of loops) ring(p, l); }   // patterned: tone plus outline
       },
-      text(color, e, o) { texts.push({ e, color, alpha: alphaOf(o) }); },
+      gradient(g, o) {   // ORS.7 (hatch-gradient.js): a fill batch of its own, in the objects' order
+        const gb = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+        for (const l of g.loops) { const b = boxOfPts(l); gb.x0 = Math.min(gb.x0, b.x0); gb.y0 = Math.min(gb.y0, b.y0); gb.x1 = Math.max(gb.x1, b.x1); gb.y1 = Math.max(gb.y1, b.y1); }
+        at(0, gb);
+        const path = new Path2D(); for (const l of g.loops) { ring(path, l); path.closePath(); }
+        fills.set('grad#' + fills.size, { path, grad: shiftFill(g, origin.x, origin.y), alpha: alphaOf(o) }); lastFill = null;
+      },
+      text(color, e, o) { const r = Math.max(1, String(e.s ?? '').length) * (e.h || 1) * 1.2 + (e.ww || 0); at(3, { x0: e.x - r, y0: e.y - r, x1: e.x + r, y1: e.y + r }); texts.push({ e, color, alpha: alphaOf(o) }); },
       point(color, x, y) { points.push({ x, y, color }); },
       viewport(e) { viewports.push(e); },
       picture(p) { pictures.push(p); },
       pdf(p) { pdfs.push(p); },   // 0.7 D7.24 (pdfunder.js): a PDF page under the linework, drawn by view.pdfPaint   // WL.14 (cad-files' pictures.js): drawn under the linework
-      mask(color, loop, o) { masks.push({ color, loop, wipe: !!o?.wipe }); },   // WL.8: a text's background, over the lines and under the text
-    }, { frozen });
-    const cache = { version: v, origin, paths: [...paths.values()], fills: [...fills.values()], texts, points, viewports, rays, pictures, pdfs, masks, bounds, ms: performance.now() - t0 };
-    if (fk) byKey.caches.set(fk, cache); else this.caches.set(map, cache);
+      mask(color, loop, o) { at(2, { ...boxOfPts(loop) }); masks.push({ color, loop, wipe: !!o?.wipe }); },   // WL.8: a text's background, over the lines and under the text
+    };
+    // 0.11 PERF.9: the walk as a generator (walkSteps): it pauses between objects and inside big block references; the same picture
+    yield* walkSteps(this.doc, rest, sink, { frozen, lockFade: this.orsLockFade || 0 });   // ORS.28
+    const layers = runs.filter((r) => r.paths.size || r.fills.size || r.masks.length || r.texts.length).map((r) => ({ paths: [...r.paths.values()], fills: [...r.fills.values()], masks: r.masks, texts: r.texts }));
+    const flat = (k) => layers.length === 1 ? layers[0][k] : layers.flatMap((r) => r[k]);   // the whole picture's batches, in order (tests, perf reports)
+    const cache = { version: v, origin, runs: layers, paths: flat('paths'), fills: flat('fills'), texts: flat('texts'), points, viewports, rays, pictures, pdfs, masks: flat('masks'), bounds, ms: performance.now() - t0 };
+    if (fk) {   // the frozen-set store may have been replaced meanwhile (a sliced build): put it where cacheOf looks now
+      let bk = this.frzCaches?.get(map);
+      if (!bk || bk.version !== v) { bk = byKey && byKey.version === v ? byKey : { version: v, caches: new Map() }; this.frzCaches.set(map, bk); }
+      bk.caches.set(fk, cache);
+    } else this.caches.set(map, cache);
     return cache;
   }
 
   render() {
-    if (this.dirtyBase) { this.renderBase(); this.dirtyBase = false; }
+    if (this.dirtyBase) {
+      // 0.11 PERF.17 / PERF.28: while the view only moves, a drawing whose full redraw is slow (MOVE_SHOT_MS) shows its last full picture
+      // moved and scaled, and is drawn in full once the movement rests (MOVE_REST_MS). A drawing that draws fast is drawn in full every frame.
+      const onlyMoved = this._movePending && !this._otherBase;
+      this._movePending = false; this._otherBase = false;
+      if (onlyMoved && this.moveShotFits()) this.drawMoveShot();
+      else {
+        clearTimeout(this._restTimer); this._restTimer = 0;
+        const t0 = performance.now();
+        this.renderBase();
+        this.lastBaseMs = performance.now() - t0;
+        this.takeMoveShot();
+        // what a full redraw costs is mostly the card's (1,000,000 objects: 10 ms of script, 700 ms to the next frame): measure to the next frame
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { this.drawMs = Math.max(this.lastBaseMs, performance.now() - t0); });
+      }
+      this.dirtyBase = false;
+    }
     this.renderOver();
+  }
+
+  /** What the last full picture depends on besides where the view is (a moved picture is shown only while all of it is the same). */
+  moveKey() {
+    return [this.doc.version, this.doc.pictureVersion || 0, this.orsKey(), this.tw || 0, this.base.width, this.base.height, this.dpr, this.w, this.h, this.x0, this.y0, this.grid, this.lwDisplay, this.ucs,
+      this.colors?.bg, this.colors?.ink, this.underlayKey?.() ?? ''].join('|');
+  }
+  takeMoveShot() {
+    const ok = Math.max(this.lastBaseMs || 0, this.drawMs || 0) > MOVE_SHOT_MS && !this.panes && !this.entered && typeof document !== 'undefined' && !this.noMoveShot;
+    if (!ok) { this.moveShot = null; return; }
+    let c = this.moveShot?.canvas;
+    if (!c) c = document.createElement('canvas');
+    if (c.width !== this.base.width || c.height !== this.base.height) { c.width = this.base.width; c.height = this.base.height; }
+    const g = c.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.width, c.height); g.drawImage(this.base, 0, 0);
+    this.moveShot = { canvas: c, key: this.moveKey(), doc: this.doc, space: this.doc.space, cx: this.cx, cy: this.cy, zoom: this.zoom, at: this.toScreen(this.cx, this.cy) };
+  }
+  moveShotFits() {
+    const m = this.moveShot;
+    return !!m && m.doc === this.doc && m.space === this.doc.space && !this.panes && !this.entered && m.key === this.moveKey() && this.zoom / m.zoom < 64 && m.zoom / this.zoom < 64;
+  }
+  /** The last full picture, moved and scaled to where the view is now; the full redraw follows when the movement rests. */
+  drawMoveShot() {
+    const m = this.moveShot, ctx = this.bctx, d = this.dpr, k = this.zoom / m.zoom, p = this.toScreen(m.cx, m.cy);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = this.doc.layout ? this.colors.desk : this.colors.bg;
+    ctx.fillRect(0, 0, this.base.width, this.base.height);
+    // a screen point q of the shot lands at p + k (q − at)
+    ctx.imageSmoothingEnabled = true;
+    ctx.setTransform(k, 0, 0, k, d * (p.x - k * m.at.x + this.x0 * (1 - k)), d * (p.y - k * m.at.y + this.y0 * (1 - k)));
+    ctx.drawImage(m.canvas, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.movedShots = (this.movedShots || 0) + 1;
+    clearTimeout(this._restTimer);
+    this._restTimer = setTimeout(() => { this._restTimer = 0; this._otherBase = true; this.invalidate(true); }, MOVE_REST_MS);
   }
 
   renderBase() {
@@ -750,7 +940,7 @@ export class View {
     for (const p of this.panes.list) {
       const r = p.rect, sx = Math.round(d * r.x), sy = Math.round(d * r.y), sw = Math.max(1, Math.round(d * r.w)), sh = Math.max(1, Math.round(d * r.h));
       const pu = this.paneDoc(p).ucs;
-      const key = p === act ? null : [this.paneDoc(p).version, p.cx, p.cy, p.zoom, p.tw || 0, pu ? pu.x + ',' + pu.y + ',' + pu.ang : '', sx, sy, sw, sh, this.grid, this.lwDisplay, this.ucs, this.colors.bg, this.colors.ink, this.underlayKey?.() ?? ''].join('|');
+      const key = p === act ? null : [this.paneDoc(p).version, p.cx, p.cy, p.zoom, p.tw || 0, pu ? pu.x + ',' + pu.y + ',' + pu.ang : '', sx, sy, sw, sh, this.grid, this.lwDisplay, this.ucs, this.colors.bg, this.colors.ink, this.underlayKey?.() ?? '', this.orsKey()].join('|');   // ORS.5 / ORS.28
       const shot = this.paneShots.get(p);
       if (key && shot && shot.key === key && this.paneDoc(p) === shot.doc && p.space === shot.space) {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -789,7 +979,7 @@ export class View {
       this.fillPane(ctx, this.colors.bg);
       if (this.grid) this.drawGrid(ctx);
       this.underlay?.(ctx, this.T, this);   // a point cloud under the drawing (0.5 SG.1, cloud-cad.js)
-      this.drawCache(ctx, this.cacheOf(space), this.T);
+      if (this.pendingCache?.map !== space) this.drawCache(ctx, this.cacheOf(space, null, this.focus()), this.T);   // 0.11 PERF.9: while its picture is being built in slices, the background only
       if (this.ucs !== false) this.drawUcs(ctx);   // Settings › CadCraft › Corner indicator: axis icon (default)
       return;
     }
@@ -802,13 +992,13 @@ export class View {
     ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
     ctx.strokeStyle = this.colors.ink2; ctx.lineWidth = 1;
     ctx.strokeRect(Math.round(a.x) + 0.5, Math.round(a.y) + 0.5, Math.round(b.x - a.x), Math.round(b.y - a.y));
-    const cache = this.cacheOf(space);
+    const cache = this.cacheOf(space, null, this.focus());
     if (cache.viewports.length) {
       for (const vp of cache.viewports) {
         if (vp.on === false) continue;   // a viewport turned off (P.7) shows its frame only
-        const model = this.cacheOf(this.doc.model, frozenSet(vp, !!this.doc.meta?.floors));   // without the layers frozen in this viewport (VP.1)
+        const model = this.cacheOf(this.doc.model, frozenSet(vp, !!this.doc.meta?.floors), { x: vp.cx, y: vp.cy, k: this.zoom * (vp.s || 1) });   // without the layers frozen in this viewport (VP.1)
         const M = this.vpOverride?.id === vp.id ? this.vpOverride.M : viewportMatrix(vp);   // the entered one as it shows now (VP.4)
-        const c = viewportCorners(vp).map((q) => this.toScreen(q.x, q.y));
+        const c = viewportOutline(vp).map((q) => this.toScreen(q.x, q.y));   // ORS.16: clipped to its outline
         ctx.save();
         ctx.setTransform(d, 0, 0, d, d * this.x0, d * this.y0);
         ctx.beginPath(); ctx.moveTo(c[0].x, c[0].y); for (const q of c.slice(1)) ctx.lineTo(q.x, q.y); ctx.closePath();
@@ -828,9 +1018,22 @@ export class View {
     if (cache.pdfs?.length && this.pdfPaint) this.pdfPaint(ctx, cache.pdfs, T, { dpr: d, ox: this.x0, oy: this.y0, zoom: k, onReady: () => this.invalidate(true) });
     if (cache.pictures?.length) drawPictures(ctx, cache.pictures, T, { doc: this.doc, dpr: d, ox: this.x0, oy: this.y0, onReady: () => this.invalidate(true) });
     ctx.setTransform(d * T[0], d * T[1], d * T[2], d * T[3], d * (T[0] * o.x + T[2] * o.y + T[4] + this.x0), d * (T[1] * o.x + T[3] * o.y + T[5] + this.y0));
+    const base = [d * T[0], d * T[1], d * T[2], d * T[3], d * (T[0] * o.x + T[2] * o.y + T[4] + this.x0), d * (T[1] * o.x + T[3] * o.y + T[5] + this.y0)];
+    const layers = cache.runs ? (cache.runs.length ? cache.runs : [{ paths: [], fills: [], masks: [], texts: [] }]) : [cache];
+    for (let i = 0; i < layers.length; i++) {
+      if (i) ctx.setTransform(...base);
+      this.drawRun(ctx, layers[i], T, k, d, i === layers.length - 1 ? cache : null);
+    }
+  }
+
+  /** One draw-order run (ORS.4): its fills, its lines, its text masks, its texts; the last run also draws the points and construction lines
+   *  (screen-fixed marks, over everything as before). */
+  drawRun(ctx, cache, T, k, d, last) {
+    const own = cache;
     ctx.lineWidth = 1 / k;
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     for (const f of cache.fills) {
+      if (f.grad) { paintGradient(ctx, f.path, f.grad, f.alpha ?? 1); continue; }   // ORS.7
       ctx.fillStyle = f.wipe ? this.colors.bg : this.ink(f.color);
       ctx.globalAlpha = (f.wipe ? 1 : f.solid ? 0.85 : 0.18) * (f.alpha ?? 1);
       ctx.fill(f.path, f.nz ? 'nonzero' : 'evenodd');
@@ -850,8 +1053,10 @@ export class View {
         ctx.beginPath(); ctx.moveTo(m.loop[0], m.loop[1]); for (let i = 2; i + 1 < m.loop.length; i += 2) ctx.lineTo(m.loop[i], m.loop[i + 1]); ctx.closePath(); ctx.fill();
       }
     }
+    if (!last) { this.drawTexts(ctx, cache.texts, T); return; }
     // points: a small cross, fixed on screen
     ctx.setTransform(d, 0, 0, d, d * this.x0, d * this.y0);
+    cache = last;
     // construction lines (DR.6): each clipped to the pane (a viewport's clip is already on the canvas)
     for (const r of cache.rays || []) {
       const s = this.screenRay(r.e, T);
@@ -867,7 +1072,7 @@ export class View {
       ctx.strokeStyle = this.ink(p.color);
       ctx.beginPath(); ctx.moveTo(s.x - 3, s.y); ctx.lineTo(s.x + 3, s.y); ctx.moveTo(s.x, s.y - 3); ctx.lineTo(s.x, s.y + 3); ctx.stroke();
     }
-    this.drawTexts(ctx, cache.texts, T);
+    this.drawTexts(ctx, own.texts, T);
   }
 
   drawTexts(ctx, texts, T = this.T) {
@@ -890,7 +1095,7 @@ export class View {
       ctx.textBaseline = 'alphabetic';
       ctx.textAlign = e.ha === 'center' ? 'center' : e.ha === 'right' ? 'right' : 'left';
       if (lay.runs) lay.lines.forEach((_, i) => fillRichLine(ctx, lay, i, e, { scale: k, family: DRAWING_FONT, color, paint: (c) => this.ink(c) }));   // inline format codes (mtext.js)
-      else lay.lines.forEach((line, i) => ctx.fillText(line, 0, -lay.baselines[i] * k));
+      else lay.lines.forEach((line, i) => fillPlainLine(ctx, line, 0, -lay.baselines[i] * k, lay.rtl, i));   // ORS.17: the line's direction (mtext-draw.js)
     }
     ctx.globalAlpha = 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -902,10 +1107,12 @@ export class View {
 
   drawGrid(ctx) {
     // spacing: a power of ten (×1, ×2, ×5) at least 14 px apart; lines along the UCS axes (DR.8)
+    const own = this.doc.inModel && this.spaceLayout == null ? gridOf(this.doc.meta) : { set: false };   // GRID: spacing and every-Nth-line of the drawing's own (gridspec.js)
     const target = 14 / this.zoom;
     const p10 = Math.pow(10, Math.floor(Math.log10(target)));
-    const step = [1, 2, 5, 10].map((k) => k * p10).find((s) => s >= target);
-    const major = step * 5;
+    const step = own.set ? own.step : [1, 2, 5, 10].map((k) => k * p10).find((s) => s >= target);
+    const major = step * (own.set ? own.major : 5);
+    const tooDense = own.set && step * this.zoom < MIN_PX;   // the grid's own spacing at this zoom: lines closer than a few pixels are not drawn
     const a = this.ucsAngle(), o = this.ucsOrigin(), ca = Math.cos(a), sa = Math.sin(a);
     const G = mul(this.T, [ca, sa, -sa, ca, o.x, o.y]);   // UCS → screen
     const Gi = inverse(G);
@@ -924,7 +1131,9 @@ export class View {
       ctx.closePath();
       ctx.clip();
     }
-    for (const [s, alpha] of [[step, 0.45], [major, 1]]) {
+    if (this.isoGrid?.(ctx, step, major)) { /* ORS.10: drawn isometric (isodraft.js drawIsoGrid) */ } else
+    for (const [s, alpha] of tooDense ? [[major, 1]] : own.set && own.major === 1 ? [[step, 1]] : [[step, 0.45], [major, 1]]) {
+      if (s * this.zoom < MIN_PX && own.set) continue;
       if ((u1 - u0) / s > 4000 || (v1 - v0) / s > 4000) continue;
       ctx.strokeStyle = this.colors.grid;
       ctx.globalAlpha = alpha;
@@ -1012,7 +1221,7 @@ export class View {
 
   renderOver() {
     const ctx = this.octx;
-    this.over.classList.toggle('cc-xhair-on', !!(this.state.cursor && this.state.crosshair && (!this.panes || this.hoverPane === this.panes.active)));   // FX.35 (cadcraft.css)
+    this.over.classList.toggle('cc-xhair-on', !this.systemCursor && !!(this.state.cursor && this.state.crosshair && (!this.panes || this.hoverPane === this.panes.active)));   // FX.35 (cadcraft.css)
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.over.width, this.over.height);
     if (!this.panes) { this.overPane(ctx, true); return; }
@@ -1126,7 +1335,8 @@ export class View {
       ctx.restore();
     }
     // crosshair and pick box (split screen: only while the pointer is over the active pane)
-    if (st.cursor && st.crosshair && (!this.panes || this.hoverPane === this.panes.active)) {
+    // systemCursor (0.9.1, the light pointer): the computer's own crosshair pointer stands in, nothing is drawn here
+    if (st.cursor && st.crosshair && !this.systemCursor && (!this.panes || this.hoverPane === this.panes.active)) {
       const s = this.toScreen(st.cursor.x, st.cursor.y);
       const cs = this.cursorSpec(), L = cs.full ? Math.hypot(this.w, this.h) : st.cursorMode === 'select' ? 0 : cs.arm, h = cs.box / 2;
       ctx.save();
@@ -1188,6 +1398,11 @@ export class View {
 
   drawSnap(ctx, sn) {
     const s = this.toScreen(sn.x, sn.y), r = 6;
+    if (sn.axis) {   // 0.10.1 (#1973): the snap is on a wall's centre line, which is not drawn: show it dashed while the marker is on it
+      const a = this.toScreen(sn.axis.a.x, sn.axis.a.y), b = this.toScreen(sn.axis.b.x, sn.axis.b.y);
+      ctx.save(); ctx.strokeStyle = this.colors.snap; ctx.lineWidth = 1; ctx.setLineDash([8, 4, 2, 4]);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.restore();
+    }
     ctx.strokeStyle = this.colors.snap; ctx.lineWidth = 2;
     ctx.beginPath();
     switch (sn.kind) {
@@ -1241,9 +1456,6 @@ function ellipseAsPrims(e) {
   return out;
 }
 
-function mul(m, n) {
-  return [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
-}
 const ap = (m, x, y) => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
 /** A view { cx, cy, zoom, tw } → its world → CSS px affine for a w × h pane (DR.8: turned by −tw on screen). */
 export function affineOf(v, w, h) {

@@ -22,6 +22,7 @@ import { writeStil } from './stil.js';
 import { layerRows, hierarchyRows, defaultTop, libraryRows, constraintRows, parasiticRows, delayRows, stilSignals, parseVectors } from './panels-model.js';
 import { checkSdc } from './sdc.js';
 import { PATH, pathOutline } from './layout.js';
+import { PadDetector } from '../run/wheel-pad.js';   // D7.56: a trackpad's two-finger swipe pans
 
 // ---------------------------------------------------------------- words
 let EN = null;
@@ -33,7 +34,11 @@ const h = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag);
 const names = async (ctx) => (await ctx.files.list()).map((f) => (typeof f === 'string' ? f : f.name));
 const bytesOf = async (ctx, n) => { if (ctx.files.readBytes) { const b = await ctx.files.readBytes(n); if (b) return b instanceof Uint8Array ? b : new Uint8Array(b); } const s = await ctx.files.read(n); return typeof s === 'string' ? new TextEncoder().encode(s) : new Uint8Array(s); };
 const ext = (n) => (/\.([a-z0-9]+)$/i.exec(n)?.[1] || '').toLowerCase();
-const fileSelect = (t, list, exts, onPick, label) => { const sel = h('select', { 'aria-label': label }, h('option', { value: '' }, t('chip.fmt.pick')), ...list.filter((n) => exts.includes(ext(n))).map((n) => h('option', { value: n }, n))); sel.addEventListener('change', () => sel.value && onPick(sel.value)); return sel; };
+const fileOptions = (sel, t, list, exts) => { const keep = sel.value; sel.replaceChildren(h('option', { value: '' }, t('chip.fmt.pick')), ...list.filter((n) => exts.includes(ext(n))).map((n) => h('option', { value: n }, n))); if (keep && list.includes(keep)) sel.value = keep; };
+const fileSelect = (t, list, exts, onPick, label) => { const sel = h('select', { 'aria-label': label }); fileOptions(sel, t, list, exts); sel._exts = exts; sel.addEventListener('change', () => sel.value && onPick(sel.value)); return sel; };
+/** The host calls refresh() when files are added or removed: every file picker of the panel lists the project's files again (they were filled
+ *  once at mount, so a file added later did not show until the page was reloaded; found by the real-output page test 2026-11-21). */
+const refresher = (root, ctx, t) => ({ refresh: async () => { const list = await names(ctx); for (const sel of root.querySelectorAll('select')) if (sel._exts) fileOptions(sel, t, list, sel._exts); } });
 const CSS = '.ccchip{font:inherit;display:flex;flex-direction:column;gap:.4rem;min-height:0}.ccchip .row{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center}.ccchip canvas{width:100%;height:340px;border:1px solid var(--ws-line,#8884);background:var(--ws-panel-bg,#111);touch-action:none}.ccchip ul{list-style:none;margin:0;padding:0;max-height:180px;overflow:auto}.ccchip li{display:flex;gap:.35rem;align-items:center;padding:1px 0}.ccchip .sw{width:.8rem;height:.8rem;border-radius:2px;display:inline-block}.ccchip .muted{opacity:.7;font-size:.9em}.ccchip table{border-collapse:collapse;font-size:.9em;width:100%}.ccchip td,.ccchip th{padding:1px 4px;text-align:left;border-bottom:1px solid var(--ws-line,#8883)}.ccchip textarea{width:100%;min-height:5rem;font-family:monospace}.ccchip details{border-top:1px solid var(--ws-line,#8883);padding-top:.3rem}';
 function shell(el, cls) { el.replaceChildren(); const root = h('div', { class: 'ccchip ' + cls }); if (!document.getElementById('ccchip-css')) document.head.append(h('style', { id: 'ccchip-css' }, CSS)); el.append(root); return root; }
 
@@ -103,7 +108,10 @@ async function mountLayout(el, ctx) {
   cv.addEventListener('pointerdown', (e) => { if (!st.view) return; drag = { x: e.clientX, y: e.clientY, v: st.view }; cv.setPointerCapture(e.pointerId); });
   cv.addEventListener('pointermove', (e) => { if (!drag) return; const k = cv.width / cv.getBoundingClientRect().width / drag.v.scale, dx = (e.clientX - drag.x) * k, dy = (e.clientY - drag.y) * k; st.view = { ...drag.v, x0: drag.v.x0 - dx, x1: drag.v.x1 - dx, y0: drag.v.y0 + dy, y1: drag.v.y1 + dy }; draw(); });
   cv.addEventListener('pointerup', () => { drag = null; });
-  cv.addEventListener('wheel', (e) => { if (!st.view) return; e.preventDefault(); const r = cv.getBoundingClientRect(), px = st.view.x0 + (e.clientX - r.left) / r.width * (st.view.x1 - st.view.x0), py = st.view.y1 - (e.clientY - r.top) / r.height * (st.view.y1 - st.view.y0); st.view = zoomView(st.view, e.deltaY < 0 ? 1.25 : 0.8, px, py); draw(); }, { passive: false });
+  const pad = new PadDetector();
+  cv.addEventListener('wheel', (e) => { if (!st.view) return; e.preventDefault(); const r = cv.getBoundingClientRect();
+    if (pad.isSwipe(e)) { const v = st.view, kx = (v.x1 - v.x0) / r.width, ky = (v.y1 - v.y0) / r.height; st.view = { ...v, x0: v.x0 + e.deltaX * kx, x1: v.x1 + e.deltaX * kx, y0: v.y0 - e.deltaY * ky, y1: v.y1 - e.deltaY * ky }; draw(); return; }   // D7.56: two fingers pan, a pinch and a mouse wheel zoom
+    const px = st.view.x0 + (e.clientX - r.left) / r.width * (st.view.x1 - st.view.x0), py = st.view.y1 - (e.clientY - r.top) / r.height * (st.view.y1 - st.view.y0); st.view = zoomView(st.view, (e.ctrlKey && e.deltaMode === 0 ? Math.exp(-Math.max(-30, Math.min(30, e.deltaY)) * 0.01) : e.deltaY < 0 ? 1.25 : 0.8), px, py); draw(); }, { passive: false });
   root.append(
     h('div', { class: 'row' }, fileSelect(t, list, ['gds', 'gds2', 'gdsii', 'oas', 'oasis'], open, t('chip.lay.file')), fileSelect(t, list, ['map', 'json', 'layermap', 'lyrmap'], loadMap, t('chip.lay.map')),
       h('button', { type: 'button', onclick: fit }, t('chip.lay.fit')), h('button', { type: 'button', onclick: () => save('gds') }, t('chip.lay.savegds')), h('button', { type: 'button', onclick: () => save('oasis') }, t('chip.lay.saveoas'))),
@@ -111,6 +119,7 @@ async function mountLayout(el, ctx) {
     h('details', { open: true }, h('summary', {}, t('chip.lay.layers')), layerList),
     h('details', { open: true }, h('summary', {}, t('chip.lay.hierarchy')), hierList));
   root._chip = { open, st, fit, draw }; // for tests in the host page
+  return refresher(root, ctx, t);
 }
 
 // ---------------------------------------------------------------- panel 2: library and floorplan
@@ -139,6 +148,7 @@ async function mountLibrary(el, ctx) {
   const open = async (n) => { const r = openFile(n, await ctx.files.read(n)); probs[r.kind || 'x'] = r.problems; ctx.problems?.set('chip.fmt.library', Object.values(probs).flat()); if (r.kind === 'liberty') st.liberty = r.model; else if (r.kind === 'lef') st.lef = r.model; else if (r.kind === 'def') st.def = r.model; else { status.textContent = t('chip.fmt.notlib'); return; } status.textContent = t('chip.fmt.opened', { name: n }); show(); };
   root.append(h('div', { class: 'row' }, fileSelect(t, list, ['lib', 'lef', 'tlef', 'def'], open, t('chip.fmt.libfile'))), status, table, cv);
   root._chip = { open, st };
+  return refresher(root, ctx, t);
 }
 
 // ---------------------------------------------------------------- panel 3: constraints, parasitics, delays, patterns
@@ -164,6 +174,7 @@ async function mountConstraints(el, ctx) {
     h('details', {}, h('summary', {}, t('chip.fmt.stil.title')), h('p', { class: 'muted' }, t('chip.fmt.stil.about')), sigInfo,
       h('div', { class: 'row' }, h('label', {}, t('chip.fmt.stil.period'), ' ', per), h('label', {}, t('chip.fmt.stil.strobe'), ' ', strobe)), vec, h('button', { type: 'button', onclick: writeIt }, t('chip.fmt.stil.write'))));
   root._chip = { open, st, writeIt, vec, per, strobe };
+  return refresher(root, ctx, t);
 }
 
 /** The panels the add-on mounts (titles through ctx.t, English fallback). */

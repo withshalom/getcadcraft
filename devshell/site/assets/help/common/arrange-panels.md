@@ -43,7 +43,7 @@ To take a panel out of the group, choose {{ui:Move out of the tab group}} in its
 
 ## Choose how many lines the toolbar uses
 
-{{ui:Settings}} › {{ui:General}} › {{ui:Toolbar rows}} has three choices. {{ui:Wrap}} is the default: every tool group shows, on as many lines as it takes. {{ui:2 rows}} keeps the toolbar to two lines and {{ui:1 row}} to one, so the drawing gets the height; the groups that do not fit scroll sideways inside the toolbar (use the mouse wheel, a two-finger swipe, or {{key:Tab}} to a tool). A toolbar that already fits in two lines stays as it is under {{ui:2 rows}}, because a grid would only make it taller. The choice is kept for each app. A touch screen and a phone keep their own layout. CadCraft has its own setting for its toolbar, under {{ui:Settings}} › {{ui:CadCraft}}.
+{{ui:Settings}} › {{ui:General}} › {{ui:Toolbar rows}} has three choices. {{ui:Wrap}} is the default: every tool group shows, on as many lines as it takes. {{ui:2 rows}} keeps the toolbar to two lines and {{ui:1 row}} to one, so the drawing gets the height; the groups that do not fit scroll sideways inside the toolbar (use the mouse wheel, a two-finger swipe, or {{key:Tab}} to a tool). A toolbar that already fits in two lines stays as it is under {{ui:2 rows}}, because a grid would only make it taller. In the lab there is a fourth choice, {{ui:Automatic}}: the toolbar stays as it is while it fits in one or two lines and folds to one row that scrolls sideways when it would take three, for example when a layout puts it beside the toolbox on a laptop screen. It is TakeoffCraft's start. The choice is kept for each app. A touch screen and a phone keep their own layout. CadCraft has its own setting for its toolbar, under {{ui:Settings}} › {{ui:CadCraft}}.
 
 ## Use the keyboard
 
@@ -74,6 +74,10 @@ Each panel can have a window of its own: up to four panels windows, for example 
 - A panels window that has no panels left closes by itself.
 
 After a reload the app offers your panels windows again. Browsers open one window per click, so choose {{ui:Open the next one}} once for each window.
+
+## The same way for every part of a layout
+
+The ribbon, the toolbox, the tool rows and the status bar leave for a window of their own the same way a panel does: open the {{ui:⋯}} menu on the part and choose {{ui:Move to a new window}}; {{ui:Put it back}} (or closing the window) brings it home. Keys you press in that window reach the app, as they do from the panels window. Each part has one such menu.
 
 ## Move a dialog
 

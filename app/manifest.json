@@ -43,11 +43,12 @@
   ],
   "addons": "own",
   "input": "input-cadcraft.js",
+  "inputGroup": "keys",
   "workspaces": {
     "layouts": [
       "docked",
       "toolbox",
-      "autorev", "duncan", "vector", "sketch"
+      "autorev", "duncan", "vector", "sketch", "rhino", "pro-cad1", "pro-cad2", "pro-cad3", "pro-cad4", "drafting"
     ],
     "adapter": "workspace-cadcraft.js"
   },

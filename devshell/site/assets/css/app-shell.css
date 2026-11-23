@@ -241,7 +241,7 @@ body.shell-hinting .shell-hint { opacity: 1; }
 }
 .app-bar-btn:hover:not(:disabled) { background: var(--sheet); }
 .app-bar-btn:disabled { opacity: .6; }
-.app-bar-help[aria-expanded="true"] { color: var(--on-action, var(--sheet)); background: var(--ink); }
+.app-bar-help[aria-expanded="true"], .app-bar-palette[aria-expanded="true"] { color: var(--on-action, var(--sheet)); background: var(--ink); }
 .app-bar-offline[data-state="ready"] .bi { color: var(--layer-green); }
 .app-bar-offline[data-state="failed"] .bi { color: var(--layer-red); }
 .app-bar-offline[data-state="saving"] { font-variant-numeric: tabular-nums; }
@@ -260,6 +260,14 @@ html.cc-bar-tight .app-bar-offline[data-state="saving"] .app-bar-btn-label { dis
   .app-bar-btn-label { display: none; }   /* icons only; the title says what they do */
   .app-bar-offline[data-state="saving"] .app-bar-btn-label { display: inline; }
 }
+/* Owner 2026-11-22: bar labels only on a large viewport (1600 px and up), icons everywhere else; Full screen follows the same rule
+   (it kept its label while the rest were icons). Still icons when the labels would not fit (html.cc-bar-tight). body.shell-bar-next = the lab and
+   release 0.10.1 on (app-shell.inc); older releases keep the 1100 px rule above. */
+@media (max-width: 1599.98px) {
+  body.shell-bar-next .app-bar-btn-label, body.shell-bar-next .app-bar-fs-label { display: none; }
+  body.shell-bar-next .app-bar-offline[data-state="saving"] .app-bar-btn-label { display: inline; }
+}
+html.cc-bar-tight body.shell-bar-next .app-bar-fs-label { display: none; }
 
 /* ---- Settings (assets/js/app-settings.js, core/components/app-settings.inc) ---- */
 body.app-shell > main { position: relative; }   /* the panel resize handles are placed over it */
@@ -332,11 +340,24 @@ body.shell-resizing, body.shell-resizing * { cursor: col-resize !important; user
 .shell-check { display: flex; gap: .5rem; align-items: baseline; cursor: pointer; }
 .shell-check input { accent-color: var(--layer); }
 .shell-hint-text { margin: 0; color: var(--ink-2); }
-/* Settings › Version (owner 2026-10-28): which build this is, always reachable (layouts can hide the bar's version chip) */
-.shell-version { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin: 0; }
+/* Settings › which build this is (owner 2026-10-28: always reachable, layouts can hide the bar's version chip). Owner 2026-11-22:
+   not a section any more; it sits at the right of the tab row (.shell-tabrow), other versions behind a small disclosure. */
+.shell-tabrow { display: flex; align-items: center; gap: .5rem 1rem; padding-right: 1rem; border-bottom: var(--pen-1) solid var(--line); }
+.shell-tabrow .shell-tabs { flex: 0 1 auto; min-width: 0; border-bottom: 0; align-self: flex-end; }
+.shell-tabrow:not(:has(.shell-tabs:not([hidden]))) { padding: .45rem 1rem; }
+.shell-dlg-ver { position: relative; display: flex; align-items: center; gap: .9rem; min-width: 0; margin-left: auto; padding: .35rem 0; font-size: var(--fs-xs, .8rem); }
+@media (max-width: 560px) { .shell-tabrow { flex-wrap: wrap; } .shell-dlg-ver { margin-left: 1rem; } }
+.shell-version { display: flex; flex-wrap: wrap; gap: .1rem .9rem; margin: 0; }
+.shell-version > div { display: flex; gap: .35rem; align-items: baseline; }
 .shell-version dt { font-weight: 600; color: var(--ink-2); }
 .shell-version dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; user-select: text; }
 .shell-version code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.shell-ver-more summary { display: flex; align-items: center; gap: .3rem; list-style: none; cursor: pointer; color: var(--action, var(--ink-2)); white-space: nowrap; }
+.shell-ver-more summary::-webkit-details-marker { display: none; }
+.shell-ver-more summary .bi { font-size: .7em; transition: transform .15s; }
+.shell-ver-more[open] summary .bi { transform: rotate(180deg); }   /* the one flip-line: closed = up, open = down (owner UI rule) */
+.shell-ver-pop { position: absolute; right: 0; top: 100%; z-index: 20; display: grid; gap: .45rem; min-width: 12rem; max-width: min(26rem, calc(100vw - 3rem)); padding: .55rem .75rem; background: var(--sheet-2); border: var(--pen-1) solid var(--line); border-radius: var(--radius); box-shadow: var(--sc-shadow, 0 .4rem 1.2rem color-mix(in srgb, var(--ink) 18%, transparent)); }
+.shell-ver-pop code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .shell-version-list { display: flex; flex-wrap: wrap; gap: .25rem .9rem; margin: 0; padding: 0; list-style: none; }
 @media (max-width: 480px) {
   .shell-seg, .shell-row { grid-template-columns: minmax(0, 1fr); }
@@ -374,9 +395,9 @@ body.shell-resizing, body.shell-resizing * { cursor: col-resize !important; user
 .shell-settings-secs .shell-pane > * { grid-column: auto; }
 .shell-settings-secs .shell-sec-off { display: none !important; }
 .shell-sec-nav ul { list-style: none; margin: 0 0 .5rem; padding: 0; display: grid; gap: .125rem; }   /* owner 2026-10-24: more breathing room */
-.shell-sec-eyebrow { display: flex; gap: .35rem; align-items: center; margin: .5rem .9rem .3rem .75rem; padding-top: .6rem; border-top: var(--pen-1) solid var(--line); font-size: .6875rem; font-weight: 700; letter-spacing: .04em; color: var(--ink-2); }
+.shell-sec-eyebrow { display: flex; gap: .35rem; align-items: center; margin: .5rem .9rem .3rem .75rem; padding-top: .6rem; border-top: var(--pen-1) solid var(--line); font-size: .6875rem; font-weight: 700; letter-spacing: .04em; color: var(--layer, var(--ink-2)); }   /* owner 2026-11-22: eyebrows in the app's colour */
 .shell-sec-eyebrow .bi { color: var(--layer, var(--action)); }
-.shell-sec-nav button { display: block; width: 100%; padding: .7rem 1rem .7rem .875rem; font: inherit; font-size: .875rem; line-height: 1.3; text-align: left; color: var(--ink-2); background: transparent; border: 0; border-left: var(--pen-3) solid transparent; cursor: pointer; }
+.shell-sec-nav button { display: block; width: 100%; padding: .7rem 1rem .7rem calc(.875rem - 2px); font: inherit; font-size: .875rem; line-height: 1.3; text-align: left; color: var(--ink-2); background: transparent; border: 0; border-left: 4px solid transparent; cursor: pointer; }   /* owner 2026-11-22: thicker bar on the picked section (was 2px) */
 .shell-sec-nav button:hover { color: var(--ink); background: var(--sheet-2); }
 .shell-sec-nav button:focus-visible { outline: var(--pen-2) solid var(--layer, var(--action)); outline-offset: -2px; }
 .shell-sec-nav button[aria-current="true"] { color: var(--ink); font-weight: 600; background: var(--sheet-2); border-left-color: var(--layer, var(--action)); }
@@ -400,17 +421,7 @@ body.shell-resizing, body.shell-resizing * { cursor: col-resize !important; user
 .shell-settings-secs [data-input-settings] .cc-in-setbtns { gap: .5rem; margin-top: .25rem; }
 /* ---- end 0.7 sections ---- */
 
-/* Tooltips with the full text of anything cut off (…) */
-.tooltip.shell-tip {
-  --bs-tooltip-bg: var(--ink);
-  --bs-tooltip-color: var(--sheet);
-  --bs-tooltip-max-width: 28rem;
-  --bs-tooltip-font-size: var(--fs-sm);
-  --bs-tooltip-border-radius: var(--radius);
-  --bs-tooltip-opacity: 1;
-  pointer-events: none;
-}
-.tooltip.shell-tip .tooltip-inner { text-align: left; overflow-wrap: anywhere; }
+/* Tooltips (including the full text of anything cut off) are drawn by app-tooltips.js — one engine, .tooltip.cc-tip styled there. */
 
 /* Settings button in the app bar */
 .app-bar-settings[aria-expanded="true"] { color: var(--on-action, var(--sheet)); background: var(--ink); }
@@ -536,6 +547,10 @@ body.app-shell > main > aside.shell-pinned.is-open { visibility: visible; transf
 .shell-pintab:hover, .shell-pintab[aria-expanded="true"] { border-color: var(--layer); }
 .shell-pintab:focus-visible { outline: var(--pen-3) solid var(--action); outline-offset: 1px; }
 .shell-pintabs[data-shell-dock="left"] .shell-pintab, .shell-pintabs[data-shell-dock="right"] .shell-pintab { flex-direction: column; writing-mode: vertical-rl; padding: .25rem .3rem; min-height: 2.75rem; max-height: 12rem; }
+/* BK.35 the icon strip: with the compact bar (Settings › Toolbar buttons › Icons only) a pinned or hidden side panel waits as an icon
+   alone; its name is the tooltip and the accessible name. With labels on (the first-use default) the name stays written beside it. */
+body[data-shell-tb="icons"] .shell-pintabs:is([data-shell-dock="left"], [data-shell-dock="right"]) .shell-pintab { width: 2.25rem; height: 2.25rem; min-height: 0; padding: 0; display: grid; place-items: center; writing-mode: horizontal-tb; }
+body[data-shell-tb="icons"] .shell-pintabs:is([data-shell-dock="left"], [data-shell-dock="right"]) .shell-pintab span { display: none; }
 @media (pointer: coarse) { .shell-pintab { min-width: 2.75rem; min-height: 2.75rem; } .shell-grip-btn { width: 2.75rem; height: 2.75rem; } }
 main.shell-panels-narrow .shell-grip-handle { cursor: default; }
 body.shell-panel-dragging, body.shell-panel-dragging * { cursor: grabbing !important; user-select: none; }
@@ -664,6 +679,9 @@ body.shell-pw { height: 100vh; height: 100dvh; display: flex; flex-direction: co
 .shell-pw-bar { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .4rem .75rem; background: var(--sheet-2); border-bottom: var(--pen-2) solid var(--ink); }
 .shell-pw-title { margin: 0 auto 0 0; font-size: var(--fs-sm); font-weight: 700; font-stretch: 112%; }
 .shell-pw-title .bi { color: var(--layer); }
+/* Owner 2026-11-22 ("the buttons should be small"): the panels window's header buttons are compact, on the title's row */
+.shell-pw-bar { gap: .4rem; padding: .3rem .6rem; }
+.shell-pw-bar :is(.btn-plot, .btn-line) { min-height: 0; padding: .25rem .6rem; gap: .3rem; font-size: var(--fs-xs, .8rem); font-weight: 600; font-stretch: 100%; border-width: var(--pen-1); white-space: nowrap; }
 .shell-pw-orphan { display: none; margin: 0; padding: .5rem .75rem; font-size: var(--fs-sm); color: var(--sheet); background: var(--layer-red); }
 body.shell-pw-lost .shell-pw-orphan { display: block; }
 body.shell-pw > main.shell-pw-main {
@@ -756,6 +774,10 @@ html.cc-touch .shell-unit-star { min-width: 2.75rem; }
 .shell-addon-section-tog > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell-addon-section-tog .bi { flex: 0 0 auto; font-size: .75em; }
 .shell-addon-section.is-collapsed .shell-addon-section-tog .bi { transform: rotate(-90deg); }
+/* Owner 2026-11-22 (PRO-cad2, /use and /lab): when the shell's fold owns the section header (data-af on the h2: lock + caret on the RIGHT), the add-on's own
+   left chevron is a second caret; hide it, the right one is the only one. Sections the fold does not own keep their chevron. */
+.shell-addon-section-h[data-af] .shell-addon-section-tog > .bi, .shell-addon-section-h[data-af-id] .shell-addon-section-tog > .bi { display: none; }
+.shell-addon-section-h[data-af] .shell-addon-section-tog { pointer-events: none; }   /* the click goes to the header, the shell's fold (frozen releases' addons.js too) */
 .shell-addon-section-grip { flex: 0 0 auto; display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; padding: 0; color: var(--ink-2); background: transparent; border: var(--pen-1) solid transparent; border-radius: var(--radius); cursor: grab; touch-action: none; }
 .shell-addon-section-grip:hover { color: var(--ink); border-color: var(--line); }
 .shell-addon-section-grip[hidden] { display: none; }
@@ -1117,6 +1139,21 @@ dialog.shell-dw-dialog:not([open]) { display: none; }
    own title bar, so the app bar waits too. A start that fails shows the page after 10 s (a step, not motion). */
 html[data-cc-ws-boot] #main,html[data-cc-ws-boot] body>.app-bar{visibility:hidden;animation:cc-ws-boot 0s 10s forwards}
 @keyframes cc-ws-boot{to{visibility:visible}}
+/* Early paint (owner 2026-11-15: "we need immediate starting paint draws so that people feel like the app is fast"; lab builds only: app-shell.inc
+   prints html[data-cc-ws-paint] in dev builds). The server-drawn app bar, with the app's name and "Starting up…", shows from the first paint
+   while the chosen layout loads, with a placeholder band where the layout's bars will be. For a Pro-skin layout (paint "pro") the bar is
+   dressed as the Pro title bar (graphite, 2rem, the app colour as a line on top) so the hand-off to the real one is seamless. */
+html[data-cc-ws-boot][data-cc-ws-paint] body>.app-bar{visibility:visible;animation:none;position:relative}
+html[data-cc-ws-boot][data-cc-ws-paint] body>.app-bar::after{content:'';position:absolute;left:0;right:0;top:100%;height:4.5rem;background:var(--sheet-2);border-bottom:1px solid var(--line);pointer-events:none}
+html[data-cc-ws-boot][data-cc-ws-paint=pro]{--pro-title:#1E2630;--pro-title-ink:#E9EEF3;--pro-title-muted:#9FACB9;--pro-bar:#E3E8ED;--pro-line:#C3CBD4}
+html[data-cc-ws-boot][data-cc-ws-paint=pro][data-space=model]{--pro-title:#12161B;--pro-title-ink:#E6ECF2;--pro-title-muted:#8E9BA8;--pro-bar:#232A33;--pro-line:#3A4551}
+@media (prefers-color-scheme: dark){html[data-cc-ws-boot][data-cc-ws-paint=pro]:not([data-space=paper]){--pro-title:#12161B;--pro-title-ink:#E6ECF2;--pro-title-muted:#8E9BA8;--pro-bar:#232A33;--pro-line:#3A4551}}
+html[data-cc-ws-boot][data-cc-ws-paint=pro] body>.app-bar{min-height:2rem;height:2rem;padding:0 .375rem 0 .625rem;gap:.5rem;box-sizing:border-box;background:var(--pro-title);color:var(--pro-title-ink);border:0;border-top:2px solid var(--layer,var(--action))}
+html[data-cc-ws-boot][data-cc-ws-paint=pro] body>.app-bar :is(.app-bar-mark,.app-bar-home){color:var(--pro-title-ink)}
+html[data-cc-ws-boot][data-cc-ws-paint=pro] body>.app-bar .app-bar-name{font-size:.8125rem;font-stretch:108%;gap:.5rem}
+html[data-cc-ws-boot][data-cc-ws-paint=pro] body>.app-bar :is(.app-bar-area,.app-bar-older,.app-bar-btn,.space-toggle){display:none}
+html[data-cc-ws-boot][data-cc-ws-paint=pro] body>.app-bar .app-bar-boot{--ink-2:var(--pro-title-muted);--action:var(--pro-title-ink)}
+html[data-cc-ws-boot][data-cc-ws-paint=pro] body>.app-bar::after{background:var(--pro-bar);border-bottom-color:var(--pro-line)}
 /* 0.7 WS.17: layouts from add-ons and imported files, after the built-ins; an imported one has a remove button at the end */
 .shell-ws-extra { margin-top: .5rem; }
 .shell-ws-opt > .shell-ws-remove { margin-left: auto; padding: 0 .25rem; color: var(--ink-2); }
@@ -1199,6 +1236,10 @@ summary:has(> .af-lock):not(:is(main details > summary)) { display: block; posit
 main :is(.mc-x, .bc-forget) { display: inline-grid; place-items: center; flex: none; width: 1.5rem; height: 1.5rem; padding: 0; margin-top: 0; margin-bottom: 0; font-size: 1rem; line-height: 1; }
 main :is(.mc-x, .bc-forget) .bi { font-size: 1rem; line-height: 1; }
 @media (pointer: coarse) { .shell-x, main :is(.mc-x, .bc-forget) { width: 2.5rem; height: 2.5rem; } }
+/* 2026-11-12 (owner: the misaligned close x, "same with" every app): CadCraft's start-card fix (cadcraft.css .cc-hint-close) for every .shell-x. The icon font's glyph
+   hangs below the text line and an app's own close class (CivilCraft's .cv-hint-close) added side padding, so the x sat off centre in its square. Lab builds only. */
+body.shell-lab .shell-x, body.shell-lab main :is(.mc-x, .bc-forget) { padding: 0; align-self: center; }
+body.shell-lab :is(.shell-x, main .mc-x, main .bc-forget) .bi, body.shell-lab :is(.shell-x, main .mc-x, main .bc-forget) .bi::before { display: block; line-height: 1; vertical-align: 0; }
 
 /* ---- About <app> (core/components/app-about.inc, assets/js/app-about.js): every app, every layout ---- */
 .about-dialog { width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; padding: 1rem 1.25rem 1.25rem; border: 1px solid var(--rule, #888); border-radius: var(--radius, 2px); background: var(--sheet, #fff); color: var(--ink, #111); }
@@ -1223,7 +1264,14 @@ main :is(.mc-x, .bc-forget) .bi { font-size: 1rem; line-height: 1; }
 .about-thumbs li { position: relative; } .about-thumbs img { display: block; height: 4rem; max-width: 7rem; object-fit: cover; border: 1px solid var(--rule, #888); }
 .about-x { position: absolute; top: -.4rem; right: -.4rem; width: 1.25rem; height: 1.25rem; padding: 0; line-height: 1; border-radius: 50%; border: 1px solid var(--rule, #888); background: var(--sheet, #fff); cursor: pointer; }
 .about-status { margin: 0; font-size: .875rem; } .about-status[data-state="error"] { color: var(--danger, #b00020); }
-.about-foot { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+/* BK.148: the report written from the window's history (app-about.inc data-about-assist) */
+.about-assist { margin: 0; padding: .5rem .625rem; border: var(--pen-1, 1px) solid var(--grid, #ccc); border-radius: .25rem; display: grid; gap: .375rem; min-width: 0; }
+.about-check { display: flex; gap: .5rem; align-items: flex-start; font-size: .8125rem; }
+.about-check input { margin-top: .2rem; flex: none; }
+.about-see { font-size: .75rem; } .about-see summary { cursor: pointer; }
+.about-see pre { margin: .25rem 0 0; padding: .375rem .5rem; max-height: 9rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--paper-2, rgba(127,127,127,.08)); font-size: .75rem; }
+.about-foot { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; font-size: .875rem; }
+.about-foot .btn-plot { font-size: .875rem; font-weight: 600; padding: .375rem .875rem; min-height: 0; line-height: 1.25; }
 .help-about { padding: .25rem .75rem; font-size: .8125rem; }
 
 /* FX.84 (owner 2026-11-06): a titled frame groups related settings so a long pane reads as a few blocks, not one run of controls */
@@ -1235,6 +1283,14 @@ main :is(.mc-x, .bc-forget) .bi { font-size: 1rem; line-height: 1; }
 /* FX.86: "Starting up…" beside the app name until the app has settled (app-shell.js) */
 .app-bar-boot { display: inline-flex; align-items: center; gap: .35rem; margin-left: .6rem; color: var(--ink-2); font-size: var(--fs-sm); white-space: nowrap; transition: opacity .15s ease; animation: app-boot-tint 1.4s ease-in-out infinite; }
 .app-bar-boot[hidden] { display: none; }
+/* 0.11 UI.17 (contact sheet: SuperCad's bar ran 197 px past a 1280 px window while "Starting up" showed): in the lab the start-up line gives way to
+   the bar's buttons, shortening its step text first; released pages keep the line as it was (rule 62) */
+body.shell-lab .app-bar-boot { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+body.shell-lab .app-bar-boot-step { min-width: 0; flex: 0 1 auto; }
+/* the line sits inside .app-bar-name, which never shrinks (FX.89: the name stays whole): while the line shows, the group may shrink and only
+   the line gives way; the mark, name, area chip and version keep their size */
+body.shell-lab .app-bar-name:has(> .app-bar-boot:not([hidden]):not(.is-done)) { flex: 0 1 auto; min-width: 0; }
+body.shell-lab .app-bar-name:has(> .app-bar-boot) > :not(.app-bar-boot) { flex-shrink: 0; }
 .app-bar-boot.is-done { opacity: 0; }
 .app-bar-boot-clock { flex: 0 0 auto; transform-box: view-box; transform-origin: 50% 50%; animation: app-boot-spin 1.6s linear infinite; }   /* an SVG, so it turns about its own centre */
 @keyframes app-boot-spin { to { transform: rotate(360deg); } }
@@ -1275,6 +1331,7 @@ body.app-shell [class*="-tool-label"] { color: var(--layer, var(--action)); font
 .nh-row-t small { opacity: .75; }
 .nh-btn { display: inline-flex; gap: .35rem; align-items: center; padding: .35rem .7rem; border: var(--pen-1, 1px) solid var(--ink, #111); border-radius: var(--radius, 2px); background: transparent; color: inherit; font: inherit; text-decoration: none; cursor: pointer; }
 .nh-btn:hover { background: var(--sheet-2, #eee); }
+.nh-btn[hidden] { display: none; }   /* 2026-11-12: inline-flex above beat [hidden], so a hidden Back or Skip still showed */
 .nh-primary { background: var(--ink, #111); color: var(--sheet, #fff); }
 .nh-primary:hover { background: var(--ink, #111); opacity: .85; }
 .nh-quiet { border-color: transparent; }
@@ -1295,3 +1352,70 @@ body.app-shell [class*="-tool-label"] { color: var(--layer, var(--action)); font
 
 /* 2026-11-09: tab labels never wrap, in every app (the strip scrolls with chevrons when they do not fit: assets/js/app-tabs-scroll.js) */
 [role="tablist"] > :is([role="tab"], button) { white-space: nowrap; }
+
+/* 2026-11-12 (owner: "the drop shadows did not get universally applied"): every overlay of every app casts SuperCad's shadow — the menu a tab's "..." button opens (never the button itself, .shell-grip-menu: owner 2026-11-12),
+   right-click menus, the menu bar's lists and flyouts, a ribbon's overflow list, the file and command pop-ups, the layout picker, floating (torn-off) panels and
+   the shell's modal dialogs. Lab builds only (body.shell-lab from app-shell.inc): this file is shared with the frozen releases. One token, same as --sc-shadow. */
+body.shell-lab { --shell-shadow: 0 .75rem 2rem rgba(0, 0, 0, .22), 0 .15rem .45rem rgba(0, 0, 0, .16); }
+body.shell-lab :is(.shell-panel-menu, .shell-ctx, .tr-more-list, .shell-ws-pop, .ws-ctx-menu, .ws-file-menu, .ws-cmd-pop, .vw-panel, .app-bar-ver ul, .dropdown-menu),
+body.shell-lab > main > aside.shell-float,
+body.shell-lab dialog[open]:modal:not(.shell-dw-dialog) { box-shadow: var(--shell-shadow); }
+html.sc-noshadow body.shell-lab :is(.shell-panel-menu, .shell-ctx, .tr-more-list, .shell-ws-pop, .ws-ctx-menu, .ws-file-menu, .ws-cmd-pop, .vw-panel, .app-bar-ver ul, .dropdown-menu),
+html.sc-noshadow body.shell-lab > main > aside.shell-float,
+html.sc-noshadow body.shell-lab dialog[open]:modal:not(.shell-dw-dialog) { box-shadow: none; }
+
+/* 0.9.1: Settings alert (a menu style holds more than the engine keeps) */
+.shell-alert { margin: .5rem 0; padding: .5rem .75rem; border: 1px solid var(--line, currentColor); border-left: .3rem solid var(--layer-red, #c0392b); border-radius: var(--radius, 2px); background: var(--sheet-2, transparent); color: var(--ink); }
+
+/* 2026-11-12 (owner): tour toasts stand out — white on green, drop shadow, bottom right, minimal height; half the window wide on small
+   screens, a quarter on medium and up. One look for every app's tour: the "I'm new…" offer + card (app-newhere.js / .inc), CadCraft's
+   first-drawing tour (tour.js) and ModelCraft's first-model guide (ui.inc). Only lab code adds .tour-toast, so frozen releases keep
+   their old cards. The green is fixed in both themes (#17703A: 6.3:1 with white); the card re-points the shell tokens so everything
+   inside it (buttons, dots, rules, the step counter) turns white with it. */
+.tour-toast {
+  --sheet: #17703A; --sheet-2: rgba(255, 255, 255, .16); --ink: #fff; --ink-2: rgba(255, 255, 255, .85);
+  --rule: rgba(255, 255, 255, .45); --line: rgba(255, 255, 255, .45); --action: #fff; --on-action: #17703A;
+  box-sizing: border-box;   /* 2026-11-12: the width includes the padding, so 80vw is 80% (it read 84%, and edge to edge on phones) */
+  inset: auto .75rem .75rem auto; width: calc(100% - 1.5rem); max-width: calc(100% - 1.5rem);
+  padding: .5rem .75rem; border: 0; border-radius: var(--radius, 2px); background: #17703A; color: #fff;
+  box-shadow: 0 .6rem 1.6rem rgba(0, 0, 0, .35), 0 .15rem .4rem rgba(0, 0, 0, .25); font-size: 1rem; line-height: 1.45;
+}
+/* 2026-11-12 (owner, second pass: half width was too small to read): full width on phones, 75% on tablets (max 800px), a quarter (at least 22rem) from 992px */
+@media (min-width: 576px) { .tour-toast { width: min(75vw, 800px); } }   /* 2026-11-12 (owner): 75% on tablets, never wider than 800px. vw, not %: the in-drawing tours (CadCraft, ModelCraft) measure the window too, capped by max-width to the drawing area */
+@media (min-width: 992px) { .tour-toast { width: max(22rem, 25vw); } }
+.tour-toast :is(p, h2) { margin-top: 0; }
+.tour-toast :is(.nh-title, .cc-tour-h, .mc-guide-h) { margin: .1rem 0 .25rem; font-size: 1.1rem; }
+.tour-toast :is(.cc-tour-p, .mc-guide p, .nh-offer p, .nh-body) { font-size: 1rem; }
+.tour-toast :is(.cc-tour-n, .nh-step, .mc-guide-step) { font-size: .85rem; }
+.tour-toast :is(.nh-body > *, .cc-tour-p, .nh-offer p, .mc-guide p) { margin-bottom: .4rem; }
+.tour-toast a { color: #fff; }
+.tour-toast :is(button, .nh-btn, .btn-line, .btn-plot, .mc-linkbtn, .cc-x, .help-icon) { color: #fff; border-color: rgba(255, 255, 255, .6); background: transparent; }
+.tour-toast :is(button, .nh-btn, .btn-line, .btn-plot, .mc-linkbtn, .cc-x, .help-icon):hover { border-color: #fff; background: rgba(255, 255, 255, .14); }
+.tour-toast :is(.nh-primary, .btn-plot), .tour-toast :is(.nh-primary, .btn-plot):hover { background: #fff; color: #17703A; border-color: #fff; }
+.tour-toast :is(.nh-quiet, .cc-x, .help-icon) { border-color: transparent; }
+.tour-toast :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.tour-toast :is(.cc-tour-ok) { color: #fff; }
+.tour-toast :is(.nh-btn, .btn-line, .btn-plot, .btn-sm-cc, .mc-linkbtn) { min-height: 0; padding: .25rem .7rem; font-size: .9rem; line-height: 1.4; }
+.tour-toast :is(.cc-tour-foot, .nh-offer-bar, .nh-foot, .mc-actions) { gap: .35rem; }
+/* 2026-11-12 (owner): every tour toast's buttons sit right, the move-on button far right; headings extra bold */
+.tour-toast :is(.nh-offer-bar, .nh-foot, .cc-tour-foot, .mc-actions) { justify-content: flex-end; }
+.tour-toast .nh-grow { display: none; }
+.tour-toast :is(.nh-title, .cc-tour-h, .mc-guide-h) { font-weight: 800; }
+.tour-toast.nh-offer strong { font-weight: 800; }   /* extra bold (owner 2026-11-12) */
+
+/* 2026-11-12 (lab): Settings › Messages you hid — one row per hidden card or question, its Show again at the right (app-settings.js hiddenRender) */
+.shell-hidden-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
+.shell-hidden-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.shell-hidden-row > span { min-width: 0; }
+.shell-hidden-row > button { flex: none; }
+
+/* 0.11 UI.20: the sun/moon form (SHELL_THEME_TOGGLE) in the app bar and its More menu: the icons sit centred in the same pill buttons */
+.space-toggle.blk-theme button { display: inline-grid; place-items: center; }
+.space-toggle.blk-theme button svg { display: block; }
+
+/* Settings › Your add-ons (owner 2026-11-22: "should probably be small buttons"): the site's page buttons (site.css, 3rem) are too big
+   here, and the section's grid stretched each one across the panel. Compact buttons, the three actions on one row. */
+[data-addons-account-set] .btn:not(.btn-link) { min-height: 0; padding: .3rem .75rem; font-size: var(--fs-sm); font-weight: 600; font-stretch: 100%; border-width: var(--pen-1); justify-self: start; }
+[data-addons-account-set] .btn-link { min-height: 0; padding: 0; font-size: var(--fs-sm); border: 0; }
+[data-addons-account-set] li { padding: .2rem 0; }
+.shell-acc-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }

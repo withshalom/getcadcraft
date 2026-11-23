@@ -17,6 +17,8 @@ import { t } from './i18n.js';
 import { dimstylePairs, stFromVars } from './dwg-props.js';
 import { pictureRefs } from './pictures.js';
 import { geodataFields, writeDxfGeodata } from './geodwg.js';   // 0.6 GEO-DWG
+import { groupObjects } from './groups.js';   // ORS.8: named object groups as real GROUP objects
+import { TextChunks } from './chunks.js';   // 0.11 PERF.30: the output kept as parts (lib/textout/chunks.js)
 
 const deg = (r) => (r * 180) / Math.PI;
 const f = (n) => (Number.isFinite(n) ? (Math.abs(n) < 1e-12 ? '0.0' : Number(n.toPrecision(15)).toString()) : '0.0');
@@ -26,10 +28,24 @@ const RESERVED = new Set(['*MODEL_SPACE', '*PAPER_SPACE']);
 
 export function writeDxf2000(doc) {
   const { model, counts } = saveDwg(doc, { modelOnly: true, explodeLeaders: true });
-  const lines = [];
-  const w = (code, v) => { lines.push(String(code).padStart(3, ' ')); lines.push(String(v)); };
-  let seed = 1;
-  const h = () => (seed++).toString(16).toUpperCase();
+  // 0.11 PERF.30 (perf-finish-11): the HEADER (its $HANDSEED is set at the end) is kept as lines, everything after it goes into a TextChunks
+  // (chunks.js), so a drawing of 1,000,000 objects no longer stops at "Invalid string length"; the text is the same as the old join
+  const lines = [], body = new TextChunks('\r\n');
+  let sink = lines;
+  const w = (code, v) => { sink.push(String(code).padStart(3, ' ')); sink.push(String(v)); };
+  // FX.240: an object opened from a DXF keeps the handle that file gave it (`handle`, dxf.js), so a program that names objects by handle (the SuperCad
+  // project's object list) still finds it after a save; a new object is told the handle it got here. No other handle is ever one of the kept ones.
+  const HKEY = /^[0-9A-F]{1,12}$/, hnum = (s) => parseInt(s, 16);
+  const kept = new Set();
+  for (const b of model.blocks || []) for (const e of b.entities || []) {
+    const s = e.ccSrc, k = s && typeof s.handle === 'string' && HKEY.test(s.handle) ? hnum(s.handle) : null;
+    if (k !== null && k > 0 && !kept.has(k)) kept.add(k); else if (s && s.handle !== undefined) delete s.handle;
+  }
+  let seed = 1, topKept = 0;
+  for (const k of kept) if (k > topKept) topKept = k;
+  seed = topKept + 1;   // every handle given here is above the file's own, so a new object never takes the number of one the file had (and this app did not keep)
+  const given = new Set();
+  const h = () => { while (kept.has(seed)) seed++; return (seed++).toString(16).toUpperCase(); };
   const report = { notes: [], counts: { ...counts } };
 
   // ---- handles fixed up front (owners must be known before what they own is written)
@@ -84,6 +100,7 @@ export function writeDxf2000(doc) {
   w(9, '$CLAYER'); w(8, '0');
   w(9, '$TILEMODE'); w(70, 1);
   w(0, 'ENDSEC');
+  sink = body;
   w(0, 'SECTION'); w(2, 'CLASSES');
   if ((model.objects || []).some((o) => o.type === 'PDFDEFINITION')) {   // PDF underlays (0.7 D7.24): the classes a reader needs to take them
     w(0, 'CLASS'); w(1, 'PDFDEFINITION'); w(2, 'AcDbPdfDefinition'); w(3, 'ObjectDBX Classes'); w(90, 1153); w(91, 0); w(280, 0); w(281, 0);
@@ -194,7 +211,10 @@ export function writeDxf2000(doc) {
   const scaleList = (model.scales || []).filter((x) => x && x.name && x.paperUnits > 0 && x.drawingUnits > 0), scaleDictH = h(), scaleH = scaleList.map(() => h());   // ACAD_SCALELIST (0.7 D7.19)
   const pdfDefH = (mh) => { if (!pdfH.has(mh)) pdfH.set(mh, h()); return pdfH.get(mh); };
   const head = (type, e, owner, paper) => {
-    const own = h();
+    const src = e.ccSrc;
+    let own;
+    if (src && typeof src.handle === 'string' && HKEY.test(src.handle) && kept.has(hnum(src.handle)) && !given.has(hnum(src.handle))) { own = src.handle; given.add(hnum(own)); }   // each kept handle is written once
+    else { own = h(); if (src) src.handle = own; }
     w(0, type); w(5, own);
     if (e.xclip?.pts?.length >= 3) { const c = { own, xd: h(), d2: h(), sf: h(), pts: e.xclip.pts }; clips.push(c); w(102, '{ACAD_XDICTIONARY'); w(360, c.xd); w(102, '}'); }
     w(330, owner); w(100, 'AcDbEntity');
@@ -208,6 +228,7 @@ export function writeDxf2000(doc) {
     if (Number.isFinite(e.lineweight) && e.lineweight !== -1) w(370, e.lineweight);
     if (e.ltscale > 0 && e.ltscale !== 1) w(48, f(e.ltscale));
     if (Number.isFinite(e.transparency)) w(440, e.transparency | 0);   // P.5: 0x02000000 | alpha, ByBlock 0x01000000
+    return own;
   };
   const th = (e) => { if (e.thickness) w(39, f(e.thickness)); };
   const xdata = (e) => {
@@ -266,13 +287,12 @@ export function writeDxf2000(doc) {
         head('ATTDEF', e, owner, paper); w(100, 'AcDbText'); textBody(e); w(100, 'AcDbAttributeDefinition'); w(3, enc(e.prompt)); w(2, enc(e.tag)); w(70, e.flags | 0); if (e.vAlign) w(74, e.vAlign);
         break;
       case 'INSERT': {
-        head('INSERT', e, owner, paper); w(100, 'AcDbBlockReference');
+        const ih = head('INSERT', e, owner, paper); w(100, 'AcDbBlockReference');   // its own handle: the attributes' owner
         const atts = e.attribs || [];
         if (atts.length) w(66, 1);
         w(2, enc(blockName(e.block))); P(10, e.insert); w(41, f(e.scale?.x ?? 1)); w(42, f(e.scale?.y ?? 1)); w(43, f(e.scale?.z ?? 1)); if (e.rotation) w(50, f(deg(e.rotation)));
         xdata(e);
         if (atts.length) {
-          const ih = (seed - 1).toString(16).toUpperCase();
           for (const a of atts) { head('ATTRIB', { ...a, layer: a.layer || e.layer }, ih, paper); w(100, 'AcDbText'); textBody(a); w(100, 'AcDbAttribute'); w(2, enc(a.tag)); w(70, a.flags | 0); if (a.vAlign) w(74, a.vAlign); }
           head('SEQEND', { layer: e.layer }, ih, paper);
         }
@@ -341,6 +361,7 @@ export function writeDxf2000(doc) {
         else if (k === 4) { w(100, 'AcDbRadialDimension'); P(15, e.center); w(40, '0.0'); }
         else if (k === 3) { w(100, 'AcDbDiametricDimension'); P(15, e.center); w(40, '0.0'); }
         else if (k === 5) { w(100, 'AcDb3PointAngularDimension'); P(13, e.xline1); P(14, e.xline2); P(15, e.center); }
+        else if (k === 6) { w(100, 'AcDbOrdinateDimension'); P(13, e.xline1); P(14, e.xline2); }   // ORS.6: ordinate (70 carries 64 for an X datum)
         break;
       }
       case 'VIEWPORT': {
@@ -380,7 +401,9 @@ export function writeDxf2000(doc) {
   w(0, 'SECTION'); w(2, 'OBJECTS');
   const dict = (dh, owner, items) => { w(0, 'DICTIONARY'); w(5, dh); w(330, owner); w(100, 'AcDbDictionary'); w(281, 1); for (const [k, v] of items) { w(3, k); w(350, v); } };
   dict(H.nod, '0', [['ACAD_GROUP', H.groups], ['ACAD_LAYOUT', H.layoutsD], ['ACAD_MLINESTYLE', H.mlsD], ...(pdfH.size ? [['ACAD_PDFDEFINITIONS', pdfDictH]] : []), ...(scaleList.length ? [['ACAD_SCALELIST', scaleDictH]] : [])]);
-  dict(H.groups, H.nod, []);
+  const grp = groupObjects(doc, h);   // ORS.8 (groups.js): each group of the drawing, its members by the handles written above
+  dict(H.groups, H.nod, grp.map((g) => [enc(g.name), g.h]));
+  for (const g of grp) { w(0, 'GROUP'); w(5, g.h); w(102, '{ACAD_REACTORS'); w(330, H.groups); w(102, '}'); w(330, H.groups); w(100, 'AcDbGroup'); w(300, enc(g.desc)); w(70, g.unnamed ? 1 : 0); w(71, g.selectable ? 1 : 0); for (const eh of g.handles) w(340, eh); }   // ORS.8
   dict(H.layoutsD, H.nod, layouts.map((L) => [enc(L.name), L.h]));
   dict(H.mlsD, H.nod, [['Standard', H.mls]]);
   // PDF underlays (0.7 D7.24): ACAD_PDFDEFINITIONS holds one PDFDEFINITION per file and page
@@ -422,7 +445,7 @@ export function writeDxf2000(doc) {
   }
   w(0, 'ENDSEC');
   w(0, 'EOF');
-  lines[handseedAt] = seed.toString(16).toUpperCase();
+  lines[handseedAt] = Math.max(seed, topKept + 1).toString(16).toUpperCase();   // above every kept handle too (FX.240)
 
   if (report.counts.pdf) report.notes.push(t('dwg.save.pdf', { n: report.counts.pdf }));
   if (doc.solids?.length) report.notes.push(t('ccacis.app.dxf', { n: doc.solids.length }));   // 0.7 D7.25: DWG only
@@ -434,5 +457,9 @@ export function writeDxf2000(doc) {
   if (report.counts.xrefBound) report.notes.push(t('dwg.save.xref.bound', { n: report.counts.xrefBound }));
   if (report.counts.xrefLink) report.notes.push(t('dwg.save.xref.link', { n: report.counts.xrefLink }));
   if (report.counts.skipped || report.counts.other) report.notes.push(t('dwg.save.other', { n: (report.counts.skipped || 0) + (report.counts.other || 0) }));
-  return { text: lines.join('\r\n') + '\r\n', report };
+  const out = new TextChunks('\r\n');   // the header as the first part, then the body's parts (each part ends with the separator)
+  body.finish(true);
+  out.parts.push(lines.join('\r\n') + '\r\n', ...body.parts.filter((p) => p.length));
+  out.length = out.parts.reduce((n, p) => n + p.length, 0); out.lines = lines.length + body.lines; out.done = true;
+  return { get text() { return out.string(); }, chunks: out, report };   // `text` as before (a string, while it fits); `chunks.blob()` / `.pipe()` for any size
 }

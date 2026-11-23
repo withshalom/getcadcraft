@@ -7,6 +7,8 @@
  *   ribbon      the Drafting classic menu style's tabs (fromInput takes the first ribbon style); the 3D tab's tools count as built
  *               (they open the 3D tab first), "Open in 3D" only where that app takes a hand-off
  *   toolbox     the toolbar's groups, the buttons on the toolbar itself (a group's More menu stays in the ribbon and the toolbar)
+ *               In a layout that has the toolbox column the app's toolbar is not shown as well, and each group's More menu is the group's More
+ *               button in the column (0.10)
  *   slots       level (the current layer), document (the drafting aids), layout (split the view), units (the coordinates), and for the
  *               view bar scale (zoom window / previous), detail (line weights), fit (zoom extents)
  *   palettes    properties (the right panel's Properties and Parameters), browser (the project browser: sheets, blocks, linked
@@ -21,6 +23,7 @@ import { fromInput } from '/assets/js/app-workspace-input.js';
 import { namedBlocks } from './commands.js';
 import { xrefs, isXrefRoot } from './xref.js';
 import { el } from './ui-util.js';
+import { boundsOf } from './arrays.js';   // 0.11 UI.25: ccState.reveal fits the view to what it selected
 
 /** The well-known actions a layout names (title bar, File menu, options bar) → CadCraft's registry. */
 const MAP = { open: 'file.open', save: 'file.save', undo: 'edit.undo', redo: 'edit.redo', clear: 'edit.select-none', fit: 'view.extents' };
@@ -81,7 +84,7 @@ export async function createCadcraftWorkspace({ root, doc, view, engine, cad, t,
   const refsHere = (name) => [...doc.entities.values()].filter((e) => e.type === 'insert' && e.block === name).map((e) => e.id);
   function selectRefs(name) {
     const ids = refsHere(name);
-    cad.setSelection(new Set(ids));
+    if (!ids.length || !window.ccState?.select(ids)) cad.setSelection(new Set(ids));   // 0.11 UI.25: the row selects through the one state
     status(ids.length ? t('ws.pb.selected', { n: ids.length, name }) : t('ws.pb.none_here', { name }));
   }
   function renderBrowser() {
@@ -132,19 +135,40 @@ export async function createCadcraftWorkspace({ root, doc, view, engine, cad, t,
     const r = base.tool(id, block);
     return lazy3d(c) ? { ...r, built: true } : r;
   };
+  // ---- 0.11 UI.25: the reverse channel (ccState.select / reveal / highlight). Refs: an entity id, 'entity:<id>' or { kind: 'entity', id } (a Problems line)
+  const entOf = (id) => doc.get(id) || (/^\d+$/.test(id) ? doc.get(Number(id)) : null) || null;   // refs carry strings; the drawing's ids may be numbers
+  const entIds = (ids) => (window.ccState?.refs(ids) || []).map((r) => [r, entOf(r.id)]).filter(([r, e]) => e && (!r.kind || r.kind === 'entity' || e.type === r.kind)).map(([, e]) => e.id);
+  function select(ids) { const got = entIds(ids); if (!got.length) return false; cad.setSelection(new Set(got)); soon(); return true; }
+  function reveal(ids) {
+    if (!select(ids)) return false;
+    const b = boundsOf(entIds(ids).map((id) => doc.get(id)).filter(Boolean), doc.blocks);
+    if (b) { const pad = Math.max(b.maxX - b.minX, b.maxY - b.minY, 1) * 0.25; view.fit({ minX: b.minX - pad, minY: b.minY - pad, maxX: b.maxX + pad, maxY: b.maxY + pad }); }
+    return true;
+  }
   const adapter = {
     ...base,
     t,
+    select, reveal, highlight: select,
     hide: ['.cc-tabs'],   // Model / 3D / sheets: the layout's view tabs take their place
     fill: '.cc-canvases',
     state: () => ({ document: 'd' + loads, name: doc.meta.name || t('ws.untitled'), dirty: !!doc.dirty, busy: !root.querySelector('[data-busy]')?.hidden,
-      selection: [...cad.selection], tool: engine.running || 'select', toolLabel: labelOfRunning(), other: false }),
+      selection: [...cad.selection], tool: engine.running || 'select', toolLabel: labelOfRunning(), other: false,
+      kinds: [...cad.selection].map((id) => doc.get(id)?.type), mode: on3d() ? '3d' : sheetOf() ? 'paper' : 'model', layer: doc.current.layer }),   // 0.11 UI.25: into ccState
     endTool() { if (engine.busy) engine.escape(); },
     ribbon: () => base.ribbon().map((tb) => ({ ...tb, groups: tb.groups.map((g) => {
       const keep = (id) => { const c = reg.get(id); return !(c?.optional && !c.in3d && !target(c)); };   // "Open in 3D" only where that app takes the drawing
       return { ...g, large: g.large.filter(keep), stacks: g.stacks.map((s) => s.filter(keep)).filter((s) => s.length) };
     }).filter((g) => g.large.length || g.stacks.length) })).filter((tb) => tb.groups.length),
-    toolbox: () => base.toolbox().map((g) => ({ ...g, tools: g.tools.filter((id) => target(reg.get(id))?.getAttribute('role') !== 'menuitem') })).filter((g) => g.tools.length),
+    // a group's More menu stays out of the toolbox, except the wall tools': every one of them is a tool of the Walls group (0.9 WT.1, walls-plan-10).
+    // 0.10 (owner 2026-11-11, "smaller toolbars is better"): in a layout with a toolbox column the toolbar is not shown as well (toolbarIn below; the
+    // engine marks the toolbar data-ws-in="toolbox"), and then the column is the one place for tools: each group's More menu becomes the
+    // group's More button in the column (`more`), a named list beside it.
+    toolbarIn: ['toolbox'],
+    toolbox: () => {
+      const whole = base.toolbar?.()?.dataset.wsIn === 'toolbox';
+      const inMenu = (id) => { const b = target(reg.get(id)); return b?.getAttribute('role') === 'menuitem' && !b.closest('[data-tb-key="Walls"]'); };
+      return base.toolbox().map((g) => ({ ...g, tools: g.tools.filter((id) => !inMenu(id)), ...(whole ? { more: g.tools.filter(inMenu) } : {}) })).filter((g) => g.tools.length || g.more?.length);
+    },
     tool,
     can(id, block) {
       const c = reg.get(cid(id));
@@ -189,7 +213,9 @@ export async function createCadcraftWorkspace({ root, doc, view, engine, cad, t,
       ctx = c; lastView = viewNow();
       if (c.has('palettes')) {
         const right = root.querySelector('.cc-right') || document.querySelector('.cc-right');
-        moveHome(document.querySelector('.cc-right > .cc-sec:not([data-params-sec])'), propsBox);
+        // palettes in the RIGHT panel: the engine has already moved that panel's own sections into its "More panels" tab (.ws-model-slot), so Properties is looked for there too
+        // (2026-11-13: the Properties palette of Vector, Sketch, Rhino and PRO-cad4 was empty in CadCraft)
+        moveHome(document.querySelector('.cc-right > .cc-sec:not([data-params-sec])') || document.querySelector('.cc-right .ws-model-slot > .cc-sec:not([data-params-sec])'), propsBox);
         moveHome(document.querySelector('[data-params-sec]'), propsBox);
         // the palettes fill the left panel: Layers, the palette a drafter keeps open, goes to the right panel the Properties left
         if (c.block('palettes')?.place === 'left-panel') moveHome(document.querySelector('[data-layers-sec]'), right);
@@ -222,5 +248,6 @@ export async function createCadcraftWorkspace({ root, doc, view, engine, cad, t,
   for (const n of [root.querySelector('[data-tabs]'), root.querySelector('[data-props]')]) if (n) watch.observe(n, { childList: true });
   const busyEl = root.querySelector('[data-busy]'); if (busyEl) watch.observe(busyEl, { attributes: true, attributeFilter: ['hidden'] });
   const promptEl = root.querySelector('[data-prompt]'); if (promptEl) watch.observe(promptEl, { childList: true, characterData: true, subtree: true });
+  window.ccState?.adapt?.(adapter);   // 0.11 UI.25: kinds, mode, view, layer and the Problems counts publish into ccState
   return { adapter, attach(e) { api = e; } };
 }

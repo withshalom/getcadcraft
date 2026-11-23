@@ -13,8 +13,10 @@
  * Icons are the CadCraft set (app-workspace-icons.js), drawn by us, never another program's artwork: the layout copies WHERE things
  * are, not how they are drawn. Map: docs/apps/app-workspace.md § Vector.
  */
+import { shapeMenus } from './app-workspace-tools.js';
+import { MENUS as DRAFTING_MENUS } from './app-block-menuset-drafting.js';   // 0.11 UI.12: the Drafting layout's menu set (data only)
 import { showSeq } from './app-input.js';
-import { iconKey, iconNode, iconStyle } from './app-workspace-icons.js';
+import { iconKey, iconNode, iconStyle, iconsWired, blockIcon } from './app-workspace-icons.js';
 import { iconFor, infoFields } from './app-workspace-extras.js';
 
 export const MENU_ORDER = ['file', 'edit', 'view', 'modify', 'model', 'aec', 'tools', 'text', 'window', 'cloud', 'help'];
@@ -51,10 +53,64 @@ export const SKETCH_BY_GROUP = {
   library: 'extensions',
 };
 export const SKETCH_BY_ID = { 'app.help': 'help', 'app.palette': 'help', 'app.settings': 'window' };
-export const menuOrder = (set) => (set === 'sketch' ? SKETCH_ORDER : MENU_ORDER);
+
+/**
+ * The Rhino menu set (0.9 RH.1, 2026-11-09, a first-time visitor's ask): File Edit View Curve Surface Solid Mesh Dimension Transform Tools
+ * Analyze Render Panels Help, for people who model with curves, surfaces and solids and drive it from a command line. Same rule again: every
+ * command under ONE menu. The registry group files most; RHINO_BY_ID files single commands (a boolean is Solid, a measure is Analyze), and
+ * RHINO_BY_LAST catches the same verb in any app (move / rotate / mirror / array = Transform) so CadCraft and BimCraft fill it without a table.
+ */
+export const RHINO_ORDER = ['file', 'edit', 'view', 'curve', 'surface', 'solid', 'mesh', 'dimension', 'transform', 'tools', 'analyze', 'render', 'panels', 'help'];
+export const RHINO_BY_GROUP = {
+  file: 'file', export: 'file', output: 'file', sheets: 'file', pages: 'file',
+  edit: 'edit', clipboard: 'edit', organize: 'edit',
+  view: 'view', camera: 'view', show: 'view', vis: 'view', layers: 'view', aids: 'view', scale: 'view',
+  draw: 'curve', build: 'curve', curve: 'curve', place: 'curve', connect: 'curve', design: 'curve', gis: 'curve', takeoff: 'curve', items: 'curve',
+  surface: 'surface', '3d': 'surface', model: 'surface', features: 'surface', feature: 'surface', form: 'surface',
+  beginner: 'solid', assembly: 'solid', assemble: 'solid',
+  mesh: 'mesh', uv: 'mesh', sculpt: 'mesh',
+  modify: 'transform', align: 'transform', blocks: 'transform', parametric: 'transform', revise: 'transform',
+  shading: 'render', animate: 'render', render: 'render',
+  panels: 'panels', panel: 'panels', workspace: 'panels', ws: 'panels',
+  library: 'tools',
+};
+export const RHINO_BY_ID = {
+  'app.help': 'help', 'app.palette': 'help', 'app.settings': 'tools', 'export.render': 'render',
+  'organize.union': 'solid', 'organize.subtract': 'solid', 'organize.intersect': 'solid', 'modify.push': 'solid', 'modify.follow': 'solid',
+  'modify.tape': 'analyze', 'modify.protractor': 'analyze', 'modify.dim': 'dimension', 'draw.text3d': 'dimension',
+  'modify.select': 'tools', 'modify.erase': 'edit', 'modify.paint': 'tools', 'camera.section': 'analyze', 'camera.sec-planes': 'analyze', 'camera.sec-cuts': 'analyze',
+  'edit.intersect-model': 'curve', 'edit.intersect-sel': 'curve', 'edit.terrain-contours': 'surface', 'edit.terrain-grid': 'surface', 'edit.sculpt': 'mesh',
+  'edit.flip-x': 'transform', 'edit.flip-y': 'transform', 'edit.flip-z': 'transform', 'edit.flipcopy-x': 'transform', 'edit.flipcopy-y': 'transform', 'edit.flipcopy-z': 'transform',
+  'edit.axes-place': 'tools', 'edit.axes-face': 'tools', 'edit.axes-reset': 'tools', 'edit.keys-pushpull': 'tools', 'edit.keys-modeler': 'tools',
+};
+const RHINO_BY_LAST = [
+  [/^(move|rotate|scale|scale-by|mirror|flip|array|align|stretch|copy-move|offset-all)$/, 'transform'],
+  [/^(union|subtract|intersect|extrude|push|boolean|shell|fillet-edge|box|cylinder|sphere|cone)$/, 'solid'],
+  [/^(dim|dimension|leader|text|mtext|note|text3d)$/, 'dimension'],
+  [/^(measure|tape|area|distance|angle|protractor|curvature|section)$/, 'analyze'],
+  [/^(trim|extend|fillet|chamfer|offset|divide|explode|join|polyline|line|arc|circle|ellipse|rect|polygon|spline|curve)$/, 'curve'],
+];
+/** 0.11 UI.12: the Drafting set: File Edit View Insert Format Tools Draw Dimension Modify Window Help. The names in app-block-menuset-drafting.js are matched to the registry's groups
+ *  (lower case); the groups the data does not name are filed by the words below, anything else goes to Tools so nothing disappears. */
+export const DRAFTING_ORDER = DRAFTING_MENUS.map((m) => m.id);
+const DRAFTING_EXTRA = {
+  file: ['export', 'output', 'sheets', 'pages'], edit: ['clipboard', 'organize', 'selection'], view: ['camera', 'show', 'vis', 'scale'], insert: ['blocks', 'place', 'items', 'add'],
+  format: ['aids', 'attributes'], tools: ['parametric', 'features', 'feature', 'app'], draw: ['build', 'curve', 'design', 'model', 'beginner', 'mesh', 'surface'],
+  dimension: ['takeoff', 'measure'], modify: ['align', 'revise', 'edit3d', 'uv', 'sculpt'], window: ['panels', 'panel', 'workspace', 'ws'],
+};
+const DRAFTING_BY_GROUP = (() => { const m = {}; for (const d of DRAFTING_MENUS) { for (const g of d.groups) m[g.toLowerCase()] = d.id; for (const g of DRAFTING_EXTRA[d.id] || []) if (!m[g]) m[g] = d.id; } return m; })();
+const DRAFTING_BY_ID = { 'app.help': 'help', 'app.palette': 'window', 'app.settings': 'tools', 'edit.undo': 'edit', 'edit.redo': 'edit' };
+export const menuOrder = (set) => (set === 'sketch' ? SKETCH_ORDER : set === 'rhino' ? RHINO_ORDER : set === 'drafting' ? DRAFTING_ORDER : MENU_ORDER);
 
 export function menuOf(cmd, set = 'vector') {
   const id = String(cmd.id || ''), prefix = id.split('.')[0], last = id.split('.').pop();
+  if (set === 'rhino') {
+    if (RHINO_BY_ID[id]) return RHINO_BY_ID[id];
+    // modify / draw / organize hold several kinds of tool: the verb decides first, the group second
+    const verb = ['modify', 'draw', 'organize'].includes(cmd.group) ? (RHINO_BY_LAST.find(([re]) => re.test(last)) || [])[1] : '';
+    return verb || RHINO_BY_GROUP[cmd.group] || RHINO_BY_GROUP[prefix] || 'tools';
+  }
+  if (set === 'drafting') return DRAFTING_BY_ID[id] || DRAFTING_BY_GROUP[String(cmd.group || '').toLowerCase()] || DRAFTING_BY_GROUP[prefix] || 'tools';
   if (set === 'sketch') return SKETCH_BY_ID[id] || SKETCH_BY_GROUP[cmd.group] || SKETCH_BY_GROUP[prefix] || 'tools';
   if (BY_ID[id]) return BY_ID[id];
   if (TEXT_ID.test(last)) return 'text';
@@ -69,10 +125,18 @@ export const BASIC = ['select', 'pan', 'orbit', 'zoom', 'text', 'dim', 'leader',
 export const BASIC_SKETCH = ['select', 'erase', 'paint', 'line', 'polyline', 'rect', 'circle', 'polygon', 'arc', 'extrude', 'move', 'rotate', 'scale', 'offset', 'measure', 'dim', 'dimangular', 'text',
   'orbit', 'pan', 'zoom', 'extents', 'section', 'copy', 'mirror', 'trim', 'extend', 'fillet', 'chamfer', 'align', 'array', 'stretch', 'area', 'hatch', 'leader'];
 
+/** Rhino's Standard strip: select, then the curve, solid and transform tools its people reach first; icon keys, first match in the app wins. */
+export const BASIC_RHINO = ['select', 'line', 'polyline', 'circle', 'arc', 'rect', 'polygon', 'ellipse', 'curve', 'extrude', 'move', 'copy', 'rotate', 'scale', 'mirror', 'array', 'offset', 'trim', 'extend', 'fillet', 'chamfer',
+  'align', 'measure', 'dim', 'text', 'orbit', 'pan', 'zoom', 'extents', 'section', 'erase', 'paint', 'stretch', 'area', 'hatch', 'leader'];
+
 const pretty = (s) => { const w = String(s || '').replace(/[-_]+/g, ' '); return w.charAt(0).toUpperCase() + w.slice(1); };
 
 /** The icon of a tool button in `mode` 'set' (the CadCraft set, Bootstrap Icons for what it lacks) or the app's own drawing. */
 export function setIcon(b, id, label, on = true) {
+  if (b.firstChild && iconsWired()) {   // 0.10 UI.14 (lab builds): the set in every layout, whatever `on` says; Bootstrap only when nothing is drawn (logged)
+    const cur = b.firstChild, bi = [...(cur.classList || [])].find((c) => c.startsWith('bi-')) || '';
+    cur.replaceWith(blockIcon({ id, label, bi, own: cur.nodeName.toLowerCase() === 'svg' ? cur : null, block: 'vector', cls: 'ws-icon-bi ws-set' })); return b;
+  }
   if (!on || iconStyle() === 'app' || !b.firstChild) return b;
   const key = iconKey(id, label), node = key ? iconNode(key) : null;
   if (node) b.firstChild.replaceWith(node);
@@ -106,7 +170,7 @@ export function menubar(E) {
       if (!g.has(cmd.group)) g.set(cmd.group, { key: cmd.group, label: ribbonLabel.get(cmd.group) || pretty(cmd.group), ids: [] });
       g.get(cmd.group).ids.push(cmd);
     }
-    return menuOrder(set).map((m) => ({ id: m, groups: [...menus.get(m).values()] }));
+    return menuOrder(set).map((m) => ({ id: m, ...(set === 'drafting' && has('shell.menu.' + m) ? { label: T('shell.menu.' + m) } : {}), groups: [...menus.get(m).values()] }));
   }
 
   const item = (cmd) => {
@@ -144,18 +208,23 @@ export function menubar(E) {
     const now = Date.now();
     if (!force && part.sig && now - part.checked < 1500) return;
     part.checked = now;
-    const list = groups(part.o.set).filter((m) => m.groups.length || m.id === 'help' || m.id === 'window');
+    const list = (part.o.menus ? shapeMenus(part.o.menus, I()?.commands).map((m) => ({ ...m, groups: m.groups.map((g) => ({ ...g, ids: g.ids.filter(target) })).filter((g) => g.ids.length) })).filter((m) => m.groups.length)
+      : groups(part.o.set)).filter((m) => m.groups.length || m.id === 'help' || m.id === 'window');   // menus (v2): the layout's own menus
     const sig = JSON.stringify(list.map((m) => [m.id, m.groups.map((g) => [g.key, g.label, g.ids.map((c) => c.id)])]));
     if (sig === part.lastSig && part.sig) return;
     part.sig = list.some((m) => m.groups.length) ? sig : null; part.lastSig = sig; close();
     part.menus.replaceChildren(...list.map((m) => el('div', { className: 'vw-menu', 'data-vw-menu': m.id },
-      el('button', { type: 'button', className: 'vw-menu-btn', role: 'menuitem', 'aria-haspopup': 'true', 'aria-expanded': 'false', 'data-vw-open': m.id }, word('shell.ws.vector.menu.' + m.id, pretty(m.id))), menuPanel(m))));
+      el('button', { type: 'button', className: 'vw-menu-btn', role: 'menuitem', 'aria-haspopup': 'true', 'aria-expanded': 'false', 'data-vw-open': m.id }, (m.label || word('shell.ws.vector.menu.' + m.id, pretty(m.id)))), menuPanel(m))));
   }
   /** Greyed or lit as the registry says: done when a menu opens (167 questions would be wasted on every frame). */
   function states(panel) {
     const c = I(); if (!c) return;
     for (const b of panel.querySelectorAll('[data-vw-cmd]')) {
-      const id = b.dataset.vwCmd, why = c.why ? c.why(id) : '', cmd = c.commands.find((x) => x.id === id);
+      const id = b.dataset.vwCmd, cmd = c.commands.find((x) => x.id === id);
+      let why = c.why ? c.why(id) : '';
+      const d = E.declared ? E.declared(id, 'menubar') : null;   // one state language (UI.25): the layout's declaration for this item
+      if (d && !d.enabled && !why) why = T('shell.state.off');
+      b.hidden = !!d && !d.visible;
       b.setAttribute('aria-disabled', why ? 'true' : 'false'); b.dataset.vwWhy = why || ''; b.title = text(cmd?.label) + (why ? ': ' + why : '');
       const on = target(cmd)?.getAttribute('aria-pressed') === 'true'; b.setAttribute('aria-checked', on ? 'true' : 'false');
     }
@@ -184,7 +253,7 @@ export function menubar(E) {
   function mount(o, host) {
     const menus = el('div', { className: 'vw-menus', role: 'menubar', 'aria-label': T('shell.ws.vector.menubar') });
     const title = el('span', { className: 'vw-title' });
-    const sh = (sel, cls, label) => el('button', { type: 'button', className: 'ws-shell-btn', 'data-ws-shell': sel, 'aria-label': label, title: label }, el('i', { className: 'bi ' + cls, 'aria-hidden': 'true' }));
+    const sh = (sel, cls, label) => el('button', { type: 'button', className: 'ws-shell-btn', 'data-ws-shell': sel, 'aria-label': label, title: label }, blockIcon({ bi: cls, block: 'menubar' }));
     const right = o.shell === false ? null : el('div', { className: 'vw-right' }, sh('[data-help-open]', 'bi-question-circle', word('shell.ws.help', 'Help')), sh('[data-settings-open]', 'bi-gear', word('shell.ws.settings', 'Settings')));
     const bar = el('nav', { className: 'vw-menubar ws-block', 'data-ws-blk': 'menubar', 'aria-label': T('shell.ws.vector.menubar') }, menus, title, right);
     host.append(bar);
@@ -239,9 +308,9 @@ export function toolpalette(E) {
   const built = (id) => A.tool(id, 'toolbox').built !== false;
 
   function layout(o = {}) {
-    const sets = A.toolbox().map((g) => ({ ...g, tools: g.tools.filter(built) })).filter((g) => g.tools.length);
+    const sets = (E.toolboxData ? E.toolboxData('toolpalette') : A.toolbox()).map((g) => ({ ...g, tools: g.tools.filter(built) })).filter((g) => g.tools.length);
     const all = sets.flatMap((g) => g.tools), seen = new Set(), basic = [];
-    for (const key of (o.basic === 'sketch' ? BASIC_SKETCH : BASIC)) { const id = all.find((t) => !seen.has(t) && iconKey(t, label(t)) === key); if (id) { seen.add(id); basic.push(id); } }
+    for (const key of (o.basic === 'sketch' ? BASIC_SKETCH : o.basic === 'rhino' ? BASIC_RHINO : BASIC)) { const id = all.find((t) => !seen.has(t) && iconKey(t, label(t)) === key); if (id) { seen.add(id); basic.push(id); } }
     // an app whose tools are not drawing primitives (steel connections, take-off) would leave Basic nearly empty: top it up from its own sets, in order
     for (const id of all) { if (basic.length >= 12) break; if (!seen.has(id)) { seen.add(id); basic.push(id); } }
     return { sets, basic };

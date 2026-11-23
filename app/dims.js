@@ -10,6 +10,7 @@
  *   angular   c = vertex, p1 and p2 on the two legs, loc = a point on the arc (the sector containing it)
  *   radius    c = centre, p1 on the curve, loc = where the text goes
  *   diameter  c = centre, p1 on the curve, loc = where the text goes
+ *   ordinate, arc, jogged — and the extras jogf / brk / insp: see dimkinds.js (1.0 ORS.6)
  * `text` is '' for the measured value, or an override where '<>' stands for the value.
  * `st` is the dimension style it was drawn with (see DIM_DEFAULTS; sizes × st.scale).
  * `block` names a block holding the geometry another program drew for an imported dimension;
@@ -19,13 +20,15 @@
 import { TAU, dist, angleOf, polar, normAngle, onSweep, FONT_EM } from './geom.js';
 import { advance } from './font.js';
 import { dimValue, styleDimParts } from './dimstyle.js';
+import { measureMore, buildMore, applyExtras } from './dimkinds.js';   // ORS.6: ordinate, arc length, jogged radius; breaks, jog, inspection
 
 import { t } from './i18n.js';
 /** ISO-25-like defaults (the measurements in drawing units, before × scale). */
 export const DIM_DEFAULTS = Object.freeze({ txt: 2.5, asz: 2.5, exe: 1.25, exo: 0.625, gap: 0.625, dli: 3.75, dec: 2, adec: 0, scale: 1, tad: 1, zin: 8 });
 /** Dimension kind names for people (getters: read in the page's language when used). */
+// ORS.6: the last three kinds are dimkinds.js's (named here, not imported: this line runs while the modules are still loading)
 export const DIM_KINDS = {};
-for (const k of ['linear', 'aligned', 'angular', 'radius', 'diameter']) Object.defineProperty(DIM_KINDS, k, { get: () => t('dimkind.' + k), enumerable: true });
+for (const k of ['linear', 'aligned', 'angular', 'radius', 'diameter', 'ordinate', 'arc', 'jogged']) Object.defineProperty(DIM_KINDS, k, { get: () => t('dimkind.' + k), enumerable: true });
 export const DIM_POINT_KEYS = ['p1', 'p2', 'c', 'loc'];
 
 const style = (e) => ({ ...DIM_DEFAULTS, ...(e.st || {}) });
@@ -38,7 +41,7 @@ export function dimMeasure(e) {
     case 'radius': return dist(e.c, e.p1);
     case 'diameter': return 2 * dist(e.c, e.p1);
     case 'angular': return angularSweep(e).sweep;
-    default: return 0;
+    default: return measureMore(e, { angularSweep });   // ORS.6
   }
 }
 
@@ -48,8 +51,10 @@ export function dimMeasure(e) {
  * angle formats. Tolerances are added to the text part by `styleDimParts`.
  */
 export function formatMeasure(e, v = dimMeasure(e)) {
-  return dimValue(e, v).main;
+  return dimValue(asStyled(e), v).main;
 }
+/** ORS.6: a jogged radius is written like a radius (the R before the value, the same style rules). */
+const asStyled = (e) => (e.kind === 'jogged' ? { ...e, kind: 'radius' } : e);
 
 /** What the dimension's text says. */
 export function dimText(e) {
@@ -89,6 +94,13 @@ export function dimGeometry(e) {
 }
 
 function build(e) {
+  const out = dimRawParts(e);
+  if (e.brk || e.insp || Number.isFinite(e.jogf)) applyExtras(e, out, { txt: style(e).txt * (style(e).scale || 1) });   // ORS.6: DIMBREAK, DIMJOGLINE, DIMINSPECT
+  return styleDimParts(asStyled(e), out);
+}
+
+/** The parts before the per-dimension extras and the style are applied (a fresh list; ORS.6: DIMBREAK measures on these). */
+export function dimRawParts(e) {
   const st = style(e), S = st.scale || 1;
   const txt = st.txt * S, asz = st.asz * S, exe = st.exe * S, exo = st.exo * S, gap = st.gap * S;
   const out = [];
@@ -139,18 +151,31 @@ function build(e) {
       const { s: a0, e: a1, sweep } = angularSweep(e);
       const R = dist(e.c, e.loc);
       if (R < 1e-12) break;
-      out.push({ type: 'arc', layer: '0', color: 0, cx: e.c.x, cy: e.c.y, r: R, a0: normAngle(a0), a1: normAngle(a1), role: 'dim' });
+      const arc = (b0, b1, role) => out.push({ type: 'arc', layer: '0', color: 0, cx: e.c.x, cy: e.c.y, r: R, a0: normAngle(b0), a1: normAngle(b1), role });
+      // Extension lines only where the arc passes the end of a leg (the leg runs from the vertex to p1 / p2). When the arc
+      // meets the leg itself there is none, as in AutoCAD (Imtaar 2026-11-21: a line was drawn back along each measured edge).
       for (const [ang, P, role] of [[a0, nearestOnRay(e, a0), 'ext1'], [a1, nearestOnRay(e, a1), 'ext2']]) {
         const dP = dist(e.c, P);
-        if (R > dP + 1e-9) line(polar(e.c, ang, dP + exo), polar(e.c, ang, R + exe), role);
-        else if (R < dP - 1e-9 && dP - exo > R - exe) line(polar(e.c, ang, dP - exo), polar(e.c, ang, Math.max(0, R - exe)), role);
+        if (R > dP + exo + 1e-9) line(polar(e.c, ang, dP + exo), polar(e.c, ang, R + exe), role);
       }
-      const start = polar(e.c, a0, R), end = polar(e.c, a1, R);
-      if (R * sweep >= 2 * asz) { arrow(start, a0 - Math.PI / 2, 'arrow1'); arrow(end, a1 + Math.PI / 2, 'arrow2'); }
-      else { arrow(start, a0 + Math.PI / 2, 'arrow1'); arrow(end, a1 - Math.PI / 2, 'arrow2'); }
+      const len = R * sweep, inside = len >= 2 * asz;
       const m = a0 + sweep / 2, ta = readable(m - Math.PI / 2);
+      // Where the text sits is the style's Angular text (atxt, owner 2026-11-21): 0 centred on the middle of the arc, which is
+      // broken round it (Imtaar 2026-11-21: it was always outside the arc), and outside when it does not fit there; 1 outside
+      // the arc (as before); 2 inside the arc. A style without atxt (older drawings) is 0.
+      const atxt = st.atxt | 0;
+      const tdir = st.tih ? 0 : ta, tang = m + Math.PI / 2;
+      const half = Math.abs(Math.cos(tdir - tang)) * tw / 2 + Math.abs(Math.sin(tdir - tang)) * txt / 2 + gap;
+      const onArc = atxt === 0 && inside && len >= 2 * half + 2 * asz && half < R;
+      if (onArc) { const h = half / R; arc(a0, m - h, 'dim1'); arc(m + h, a1, 'dim2'); }
+      else arc(a0, a1, 'dim');
+      const start = polar(e.c, a0, R), end = polar(e.c, a1, R);
+      if (inside) { arrow(start, a0 - Math.PI / 2, 'arrow1'); arrow(end, a1 + Math.PI / 2, 'arrow2'); }
+      else { arrow(start, a0 + Math.PI / 2, 'arrow1'); arrow(end, a1 - Math.PI / 2, 'arrow2'); }
       const outward = Math.cos(ta + Math.PI / 2 - m) > 0;
-      text(polar(e.c, m, R + gap), ta, 'center', outward ? 'bottom' : 'top', s);
+      if (onArc) text(polar(e.c, m, R), ta, 'center', 'middle', s);
+      else if (atxt === 2 && R > gap) text(polar(e.c, m, R - gap), ta, 'center', outward ? 'top' : 'bottom', s);
+      else text(polar(e.c, m, R + gap), ta, 'center', outward ? 'bottom' : 'top', s);
       break;
     }
     case 'radius': case 'diameter': {
@@ -183,9 +208,9 @@ function build(e) {
       }
       break;
     }
-    default: break;
+    default: buildMore(e, { out, line, arrow, text, s, tw, txt, asz, exe, exo, gap, angularSweep, readable }); break;   // ORS.6
   }
-  return styleDimParts(e, out);
+  return out;
 }
 
 /**

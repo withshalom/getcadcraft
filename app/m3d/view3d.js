@@ -25,6 +25,7 @@ import { add, sub, mul, dot, norm, apply, invert, dist, bboxAdd, IDENT } from '.
 import { faceTris, faceNormal, edgeFaces, smoothNormals, paintHex, isMaterialPaint, isImagePaint, imageId, imageUV, MESH_HOOKS } from './model.js';
 import { FL_DEAD, FL_HIDE, FL_SHARP, FL_SEAM } from './mesh.js';
 import { sunPosition } from './sun.js';
+import { Camera } from './camera.js';
 import { dimLayout, dimTextBox, dimText, dimTextSize, sectionLayout } from './infer.js';
 import { formatLength } from './units.js';
 import { viewImage } from './viewimage.js';
@@ -34,6 +35,9 @@ const KIND_COLOR = {
   origin: '--layer-ochre', 'axis-x': '--layer-red', 'axis-y': '--layer-green', 'axis-z': '--layer-blue', parallel: '--layer-magenta',
   perp: '--layer-magenta', lock: '--layer-magenta', axis: '--ink-2', plane: '--ink-2', ground: '--ink-2', none: '--ink-2',
 };
+
+/** 0.11 PERF.7: meshes with more corners than this are first built in slices of about SLICE_MS of work each. */
+const SLICE_CORNERS = 120000, SLICE_MS = 45;
 
 export class View3D {
   constructor(gl, over, { model, cam, ui }) {
@@ -100,6 +104,26 @@ export class View3D {
     this.cam.setSize(this.w, this.h);
     this.invalidate();
   }
+  /**
+   * 0.11 TW.13: a display-only matrix per mesh definition. Every placement of the definition is drawn at its own matrix times M (M in the definition's own
+   * space, 16 numbers, column-major), so a joint can move the model's part in the view. Never saved, never in the undo history, never in the model's box or
+   * a pick; null clears. Survives a rebuild of the scene. Returns false for an unknown definition or a matrix that is not 16 finite numbers.
+   */
+  setDisplayMatrix(defId, m) {
+    this.displayM = this.displayM || new Map();
+    if (m !== null && m !== undefined && !(Array.isArray(m) || ArrayBuffer.isView(m)) || (m && (m.length !== 16 || !Array.from(m).every(Number.isFinite)))) return false;
+    if (m == null) this.displayM.delete(defId); else if (this.model.def(defId)) this.displayM.set(defId, Array.from(m)); else return false;
+    const D = this.displayM.get(defId);
+    for (const g of this.defGroups?.get(defId) || []) g.matrix.fromArray(D ? mmul4(g.userData.base, D) : g.userData.base);
+    this.root.updateMatrixWorld(true);
+    this.invalidate();
+    return true;
+  }
+  /** The display matrix of a definition, or null. */
+  displayMatrixOf(defId) { return this.displayM?.get(defId) || null; }
+  clearDisplayMatrices() {
+    for (const id of [...(this.displayM?.keys() || [])]) this.setDisplayMatrix(id, null);
+  }
   invalidate() {
     if (this._raf) return;
     this._raf = requestAnimationFrame(() => { this._raf = 0; this.draw(); });
@@ -119,6 +143,9 @@ export class View3D {
       g.def = def; Object.assign(g, this.model.stamp ? this.model.stamp(def) : { v: this.model.version });
       return g;
     }
+    // 0.11 PERF.7: a big mesh the view has not drawn yet (an import, a file opened) is built in slices after this frame; an edit
+    // of a mesh already drawn is built at once, so it never blinks
+    if (def.mesh && !g && this.slices !== false && (def.shown || def.mesh).nh > SLICE_CORNERS) return this.meshGeometryLater(def, dflt, key);
     if (g) { g.faces?.dispose(); g.edges?.dispose(); for (const x of g.mats || []) x.geometry.dispose(); }
     if (def.mesh) { g = this.meshGeometry(def, dflt); this.cache.set(key, g); return g; }
     const plain = [];   // [fid, normal, colour, triangles] of the faces drawn in colour
@@ -200,8 +227,20 @@ export class View3D {
    * UVs (the mesh's 'uv' layer when it has one).
    */
   meshGeometry(def, dflt) {
+    const it = this.meshGeometrySteps(def, dflt);
+    for (;;) { const r = it.next(); if (r.done) return r.value; }
+  }
+  /**
+   * 0.11 PERF.7: meshGeometry as steps — it stops (yields) every 16,384 faces, triangles or corners, so a big mesh can be built
+   * over several short tasks (meshGeometryLater) instead of one long one. Run to the end it is exactly meshGeometry.
+   */
+  *meshGeometrySteps(def, dflt) {
+    const stamp0 = this.model.stamp ? this.model.stamp(def) : { v: this.model.version };
     const mesh = def.shown || def.mesh, P = mesh.P, hV = mesh.hV;   // MD.3: with its modifiers
-    const T = mesh.triangulate(), N = mesh.cornerNormals();
+    // 0.11 PERF.7: a mesh built by an import in the worker comes with these two already worked out (import-job.js), used once
+    const pre = mesh._viewPre && mesh._viewPre.v === mesh.v && mesh._viewPre.topo === mesh.topo ? mesh._viewPre : null;
+    mesh._viewPre = null;
+    const T = pre ? pre.T : mesh.triangulate(), N = pre ? pre.N : mesh.cornerNormals();
     const front = new THREE.Color(paintHex(dflt) || this.c.front);
     const tex = this.textures, uvA = mesh.attrArray('uv');
     const maskA = this.showMask && def.mesh === mesh ? mesh.attrArray('mask') : null;   // MD.7: sculpting shows the mask darker
@@ -213,6 +252,7 @@ export class View3D {
     const faceKind = new Int32Array(mesh.nf).fill(-1);   // -1 plain, else index into mats
     const matKeys = [];
     for (let f = 0; f < mesh.nf; f++) {
+      if ((f & 16383) === 16383) yield;
       if (mesh.faceDead(f)) continue;
       const paint = mesh.facePaint(f) || dflt;
       const tkey = isMaterialPaint(paint) ? paint : isImagePaint(paint) ? 'img:' + imageId(paint) : null;
@@ -227,14 +267,17 @@ export class View3D {
       return c;
     };
     let nPlain = 0;
-    for (let i = 0; i < T.n; i++) if (faceKind[T.face[i]] < 0) nPlain++;
+    const perMat = new Int32Array(matKeys.length);   // triangles in each textured group (0.10 PERF.7: typed arrays, not pushes)
+    for (let i = 0; i < T.n; i++) { const mk = faceKind[T.face[i]]; if (mk < 0) nPlain++; else perMat[mk]++; }
     const vOf = new Int32Array(mesh.nh).fill(-1);
     const pos = new Float32Array(nPlain * 9), nor = new Float32Array(nPlain * 9), col = new Float32Array(nPlain * 9);
     const index = new Uint32Array(nPlain * 3);
     let nv = 0, k = 0;
-    const mats = matKeys.map((id) => ({ id, pos: [], nor: [], col: [], uv: [] }));
+    const mats = matKeys.map((id, i) => ({ id, pos: new Float32Array(perMat[i] * 9), nor: new Float32Array(perMat[i] * 9), col: new Float32Array(perMat[i] * 9), uv: new Float32Array(perMat[i] * 6), o: 0 }));
     const fn = [0, 0, 0];
+    const imgK = new Map();   // an image paint's eight numbers (imageUV's), read once per paint instead of once per corner
     for (let i = 0; i < T.n; i++) {
+      if ((i & 16383) === 16383) yield;
       const f = T.face[i], mk = faceKind[f];
       if (mk >= 0) {
         const b = mats[mk], paint = mesh.facePaint(f) || dflt, img = b.id.startsWith('img:'), uvp = b.id.startsWith('uv:');
@@ -242,10 +285,19 @@ export class View3D {
         if (b.ts === undefined) b.ts = uvA && !img && !uvp && tex && tex.tile ? tex.tile(b.id) : null;
         const c = st ? stretchColor(st[f], this._stA || (this._stA = new THREE.Color()), stPal) : color(f);
         mesh.faceNormal(f, fn);
+        let ik = null;
+        if (!uvA && !uvp && img) { ik = imgK.get(paint); if (!ik) imgK.set(paint, (ik = paint.split('|')[1].split(',').map(Number))); }
         for (let q = 0; q < 3; q++) {
-          const h = T.tri[i * 3 + q], v = hV[h] * 3, p = [P[v], P[v + 1], P[v + 2]];
-          const w = uvA ? (b.ts ? [uvA[h * 2] * b.ts[0], uvA[h * 2 + 1] * b.ts[1]] : [uvA[h * 2], uvA[h * 2 + 1]]) : uvp ? [0, 0] : img ? imageUV(paint, p) : tex.uv(p, fn);
-          b.pos.push(p[0], p[1], p[2]); b.nor.push(N[h * 3], N[h * 3 + 1], N[h * 3 + 2]); b.col.push(c.r, c.g, c.b); b.uv.push(w[0], w[1]);
+          const h = T.tri[i * 3 + q], v = hV[h] * 3, o = b.o * 3, u = b.o * 2;
+          const x = P[v], y = P[v + 1], z = P[v + 2];
+          b.pos[o] = x; b.pos[o + 1] = y; b.pos[o + 2] = z;
+          b.nor[o] = N[h * 3]; b.nor[o + 1] = N[h * 3 + 1]; b.nor[o + 2] = N[h * 3 + 2];
+          b.col[o] = c.r; b.col[o + 1] = c.g; b.col[o + 2] = c.b;
+          if (uvA) { if (b.ts) { b.uv[u] = uvA[h * 2] * b.ts[0]; b.uv[u + 1] = uvA[h * 2 + 1] * b.ts[1]; } else { b.uv[u] = uvA[h * 2]; b.uv[u + 1] = uvA[h * 2 + 1]; } }
+          else if (uvp) { b.uv[u] = 0; b.uv[u + 1] = 0; }
+          else if (ik) { b.uv[u] = ik[0] * x + ik[1] * y + ik[2] * z + ik[3]; b.uv[u + 1] = ik[4] * x + ik[5] * y + ik[6] * z + ik[7]; }   // = imageUV(paint, p)
+          else { const w = tex.uv([x, y, z], fn); b.uv[u] = w[0]; b.uv[u + 1] = w[1]; }
+          b.o++;
         }
         continue;
       }
@@ -274,12 +326,13 @@ export class View3D {
     const tw = mesh.hTw, hFl = mesh.hFl, hF = mesh.hF, ff = mesh.fFl;
     const shows = (h) => !(hFl[h] & FL_DEAD) && !(ff[hF[h]] & FL_HIDE);
     const hard = (h) => shows(h) && (tw[h] < 0 || ((hFl[h] & FL_SHARP) && (tw[h] > h || !shows(tw[h]))));
-    for (let h = 0; h < mesh.nh; h++) if (hard(h)) ne++;
+    for (let h = 0; h < mesh.nh; h++) { if ((h & 65535) === 65535) yield; if (hard(h)) ne++; }
     const cl = def.curve ? MESH_HOOKS.lines?.(def) : null;   // MD.6: a curve object draws its curve too
     const ep = new Float32Array(ne * 6 + (cl ? cl.length : 0));
     if (cl) ep.set(cl, ne * 6);
     k = 0;
     for (let h = 0; h < mesh.nh; h++) {
+      if ((h & 65535) === 65535) yield;
       if (!hard(h)) continue;
       const a = hV[h] * 3, b = mesh.head(h) * 3;
       ep[k++] = P[a]; ep[k++] = P[a + 1]; ep[k++] = P[a + 2]; ep[k++] = P[b]; ep[k++] = P[b + 1]; ep[k++] = P[b + 2];
@@ -287,11 +340,11 @@ export class View3D {
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(ep, 3));
     const mg = mats.map((b) => {
-      const x = new THREE.BufferGeometry();
-      x.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
-      x.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
-      x.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
-      x.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
+      const x = new THREE.BufferGeometry();   // 0.11 PERF.7: the arrays are already Float32Arrays of the right length: taken, not copied
+      x.setAttribute('position', new THREE.BufferAttribute(b.pos, 3));
+      x.setAttribute('normal', new THREE.BufferAttribute(b.nor, 3));
+      x.setAttribute('color', new THREE.BufferAttribute(b.col, 3));
+      x.setAttribute('uv', new THREE.BufferAttribute(b.uv, 2));
       return { id: b.id, geometry: x };
     });
     const cornerOf = new Int32Array(nv);
@@ -299,10 +352,48 @@ export class View3D {
     const edgeHe = new Int32Array(ne);
     k = 0;
     for (let h = 0; h < mesh.nh; h++) if (hard(h)) edgeHe[k++] = h;
-    return { def, ...(this.model.stamp ? this.model.stamp(def) : { v: this.model.version }), faces, edges, mats: mg, hasFaces: nv > 0 || mg.length > 0,
+    return { def, ...stamp0, faces, edges, mats: mg, hasFaces: nv > 0 || mg.length > 0,
       mesh, topo: mesh.topo, mv: mesh.v, live: mesh.live, liveTopo: mesh.liveTopo, cornerOf, edgeHe, normalsStale: false,
       ...(maskA ? { masked: true, baseCol: Float32Array.from(faces.attributes.color.array).map((x, i) => { const v = hV[cornerOf[Math.floor(i / 3)]]; return x / (1 - 0.6 * maskA[v]); }) } : {}) };
   }
+  /**
+   * 0.11 PERF.7: the geometry of `def` built over several tasks (meshGeometrySteps, about SLICE_MS each); until it is done the
+   * definition draws nothing (an empty stand-in, not kept). When it is done it is kept like any other and the view redraws.
+   * A definition or mesh that changed in the meantime is started again from the next frame's ask.
+   */
+  meshGeometryLater(def, dflt, key) {
+    this._later ||= new Map();
+    const ms = def.shown || def.mesh;
+    let job = this._later.get(key);
+    if (!job || job.def !== def || job.mesh !== ms || job.v !== ms.v || job.topo !== ms.topo) {
+      job = { def, mesh: ms, v: ms.v, topo: ms.topo, it: this.meshGeometrySteps(def, dflt),
+        stub: { def, faces: new THREE.BufferGeometry(), edges: new THREE.BufferGeometry(), mats: [], hasFaces: false, pending: true } };
+      this._later.set(key, job);
+    }
+    if (!this._laterTimer) this._laterTimer = setTimeout(() => this.pumpLater(), 0);
+    return job.stub;
+  }
+  pumpLater() {
+    this._laterTimer = 0;
+    const t0 = performance.now();
+    let done = false;
+    for (const [key, job] of this._later) {
+      const ms = job.def.shown || job.def.mesh;
+      if (this.model.def(job.def.id) !== job.def || ms !== job.mesh || ms.v !== job.v || ms.topo !== job.topo) { this._later.delete(key); done = true; continue; }
+      let r;
+      do r = job.it.next(); while (!r.done && performance.now() - t0 < SLICE_MS);
+      if (!r.done) break;
+      this._later.delete(key);
+      if (this.cache.get(key)) { const o = this.cache.get(key); o.faces?.dispose(); o.edges?.dispose(); for (const x of o.mats || []) x.geometry.dispose(); }
+      this.cache.set(key, r.value);
+      done = true;
+      if (performance.now() - t0 >= SLICE_MS) break;
+    }
+    if (done) { this.builtFor = null; this.invalidate(); }
+    if (this._later.size) this._laterTimer = setTimeout(() => this.pumpLater(), 0);
+  }
+  /** True while some geometry is still being built in slices (tests wait for it). */
+  get building() { return !!this._later?.size; }
   /**
    * A mesh's points moved, nothing else (0.7 MD.2): copy the positions into the buffers in place; normals too for a
    * mesh up to 300 000 corners (a bigger one gets them on settle(): after a drag ends, an undo).
@@ -561,6 +652,7 @@ export class View3D {
 
   build() {
     for (const o of [...this.root.children]) { if (o.userData.cap) o.geometry.dispose(); this.root.remove(o); }
+    this.defGroups = new Map();   // 0.11 TW.13: the groups of each definition's placements, for setDisplayMatrix
     const u = this.ui();
     // materials are kept while the style and colours stay the same (a new material is a new shader program to compile)
     const mkey = this.style.mode + '|' + this.c.bg + '|' + this.c.back + '|' + this.c.ink;
@@ -618,7 +710,9 @@ export class View3D {
         if (!d || (inst.hidden && !showHidden) || (inst.tag && offTags.has(inst.tag))) continue;
         const grp = new THREE.Group();
         grp.matrixAutoUpdate = false;
-        grp.matrix.fromArray(inst.m);
+        grp.matrix.fromArray(this.displayM?.has(inst.def) ? mmul4(inst.m, this.displayM.get(inst.def)) : inst.m);
+        grp.userData.base = inst.m;
+        (this.defGroups.get(inst.def) || this.defGroups.set(inst.def, []).get(inst.def)).push(grp);
         parent.add(grp);
         addDef(d, grp, [...path, iid], depth + 1, inst.color || dflt, mmul4(wm, inst.m), ghost || !!inst.hidden);
       }
@@ -760,6 +854,21 @@ export class View3D {
     this.ground.scale.set(R * 10, R * 10, 1);
   }
 
+  /** 0.9 RH.1: draw the model from another camera (a saved camera's JSON) into a 2-D canvas of the same size; the overlay (axes, guides, selection) is not drawn. */
+  renderPaneTo(json, ctx2d) {
+    const sc = this._paneCam || (this._paneCam = new Camera());
+    sc.set(json); sc.setSize(this.w, this.h); sc.clip(this.radius || 20);
+    const tc = this.tcam;
+    tc.matrix.fromArray(invert(sc.view()));
+    tc.matrixWorldNeedsUpdate = true;
+    tc.updateMatrixWorld(true);
+    tc.projectionMatrix.fromArray(sc.proj());
+    tc.projectionMatrixInverse.copy(tc.projectionMatrix).invert();
+    this.renderer.render(this.scene, tc);
+    const c = ctx2d.canvas, g = this.gl;
+    if (c.width !== g.width || c.height !== g.height) { c.width = g.width; c.height = g.height; }
+    ctx2d.drawImage(g, 0, 0);
+  }
   draw() {
     const u = this.ui();
     const key = this.model.version + '|' + u.path.join('/') + '|' + JSON.stringify(this.style) + '|' + u.sel.map((s) => s.t + s.id).join(',') + '|' + this.c.bg + '|' + !!u.present + '|' + !!u.hideRest + '|' + !!u.showHidden;
@@ -767,6 +876,7 @@ export class View3D {
     if (this.meshEditState) this.buildMeshEdit();   // 0.7 MD.2: the mesh being edited
     if (this.curveEditState) this.buildCurveEdit();   // 0.7 MD.6: the curve being edited
     this.cam.clip(this.radius || 20);
+    this.panes?.drawOthers();   // 0.9 RH.1: the other views of a four-view window are drawn first; the active one last, so it is what stays on the canvas
     const tc = this.tcam;
     tc.matrix.fromArray(invert(this.cam.view()));
     tc.matrixWorldNeedsUpdate = true;
@@ -930,6 +1040,7 @@ export class View3D {
     g.lineWidth = width + 0.75;
     for (const e of s) { g.beginPath(); g.moveTo(e[0] - tx, e[1] - ty); g.lineTo(e[0] + tx, e[1] + ty); g.stroke(); }
     const text = formatLength(l.L, this.model.units), b = dimTextBox(l.M, text);
+    // i18n-ignore: CSS, selector, class name or search keywords: no words a person reads (words-11)
     g.font = `600 ${dimTextSize()}px Archivo, system-ui, sans-serif`;
     g.fillStyle = this.c.bg; g.fillRect(b.x, b.y, b.w, b.h);
     g.lineWidth = 1; g.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
@@ -973,6 +1084,7 @@ export class View3D {
     }
     if (!l.M) return;
     const text = dimText(l, (m) => formatLength(m, this.model.units)), b = dimTextBox(l.M, text);
+    // i18n-ignore: CSS, selector, class name or search keywords: no words a person reads (words-11)
     g.font = `600 ${dimTextSize()}px Archivo, system-ui, sans-serif`;
     g.fillStyle = this.c.bg; g.fillRect(b.x, b.y, b.w, b.h);
     g.lineWidth = 1; g.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
