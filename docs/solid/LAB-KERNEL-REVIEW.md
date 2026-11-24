@@ -1,7 +1,7 @@
 # Review: the Exact Solids kernel in the PartCraft 0.12 lab build (KRN.1)
 
 Reviewed 2026-11-24 for the owner. Subject: the exact solid kernel in the lab (`dev`) build of PartCraft 0.12, delivered as the
-**Exact Solids add-on** on the shared kernel contract (`lib/kernel`), the CadCraft solid engine (cc-nurbs 0.12) and NVIDIA
+**Exact Solids add-on** on the shared kernel contract (`lib/kernel`), cc-nurbs 0.12 (the suite's own JavaScript solid engine; the add-on calls it "the CadCraft solid engine") and NVIDIA
 SMLib (WebAssembly). The review covers what the solution does, how it is built, where it fails, and the STEP-import
 boundary. A comparison with engine.solid is made only where engine.solid already solves a problem this solution has (§ 8).
 
@@ -64,7 +64,10 @@ It is **not yet safe to rely on for two things**, and has a handful of narrower 
 
 ### 2.2 How it is delivered (the plug-in pattern)
 
-- **One add-on, two hosts.** `main.js` and `surfaces.js` are **byte-identical** in PartCraft's and ModelCraft's `dev` builds,
+- **One add-on, two hosts, and only two.** The kernel contract and the add-on exist in PartCraft's and ModelCraft's `dev` builds only
+  (CadCraft's and BimCraft's return 404 for them). PartCraft has the worker (`krn-worker.js`) and rebuilds its whole feature history on
+  the contract; ModelCraft has no worker and no feature history, so there the add-on runs the Surfaces panel's solid commands
+  (Booleans, fillets, chamfers, shells) through the contract. `main.js` and `surfaces.js` are **byte-identical** in both `dev` builds,
   and so are `kernel/index.js`, `kernel/engine-nurbs.js`, `kernel-smlib/index.js` and `nurbs/brep.js`. The two `addon.json`
   files differ only in `apps`.
 - **Off by default** (`"default": "off"`); off, nothing is fetched, no worker is made, and the host is the app it was.
@@ -267,7 +270,8 @@ request is left to the owner after this review.
 ## 10. Architecture: this solution or engine.solid?
 
 This solution's architecture is the better one to build on: an engine-neutral contract, engines chosen by capability,
-exact hand-over between engines, delivery as an add-on byte-identical in every host, and the host's existing seam kept.
+exact hand-over between engines, delivery as an add-on byte-identical in both of its hosts (PartCraft and ModelCraft; no other
+app has a solid kernel), and the host's existing seam kept.
 engine.solid is stronger in its foundations (bit-identical arithmetic across engines, exact predicates for topological
 decisions, swept surface kinds with exact measures, an independent mutation-tested auditor) but has no host integration and
 no Booleans. Recommendation: engine.solid stops as a separate kernel; its strengths go in as contributions to this stack
