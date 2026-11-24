@@ -16,9 +16,10 @@ Written 2026-11-23 from `STATUS.md`, `COMPLIANCE.md`, `HOSTS.md` and `HANDOFF.md
 - [x] Euler–Poincaré with `trim.degenerate`; corpus of seven bodies; 30 corrupted bodies, every finding code fired
 - [x] Mutation run: 56 of 56 caught; STATUS/PROVENANCE/HANDOFF updated; VERSION 0.0.17; digest area `audit`
 
-## B2. Next — hosts, then M3
-- [ ] `HOSTS.md` refinements: per-repo sync, manifest with hashes, lang keys, job table (PartCraft and ModelCraft together)
-- [ ] S15 edge discretization (M3 decisions taken with the owner first)
+## B2. Next — the audit's decisions, the plumbing, then M3
+- [ ] Owner: D-order (split M9), D-ui, D-bridge (`HOSTS.md` § 5)
+- [ ] Plumbing: R1 hosts.mjs, R2 manifest, R3 lang.mjs, R4 test-mount.mjs, R7 axis converters, R10 session protocol
+- [ ] Then the M3 questions, then S15 edge discretization
 
 ## C. Get ahead (ordered by what blocks later sessions)
 - [ ] cc-step: after the 0.11 sync only `read.js` differs, by one import line (`../ifc/step.js` against `./part21.js`); ModelCraft has no cc-step. Settle at the start of M6 (`HOSTS.md` § 6)
