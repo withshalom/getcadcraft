@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+const D = new URL('./dev/', import.meta.url).href;
+const { Doc } = await import(D + 'doc.js'); const LP = await import(D + 'libplace.js'); const BP = await import(D + 'blockparams.js'); const PB = await import(D + 'paramblock.js'); const G = await import(D + 'geom.js'); const CL = await import(D + 'clipboard.js');
+const items = JSON.parse(fs.readFileSync(new URL('./dev/paramblocks/starter.json', import.meta.url))).items, table = items.find((i) => /table, rectangular/.test(i.name));
+const doc = new Doc(); doc.meta.units = 'millimeters'; let name;
+doc.change('p', () => { name = LP.ensureLibraryBlock(doc, table).name; const bp = doc.blocks.get(name).bp, W = bp.params[0]; doc.add({ type: 'insert', layer: '0', block: name, x: 0, y: 0, sx: 1, sy: 1, rot: 0, bp: BP.refSetValue(null, bp, W.name, String(PB.fitValue(W, W.max))).bp }); });
+const src = [...doc.model.values()].find((e) => e.type === 'insert');
+const clip = CL.readClip(JSON.stringify(CL.makeClip(doc, [src.id]))).clip;
+doc.change('paste', () => CL.pasteClip(doc, clip, 5000, 0));
+const ins = [...doc.model.values()].filter((e) => e.type === 'insert'), w = (e) => { const b = G.entityBounds(e, doc.blocks); return (b.maxX - b.minX).toFixed(1); };
+console.log('paste into the SAME drawing: references', ins.length, 'widths', ins.map(w).join(' and '), '| block still parametric:', BP.isParametric(doc.blocks.get(ins[1].block).bp), '| same block:', ins[0].block === ins[1].block);
