@@ -1,0 +1,23 @@
+Parametric blocks (CadCraft 0.12 lab, PB.1): review summary
+
+Scope: the lab build's own modules (paramblock.js, blockparams.js, BPARAMS/PBLOCK/PBEXPORT, libitem.js, the 20 starter blocks) in Node 22, commands typed through the real command engine; Chromium for a bit comparison. The UI was not driven.
+
+Engine: solid.
+- 20 blocks x every allowed value: 2,014 checks, 0 failures. Illegal values refused, forged file values stay finite, grips dragged to +/-10 km land inside their sets, flips and size tables right.
+- Grips on rotated, mirrored and scaled references land where they're dropped (within the step).
+- Hostile definitions capped at the documented limits (10^10 copies stops at exactly 200,000 objects in 0.39 s).
+- Save/reopen: DXF R12, DXF 2000, binary DXF 2000, DWG 2000/2010/2018, mm and inch drawings: 480/480 parametric, same geometry.
+- Formulas, unit suffixes and loops: 302/302. Explode, undo/redo, same-drawing paste OK. Worst case 902 objects in 1.2 ms.
+
+Must fix:
+1. PBEXPORT never writes an IFC class, so validateItem refuses every export (pb.export.problems), even the 20 shipped blocks re-exported. With ifc added, all 20 re-export and place back identically.
+2. Paste into another drawing and INSERT from another drawing's file drop the block's bp (blockcopy.js:104 applyCopy; clipboard.js carries no bp). A 3000 mm table pastes as 1500 mm with no grips. Same-drawing paste is fine.
+Should fix:
+3. Enter at a prompt showing a default doesn't take it: the ask() helper (paramblock-cmd.js:43, blockparams-cmd.js:33) returns ''. PBLOCK stretch/move with Enter at dx/dy <0> is refused; PBEXPORT stops at kind <symbol>.
+4. PBEXPORT drops text alignment and width factor (paramblock-cmd.js:159): a centred 10 mm label moves 21.7 mm right and 5 mm up.
+5. PBEXPORT ignores the block's base point: a block with base 20,10 comes back shifted by 20,10.
+6. PBEXPORT drops ellipse/spline/hatch/mtext (counted) and polyline widths (not counted).
+7. validateItem throws on some malformed items instead of refusing (libitem.js:823 'key' in a primitive; :961 entity type "__proto__"): 147 of 3,000 fuzzed files.
+8. Both doors and the flange differ in the last bits between Node and Chromium (Math.sin/cos).
+
+Not tested: the UI with a mouse, DWG in other CAD programs, the server-side validator, Firefox/WebKit, the BimCraft DXF failures.
