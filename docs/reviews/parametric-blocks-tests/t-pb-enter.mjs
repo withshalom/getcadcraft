@@ -27,10 +27,10 @@ const say = (label, ok, detail) => console.log((ok ? 'PASS ' : 'FAIL ') + label 
 { // PBEXPORT, Enter at every prompt that shows a default
   const H = harness();
   H.doc.change('a', () => H.doc.defineBlock({ ...H.doc.blocks.get('PL'), bp: { params: [{ name: 'W', expr: '100', kind: 'length' }], vis: [], acts: [{ t: 'move', dx: 'W - 100', dy: '0' }] } }));
-  await H.type('PBEXPORT', 'PL', '', '', '', '');
+  await H.type('PBEXPORT', 'PL', '', '', '', '', '');
   say('PBEXPORT: Enter at name, kind <symbol>, category <symbols/annotation>, description writes the file', H.saved.length === 1, 'messages: ' + H.log.filter((l) => !l.startsWith('PROMPT')).slice(-2).join(' / ') + ' | prompts: ' + H.log.filter((l) => l.startsWith('PROMPT')).map((l) => l.slice(7)).join(' | '));
   const H2 = harness();
   H2.doc.change('a', () => H2.doc.defineBlock({ ...H2.doc.blocks.get('PL'), bp: { params: [{ name: 'W', expr: '100', kind: 'length' }], vis: [], acts: [{ t: 'move', dx: 'W - 100', dy: '0' }] } }));
-  await H2.type('PBEXPORT', 'PL', '', 'symbol', 'symbols/annotation', '');
+  await H2.type('PBEXPORT', 'PL', '', 'symbol', 'symbols/annotation', '', '');
   say('PBEXPORT: the same, with kind and category typed out', H2.saved.length === 1, H2.log.filter((l) => !l.startsWith('PROMPT')).slice(-1).join(''));
 }

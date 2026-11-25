@@ -7,11 +7,11 @@ const cases = [
   ['centred label', { base: { x: 0, y: 0 }, entities: [rect(0, 0, 100, 50), { type: 'text', layer: '0', x: 50, y: 25, h: 5, rot: 0, s: 'PLATE', ha: 'center', va: 'middle' }] }],
   ['right-aligned label, width factor 0.8', { base: { x: 0, y: 0 }, entities: [rect(0, 0, 100, 50), { type: 'text', layer: '0', x: 95, y: 5, h: 5, rot: 0, s: 'R', ha: 'right', va: 'bottom', wf: 0.8 }] }],
   ['base point at 20,10', { base: { x: 20, y: 10 }, entities: [rect(20, 10, 120, 60)] }],
-  ['ellipse', { base: { x: 0, y: 0 }, entities: [rect(0, 0, 100, 50), { type: 'ellipse', layer: '0', cx: 50, cy: 25, rx: 20, ry: 10, rot: 0, a0: 0, a1: Math.PI * 2 }] }],
-  ['spline', { base: { x: 0, y: 0 }, entities: [rect(0, 0, 100, 50), { type: 'spline', layer: '0', degree: 3, cps: [{ x: 10, y: 10 }, { x: 30, y: 40 }, { x: 60, y: 5 }, { x: 90, y: 40 }], knots: [0, 0, 0, 0, 1, 1, 1, 1] }] }],
-  ['hatch', { base: { x: 0, y: 0 }, entities: [rect(0, 0, 100, 50), { type: 'hatch', layer: '0', pattern: 'SOLID', loops: [[{ x: 10, y: 10 }, { x: 40, y: 10 }, { x: 40, y: 40 }, { x: 10, y: 40 }]] }] }],
-  ['mtext', { base: { x: 0, y: 0 }, entities: [rect(0, 0, 100, 50), { type: 'mtext', layer: '0', x: 5, y: 45, h: 4, w: 60, s: 'two\\Plines' }] }],
-  ['polyline with widths', { base: { x: 0, y: 0 }, entities: [{ ...rect(0, 0, 100, 50), w0: 2, w1: 2, width: 2 }] }],
+  ['ellipse', { base: { x: 0, y: 0 }, entities: [rect(0, 0, 100, 50), { type: 'ellipse', layer: '0', cx: 50, cy: 25, mx: 20, my: 0, ratio: 0.5, t0: 0, t1: Math.PI * 2 }] }],
+  ['spline', { base: { x: 0, y: 0 }, entities: [rect(0, 0, 100, 50), { type: 'spline', layer: '0', degree: 3, ctrl: [{ x: 10, y: 10 }, { x: 30, y: 40 }, { x: 60, y: 5 }, { x: 90, y: 40 }], knots: [0, 0, 0, 0, 1, 1, 1, 1] }] }],
+  ['hatch', { base: { x: 0, y: 0 }, entities: [rect(0, 0, 100, 50), { type: 'hatch', layer: '0', solid: true, loops: [[10, 10, 40, 10, 40, 40, 10, 40]] }] }],
+  ['mtext', { base: { x: 0, y: 0 }, entities: [rect(0, 0, 100, 50), { type: 'text', layer: '0', x: 5, y: 45, h: 4, rot: 0, ww: 60, s: 'two\nlines' }] }],
+  ['polyline with widths', { base: { x: 0, y: 0 }, entities: [{ ...rect(0, 0, 100, 50), w: 2 }] }],
   ['coloured on its own layer', { base: { x: 0, y: 0 }, entities: [{ ...rect(0, 0, 100, 50), layer: 'A-FURN', color: 3 }] }],
 ];
 const bounds = (ents, blocks) => { const b = G.emptyBounds(); for (const e of ents) { const eb = G.entityBounds(e, blocks); if (G.validBounds(eb)) { G.growPt(b, eb.minX, eb.minY); G.growPt(b, eb.maxX, eb.maxY); } } return b; };
@@ -21,6 +21,7 @@ for (const [name, blk] of cases) {
   doc.change('s', () => { doc.addLayer?.({ name: 'A-FURN', color: 3 }); doc.defineBlock({ name: 'B', ...blk, bp }); });
   const r = PBC.itemFromParamBlock(doc, 'B', { title: 'T', kind: 'symbol', category: 'symbols/annotation' });
   r.item.ifc = { class: 'IfcAnnotation', predefined: 'NOTDEFINED' };
+  console.log('   report', JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k])=>k!=='item'))).slice(0,200));
   const v = LI.validateItem(r.item, { partial: true });
   if (!v.ok) { console.log(name.padEnd(36), 'REFUSED', v.errors.slice(0, 1).join('')); continue; }
   const d2 = new Doc(); d2.meta.units = 'millimeters'; let n2;

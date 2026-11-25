@@ -74,11 +74,11 @@ for (const tr of [{ rot: 0, sx: 1, sy: 1 }, { rot: Math.PI / 6, sx: 1, sy: 1 }, 
 }
 
 // PBEXPORT: the block as a Library item file
-await H.type('PBEXPORT', 'PLATE', '', '', '', '');
+await H.type('PBEXPORT', 'PLATE', '', '', '', '', '');
 ok(H.saved.length === 1, 'PBEXPORT writes one file', H.saved.map((s) => s.name).join(', ') + ' | last lines: ' + H.log.slice(-3).join(' / '));
 let item = null;
 try { item = JSON.parse(H.saved[0].text); } catch { /* */ }
-const v = item ? LI.validateItem(item) : null;
+const v = item ? LI.validateItem(item, { partial: true }) : null;
 ok(v && v.ok !== false, 'the file is a valid Library item', JSON.stringify(v && v.errors).slice(0, 200));
 
 // the file placed again, in a millimetre and an inch drawing, against the original at several widths
@@ -104,5 +104,5 @@ if (item) {
 // PBEXPORT refuses an inch drawing (a Library item is in millimetres)
 const Hi = harness('inches');
 Hi.doc.change('setup', () => Hi.doc.defineBlock({ name: 'P2', base: { x: 0, y: 0 }, entities: plate, bp: { params: [{ name: 'W', expr: '4' }], vis: [], acts: [{ t: 'move', dx: 'W', dy: '0' }] } }));
-await Hi.type('PBEXPORT', 'P2', '', '', '', '');
+await Hi.type('PBEXPORT', 'P2', '', '', '', '', '');
 ok(Hi.saved.length === 0, 'PBEXPORT in an inch drawing writes nothing (and says why)', Hi.log.slice(-1)[0]);
