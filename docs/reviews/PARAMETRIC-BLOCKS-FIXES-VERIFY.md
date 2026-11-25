@@ -1,5 +1,7 @@
 # Parametric blocks (PB.1): verification of the P1–P8 fixes
 
+> **Hand-off.** For the PB.1 developer · Follows `PARAMETRIC-BLOCKS-REVIEW.md` · Tested 2026-11-25 · Tests: `docs/reviews/parametric-blocks-tests/` · **Summary:** P1, P3–P7 fixed; P2 and P8 partly fixed; one new regression (N1). Nothing here is released to /try.
+
 Build tested: the CadCraft `dev` assets as now served, mirrored fresh (317 files). `paramblock-cmd.js`, `paramblock.js`, `libitem.js`,
 `blockcopy.js` and `clipboard.js` all changed against the build in the first review. The same suite from
 `parametric-blocks-tests/` was run again. Three tests (`t-pb-cmd`, `t-pb-enter`, `t-pb-fidelity`) were updated, and the reasons are below.
