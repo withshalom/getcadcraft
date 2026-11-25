@@ -1,0 +1,2 @@
+import { reader } from './lib-dyn.mjs';
+export function strings(o) { const r = reader(o.raw); if (!r.str) return []; const s = r.str; const out = []; try { while (s.end - s.pos >= 16) { const len = s.BS(); if (len < 0 || len > 400 || s.end - s.pos < len * 16) break; let t = ''; for (let i = 0; i < len; i++) t += String.fromCharCode(s.RS()); out.push(t); } } catch (e) { out.push('ERR ' + e.message); } return out; }
