@@ -130,9 +130,12 @@ export async function buildFront(file = './front.dwg', { blockName = 'FRONT_PARA
     { t: 'linear', name: 'Width', param: 'Width', x: `${num(base.x)} + Width`, y: `${num(base.y)} + Height / 2`, ax: 1, ay: 0 },
     { t: 'linear', name: 'Height', param: 'Height', x: `${num(base.x)} + Width / 2`, y: `${num(base.y)} + Height`, ax: 0, ay: 1 },
     { t: 'flip', name: 'Flip', param: 'Flip', x: num(flipP.p1.x), y: num(flipP.p1.y) },
-    { t: 'list', name: 'Visibility', vis: 'Visibility', x: num(base.x), y: num(base.y - 430) },
+    // the state is picked by name from a size table whose rows set State: a list grip on the visibility parameter itself is accepted and
+    // ignored while the parameter is driven by a formula (PB.1, measured), so the grip opens the table instead
+    { t: 'list', name: 'Front type', table: 'Front type', x: num(base.x), y: num(base.y - 430) },
   ];
-  const bp = { params, vis, acts, grips };
+  const tables = [{ name: 'Front type', cols: ['State'], rows: states.map((s, i) => ({ name: s.name, vals: [String(i + 1)] })) }];
+  const bp = { params, vis, acts, grips, tables };
 
   const doc = new Doc(); doc.meta.units = 'millimeters';
   let id;
