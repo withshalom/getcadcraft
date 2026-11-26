@@ -1,0 +1,133 @@
+diff --git a/app/bimcraft.css b/app/bimcraft.css
+index 38fb89d6..2736f043 100644
+--- a/app/bimcraft.css
++++ b/app/bimcraft.css
+@@ -378,6 +378,24 @@ body:not([data-shell-tb="labels"]) .bc.bc-fit-compact :is(.bc-toolbar[data-toolb
+ .bc-status:not(:empty) { padding: .3rem .6rem; background: var(--sheet-2); border: var(--pen-1) solid var(--ink); border-radius: var(--radius); }
+ .bc-status.is-error { border-color: var(--layer-red); color: var(--layer-red); font-weight: 600; }
+ 
++/* No WebGL 2 in this browser: the 3D area says so (ifc-open-ui.js ensureViewer; viewer3d.js noDrawRenderer) */
++.bc-nogl {
++  position: absolute;
++  z-index: 1;
++  left: 50%;
++  top: 40%;
++  transform: translate(-50%, -50%);
++  margin: 0;
++  max-width: min(34rem, calc(100% - 2rem));
++  padding: .6rem .9rem;
++  font-size: var(--fs-sm);
++  text-align: center;
++  pointer-events: none;
++  background: var(--sheet-2);
++  border: var(--pen-1) solid var(--ink);
++  border-radius: var(--radius);
++}
++
+ .bc-empty {
+   position: absolute;
+   inset: 0;
+diff --git a/app/ifc-open-ui.js b/app/ifc-open-ui.js
+index 1e2c0493..7c35bdc1 100644
+--- a/app/ifc-open-ui.js
++++ b/app/ifc-open-ui.js
+@@ -24,7 +24,9 @@ export function mountIfcOpen(ctx) {
+   function ensureViewer() {
+     if (ST.viewer) return ST.viewer;
+     ui.canvasWrap.hidden = false;
+-    ST.viewer = new Viewer3D(ui.canvas, { onPick: (key) => { afterPick(); if (ST.viewer.selection.size > 1) showMany(); else ctx.showProps(key); } });
++    // 2026-11-26: a browser with WebGL turned off or blocked (privacy-hardened builds do this) made three.js throw its own raw line; say what it means
++    try { ST.viewer = new Viewer3D(ui.canvas, { allowNoGL: true, onPick: (key) => { afterPick(); if (ST.viewer.selection.size > 1) showMany(); else ctx.showProps(key); } }); }
++    catch (e) { if (/WebGL/i.test(String((e && e.message) || e))) throw new Error(t('view3d.nowebgl')); throw e; }
+     // GH.3-B: Shaded / Edges / Wireframe are three buttons beside the view cube (input commands view.display.* click them)
+     root.querySelectorAll('[data-display-set]').forEach((b) => b.addEventListener('click', () => { ST.viewer.setDisplayMode(b.dataset.displaySet); ctx.setPressed('edges', ST.viewer.edgesOn); syncDisplayButtons(); }));
+     ui.canvas.viewer = ST.viewer;   // for tests and the console
+@@ -58,11 +60,18 @@ export function mountIfcOpen(ctx) {
+       entry: () => { const ent = ST.mode === 'ifc' ? cur() : null; return ent ? { api: ent.ifc.api, mid: ent.model.modelID, C: [...ent.ifc.api.GetCoordinationMatrix(ent.model.modelID)], place: ST.viewer.modelMatrix(ent.mi) } : null; },
+       levels: () => { const ent = cur(); return ent ? readLevels(new ModelWriter(WebIFC, ent.ifc.api, ent.model.modelID)) : []; },
+       units: getDisplayUnits,
++      what: (key) => { const ent = cur(); if (!ent) return null; const id = key - (ent.model.keyBase || 0), cls = ent.model.classOf.get(id); if (!cls) return null; let name = ''; try { name = ent.ifc.api.GetLine(ent.model.modelID, id, false)?.Name?.value || ''; } catch (e) { /* no name */ } return [cls, name]; },   // 0.12 DOME.7: the readout names the element under the pointer
+     });
+     ST.coordsUi.onToggle = () => ST.modelUi?.coordsChanged();
+     ST.viewer.onUserMove = ci.stop;
+     ST.viewer.onGrip = (phase, i, e) => onBoxGrip(phase, i, e);   // section box grips (0.5 WL.2)
+     ui.canvas.cube = ci.c;   // for tests
++    if (ST.viewer.noGL && !ui.canvasWrap.querySelector('[data-nogl]')) {   // no WebGL 2 here: the view draws nothing, the rest works (viewer3d.js noDrawRenderer)
++      const n = document.createElement('p');
++      n.setAttribute('data-nogl', ''); n.setAttribute('role', 'status'); n.className = 'bc-nogl';
++      n.textContent = t('view3d.nogl', { why: ST.viewer.noGL });
++      ui.canvasWrap.append(n);
++    }
+     return ST.viewer;
+   }
+ 
+@@ -120,6 +129,7 @@ export function mountIfcOpen(ctx) {
+     ST.selected = null;
+     if (window.bimcraftLive?.joining) { window.bimcraftLive.joining = false; window.bimcraftLive.live?.loaded(); }
+     renderChanges();
++    ST.alignUi?.draw();   // 0.11 IFC43.3: an IFC 4.3 file's alignments in the 3D view (CivilCraft's, carried as they are)
+     ST.picturesUi?.attach();   // 0.8 D8.8: the 3D planes of this model's pictures
+     { const api = ST.ifc.api, mid = ST.model.modelID; setTimeout(() => { try { api.PrepareInverses?.(mid)?.catch?.(() => {}); } catch (e) { /* closed */ } }, 1200); }   // 0.10 PERF.37: the property indexes, built in slices after the open, not on the first click
+     fillIfcInfo(ST.model, file);
+@@ -157,7 +167,7 @@ export function mountIfcOpen(ctx) {
+     ctx.toolButton('edges').disabled = !ST.viewer.edgesAvailable;
+     ctx.toolButton('edges').title = ST.viewer.edgesAvailable ? t('edges.title') : t('edges.title.off');
+     syncEdit();
+-    status(t('ifc.opened', { file: file.name, n: ST.model.elements, count: num(ST.model.elements), s: ((performance.now() - t0) / 1000).toFixed(1) }) + ifcUnitsSaid(file), false, true);
++    status(t('ifc.opened', { file: file.name, n: ST.model.elements, count: num(ST.model.elements), s: ((performance.now() - t0) / 1000).toFixed(1) }) + ifcUnitsSaid(file) + (ST.viewer.noGL ? ' ' + t('view3d.nogl.short') : ''), false, true);
+     ST.modelUi?.opened();
+     ST.workspace?.opened();
+     ST.coordsUi?.modelChanged();   // 0.6 DF.15
+diff --git a/app/lang/en.json b/app/lang/en.json
+index 863ea40f..91abc156 100644
+--- a/app/lang/en.json
++++ b/app/lang/en.json
+@@ -14394,5 +14394,8 @@
+   "lib.type.barrier": "A Barriers type is not added to the project here. Choose a fence type in the Railing tool (Fence kind). Guards, handrails and road guardrails cannot use one yet.",
+   "energy.sun.auto": "The sun's peak was worked out with the loads, for {date}, under a clear sky, with window g-value {g} (the date and g-value are the ones under Sun through the windows: change them there and work it out again).",
+   "energy.sun.working": "Working out the sun through the windows for the cooling peak…",
+-  "energy.sun.later": "The sun through the windows is worked out with the loads, under a clear sky on the date under Sun through the windows (or work it out there first, on a hot day)."
++  "energy.sun.later": "The sun through the windows is worked out with the loads, under a clear sky on the date under Sun through the windows (or work it out there first, on a hot day).",
++  "view3d.nowebgl": "This browser would not start 3D graphics (WebGL), which the 3D view needs. Turn on WebGL and hardware acceleration in the browser's settings, or open BimCraft in a browser that has them on.",
++  "view3d.nogl": "The 3D picture is off: this browser would not start WebGL 2 (the browser says: {why}). The model's tree, properties and plan still work. To see the 3D view, turn on WebGL 2 and hardware acceleration in the browser's settings, or open BimCraft in a browser that has them on.",
++  "view3d.nogl.short": "The 3D picture is off in this browser (no WebGL 2); the tree, properties and plan still work."
+ }
+diff --git a/app/viewer3d.js b/app/viewer3d.js
+index 94b9159a..fa8a97bd 100644
+--- a/app/viewer3d.js
++++ b/app/viewer3d.js
+@@ -58,13 +58,32 @@ const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+ /** Section presets in viewer space (web-ifc hands us Y up): the axis the plane is across. */
+ export const SECTION_AXES = { top: { i: 1, label: 'Top' }, front: { i: 2, label: 'Front' }, side: { i: 0, label: 'Side' } };
+ 
++/** What `Viewer3D` asks of its renderer, answered without a GPU: nothing is drawn (the scene, camera, picking and selection still work).
++ *  The second row is what the point-cloud layer (pointcloud-three.js pick) calls: its picking pass draws into a target and reads it back; here the
++ *  read-back stays empty, so a pick finds no point. */
++function noDrawRenderer(canvas) {
++  let ratio = 1;
++  return {
++    isNoDraw: true, domElement: canvas, localClippingEnabled: false, clippingPlanes: [], setPixelRatio(r) { ratio = r; }, getPixelRatio: () => ratio, setSize() {}, render() {}, dispose() {}, getContext: () => null,
++    getRenderTarget: () => null, setRenderTarget() {}, getClearColor: (c) => c, setClearColor() {}, getClearAlpha: () => 0, clear() {}, readRenderTargetPixels() {},
++  };
++}
++
+ export class Viewer3D {
+-  constructor(canvas, { onPick = () => {} } = {}) {
++  constructor(canvas, { onPick = () => {}, allowNoGL = false } = {}) {   // allowNoGL: with no WebGL 2, carry on without drawing (`noGL` says why) instead of throwing
+     this.canvas = canvas;
+     this.onPick = onPick;
+     // stencil: filled cut faces (0.4 B5). Clipping is per material (localClippingEnabled): every material shares
+     // `this.clip` (the section's planes), so the capping passes can be clipped by one plane only.
+-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true, stencil: true });
++    // No WebGL 2 here (privacy builds turn it off; old GPUs, blocklisted drivers and some VMs lack it): the scene, the picking and the model's
++    // data all work without drawing, so a caller that asks for it (allowNoGL: the main IFC view) gets a renderer that draws nothing and `noGL`
++    // says why, instead of the open failing. Every other caller still gets the error (the family editor's preview shows its own words for it).
++    let why = '';
++    const reason = (e) => { why = e.statusMessage || why; };
++    canvas.addEventListener('webglcontextcreationerror', reason);   // the browser's own words, fired as the context fails
++    try { this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true, stencil: true }); this.noGL = ''; }
++    catch (e) { if (!allowNoGL || !/WebGL/i.test(String((e && e.message) || e))) throw e; this.renderer = noDrawRenderer(canvas); this.noGL = String(why || (e && e.message) || 'no WebGL 2').trim().slice(0, 160); }
++    finally { canvas.removeEventListener('webglcontextcreationerror', reason); }
+     this.renderer.localClippingEnabled = true;
+     this.clip = [];
+     this.clipSpec = null;   // a union of cells (WL.1): which of `clip` belong together; null = keep inside every plane

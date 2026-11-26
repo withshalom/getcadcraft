@@ -5,6 +5,7 @@ Behind `../BUG-BIMCRAFT-NO-WEBGL.md`. Nothing here is part of BimCraft; the patc
 | File | What it is |
 |---|---|
 | `bimcraft-no-webgl.patch` | The proposed change, made against the lab build **as served on 2026-11-26** (not against the repository, which is at 0.11.0 and differs in these files). Four files, +49 / −4 lines. |
+| `bimcraft-no-webgl-on-upstream-main.patch` | The same change as a `git diff` against **upstream `main`** (`getcadcraft/bimcraft` at `79b603f6`, which is also `withshalom/getbimcraft` `main`). It includes the lab's 2026-11-26 message fix and the `view3d.nowebgl` string, which the public repo lacks. Four files, +55 / −5. `git apply --check` is clean; applied, `nogl-check.cjs` gives 14 of 14. Apply from the repo root: `git apply bimcraft-no-webgl-on-upstream-main.patch`. |
 | `nogl-check.cjs` | A regression suite for any served BimCraft build: three browser conditions, 14 checks. It **fails** on the repository as released and on the lab build as it stands (2 of 14 pass: the WebGL-on control and "no uncaught errors"), and **passes** (14 of 14) on the lab build with the patch. |
 | `smoke-buttons.cjs` | Opens a model, clicks every toolbar button (50) with WebGL on and off, and compares. With the patch: 0 differing outcomes, 0 uncaught errors in either. |
 | `sheet-paper.png`, `sheet-model.png` | The same stage, WebGL off, in the three builds side by side: as reported, the lab today, the lab with the patch. Paper space (light) and model space (dark). |

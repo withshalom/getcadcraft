@@ -17,6 +17,8 @@
 
 **A small patch fixes the outcome.** It makes the IFC open without the 3D picture and says why. On the three builds I compared (the release as reported, the lab as of today, the lab plus the patch), a 14-check suite passes 2, 2 and 14. The patch is +49 / −4 lines across four files (§ 6).
 
+**Upstream (follow-up, § 9):** the public repo, `getcadcraft/bimcraft`, has no handling for this either, and your fork is already identical to it, so there is nothing to update. Built straight from upstream, the app fails exactly as reported (2 of 14 checks). The same fix, rebased onto upstream `main`, is `bimcraft-no-webgl-on-upstream-main.patch`: it applies cleanly and passes 14 of 14.
+
 | Browser | As reported (0.11.0) | Lab today (message only) | Lab + patch |
 |---|---|---|---|
 | WebGL on | opens | opens | opens |
@@ -194,6 +196,67 @@ My own first check caught one problem worth knowing: building the patch by diffi
 - **Two facts come from memory,** because this session's network could not reach `get.webgl.org` or `librewolf.net`: what get.webgl.org tests, and LibreWolf's WebGL default. Both are marked where used. I did not try to get around the block.
 - **The lab code is still in this session's earlier messages**, as the owner said it has not been rotated. Rotate it when convenient.
 
+---
+
+## 9. Upstream and your fork (follow-up check, 2026-11-26)
+
+**The question:** how does the build from the repo handle this, and should your fork be updated to upstream, or upstream used to build directly?
+
+**Short answer:** upstream does not handle it, and your fork is already upstream. The fix has to be applied; there is nothing to pull.
+
+| | Commit | Same as upstream? |
+|---|---|---|
+| `getcadcraft/bimcraft` `main` (upstream; named in the fork's README) | `79b603f6…` | – |
+| `withshalom/getbimcraft` `main` (your fork) | `79b603f6…` | **yes, the same commit** |
+| `getcadcraft/studio` `main` | `8fd681ca…` | – |
+| `withshalom/getcadcraftstudio` `main` (your fork) | `8fd681ca…` | **yes, the same commit** |
+
+**What upstream has:**
+
+- **Refs:** `main`; `wfx-docs` (one file, `docs/wfx-audit.md`); tags up to `bimcraft-v0.11.0`. No 0.12 source.
+- **Pull requests:** 15 PR refs. None touches `viewer3d.js`, `ifc-open-ui.js` or the stylesheet. The four that edit `app/lang/en.json` (#2, #8, #10, #11) add feature strings, none about WebGL or the 3D view. The rest are features (wall alignment guides, pipe and duct connectors, plumbing fixtures), translations (pt-BR, zh-TW, Lao), drain tables, docs, a re-render of the dev shell page, an egui panel fix and a digital-twin string fix.
+- **The rest of the repo:** `windows/`, `linux/`, `macos/`, `android/`, `ios/` and `web/` do not mention WebGL. Studio holds the launcher and packaging, not BimCraft's source; its suite is built from the browser editions the site's packer makes, so Studio 0.11's BimCraft is the 0.11.0 edition (inferred: Studio's installers are binaries I could not inspect).
+
+**How the upstream build handles it:** it does not. Built straight from a clean upstream tree (the dev shell, no changes):
+
+| | WebGL on | WebGL really off | WebGL 2 off |
+|---|---|---|---|
+| Upstream `main` as it is | opens | red "THREE.WebGLRenderer: Error creating WebGL context."; nothing opens; stage half switched | the same |
+| Upstream `main` + the patch below | opens | opens, with the notice | opens, with the notice |
+
+`nogl-check.cjs`: upstream as it is **2 of 14**, upstream + patch **14 of 14**. For **opening a file**, the only handling for a missing WebGL in upstream is the DWG path's 2D fallback (`dwg3d.fallback`), which is translated into dozens of languages. The render and Live view features have their own "no WebGL 2" messages (`render.nogl`, `rt.none`); the IFC open path has none.
+
+**The lab is ahead of the public repo.** Today's message fix in the lab's `ifc-open-ui.js`, and 0.12 features (parametric-block CSS, for example), are not in upstream `main`. The repo's CONTRIBUTING says `main` feeds the lab, so the public repo evidently lags it; I do not know the sync schedule. So "update to upstream" cannot bring the lab's fix, and "build from upstream directly" gives the unfixed behaviour.
+
+**What I did instead:** rebased the fix onto upstream `main`.
+
+- **File:** `bimcraft-no-webgl/bimcraft-no-webgl-on-upstream-main.patch` (a `git diff` against `79b603f6`; four files, +55 / −5). It carries the lab's own message fix and its `view3d.nowebgl` string, because upstream lacks both, then the change from § 6 on top.
+- **Applying:** `git apply --check` is clean on upstream `main`; applied, the checks give 14 of 14; the 50-button comparison shows 0 differences; upstream's own `test-bimcraft.mjs` passes (91 files opened). Apply with `git apply bimcraft-no-webgl-on-upstream-main.patch` from the repo root.
+- **Not done:** nothing was pushed to your fork, and no issue or pull request was opened.
+
+**How upstream asks for a change like this** (`CONTRIBUTING.md`):
+
+- Open an **issue first** for anything bigger than a small fix, to agree the approach.
+- A fix needs **a test**. `npm test` is Node-only; the maintainers' browser tests (`tests/tools/bimcraft-test/browser-*.mjs`) run against the lab on their own server with a test admin login. My checks are a Playwright script that runs against any served build, so they are a separate script, not an `npm test` test. A Node-level test of the viewer would need a DOM stub; I did not write one.
+- Words go in `app/lang/en.json`; translations follow as `app/lang/<locale>.json`. The new strings are English only for now, and other languages fall back to English (the lab's `view3d.nowebgl` already behaves that way).
+- Tests run on every pull request (`npm test -- --oracles`). Apache-2.0 and the clean-room rules apply; this change copies no outside code.
+
+**Draft issue for `getcadcraft/bimcraft`** (edit before filing; I have not filed it):
+
+> **No IFC opens, and the raw three.js error is shown, when the browser has no WebGL 2**
+>
+> *Steps:* use a browser with WebGL disabled (privacy builds do this; `webgl.enable-webgl2 = false` in Firefox; some old GPUs and VMs). Open any IFC.
+> *Expected:* the model opens; the 3D view says it is off and why (the DWG path already does this: "…the drawing is shown in 2D").
+> *Actual:* red "THREE.WebGLRenderer: Error creating WebGL context."; nothing opens; the 3D area is shown and the "Open a building model" card stays up.
+>
+> *Notes:* the message means a plain WebGL 2 context failed, not BimCraft's settings (three.js r186 says "…with your selected attributes" for that). The viewer is created lazily in `ensureViewer()` (`ifc-open-ui.js`), and `Viewer3D` reaches the GPU through five renderer members, so a data-only mode is small. The browser's own reason is in the console ("A WebGL context could not be created. Reason: …"). A patch and a browser check are available.
+
+**Your options, now that mine equals upstream:**
+
+1. **Keep building from your fork** and apply the patch if you want the fix before upstream has it. It is small and applies to `main` as it stands.
+2. **Wait for the lab's fix to reach the public repo.** That brings only the reworded message, not the open-without-3D behaviour.
+3. **Offer the patch upstream**: file the issue above, then a pull request with the patch.
+
 — Codie
 
 ---
@@ -205,6 +268,7 @@ My own first check caught one problem worth knowing: building the patch by diffi
 | File | What it is |
 |---|---|
 | `bimcraft-no-webgl.patch` | the proposed change, against the lab as served |
+| `bimcraft-no-webgl-on-upstream-main.patch` | the same change as a `git diff` against upstream `main` (`79b603f6`), including the lab's message fix |
 | `nogl-check.cjs` | the 14-check suite, any served build |
 | `smoke-buttons.cjs` | every toolbar button, WebGL on vs off |
 | `sheet-model.png`, `sheet-paper.png` | the three builds side by side, dark and light |
